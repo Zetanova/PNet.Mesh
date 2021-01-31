@@ -1,0 +1,422 @@
+﻿syntax = "proto3";
+
+option csharp_namespace = "PNet.Actor.Mesh.Protos";
+import "google/protobuf/timestamp.proto";
+
+
+// RELIABLE UDP PROTOCOL
+// https://tools.ietf.org/id/draft-ietf-sigtran-reliable-udp-00.txt
+// UDP Usage Guidelines
+// https://tools.ietf.org/html/rfc8085
+// The Benefits of Using Explicit Congestion Notification (ECN)
+// https://tools.ietf.org/html/rfc8087
+
+message Packet {
+	/*
+	message payload
+	*/
+	repeated Payload payload = 1;
+	/*
+	The acknowledgment segment
+	*/
+	Ack ack = 2;
+	/*
+	The syn segment
+	*/
+	Syn syn = 3;
+	/*
+	The RST segment is used to close or reset a connection.  Upon receipt of an 
+	RST segment, the sender must stop sending new packets, but must continue 
+	to attempt delivery of packets already accepted from the API.
+	*/
+	bool rst = 4;
+	/*
+	The Probe segment is used to determine if the other side of a connection 
+	is still active.  Thus, the Probe segment performs a keep-alive function.  
+	When a Probe segment is received, an RUDP implementation must immediately
+	send a ProbeReply packet and acknowledge the segment if a valid connection 
+	exists and the segment sequence number is the next one in sequence.
+	*/
+	Probe probe = 5;
+	/*
+	reply of probe request
+	*/
+	ProbeReply probe_reply = 6;
+	/*
+	Interactive Connectivity Establishment (ICE)
+	https://tools.ietf.org/html/rfc8445
+	*/
+	CandidateExchange candidate_exchange = 7;
+	/*
+	relay to destination
+	*/
+	repeated Relay relay = 8;
+	/*
+	compression support
+	*/
+	repeated Compression compression = 9;
+	/*
+	LEDBAT timestamp
+	*/
+	google.protobuf.Timestamp timestamp = 10;
+	/*
+	sender asumes the packet as acknowled
+	should not start the ack-timer of the receivers
+	*/
+	bool do_not_ack = 11;
+}
+
+message Payload {
+	oneof data {
+		/*
+		raw payload data
+		*/
+		bytes raw = 1;
+		/*
+		deflate compressed proto3 of a Payload message
+		*/
+		bytes deflate = 2;
+		/*
+		brotli compressed proto3 of a Payload message
+		*/
+		bytes brotli = 3;
+		/*
+		zstd compressed proto3 of a Payload message
+		https://github.com/facebook/zstd
+		has dictionary support
+		*/
+		bytes zstd = 4;
+		/*
+		lz4 compressed proto3 of a Payload message
+		https://github.com/lz4/lz4
+		has dictionary support, comp. with zstd but only last 64k used
+		*/
+		bytes lz4 = 5;
+	}
+	/*
+	compression dictionary to used
+	*/
+	int32 dictionary_id = 6;
+	/*
+	decompressed data size
+	*/
+	int32 data_size = 7;
+}
+
+message Syn {
+	/*
+	The initial version is one (1).
+	*/
+	int32 version = 1;
+	/*
+	connection id of sender
+	*/
+	int32 connection_id = 2;
+	/*
+	The maximum number of packets that should be sent without getting an 
+	acknowledgment. This is used by the receiver as a means of flow control.  
+	*/
+	int32 max_outstanding_seq = 3;
+	/*
+	The maximum number of octets that can be received by the peer sending the 
+	SYN segment.  Each peer may specify a different value.  Each peer must not 
+	send packets greater than the value of this field received from its peer 
+	during connection negotiation. This number includes the size of the packet 
+	header.
+	*/
+	int32 max_packet_size = 4;
+	/*
+	The timeout value for retransmission of unacknowledged packets.  This value 
+	is specified in milliseconds. The valid range is 100 to 65536. This is a 
+	negotiable parameter, both peers must agree on the same value for this 
+	parameter. 
+	*/
+	int32 retransmission_timeout = 5;
+	/*
+	The timeout value for sending an acknowledgment segment if another segment 
+	is not sent.  This value is specified in milliseconds. The valid range is 
+	100 to 65536.  This is a negotiable parameter, both peers must agree on the 
+	same value for this parameter.  In addition, this parameter should be 
+	smaller than the Retransmission Timeout Value. 
+	*/
+	int32 cumulative_ack_timeout = 6;
+	/*
+	The timeout value for sending a null segment if a data segment has not 
+	been sent.  Thus, the null segment acts as a keep-alive mechanism.  
+	This value is specified in milliseconds.  The valid range is 0 to 65536.  
+	A value of 0 disables null segments. This is a negotiable parameter, both 
+	peers must agree on the same value for this parameter.
+	*/
+	int32 null_segment_timeout = 7;
+	/*
+	This timeout value indicate the amount of time the state information will 
+	be  saved for a connection before an auto reset occurs.  This value is 
+	specified in milliseconds.  The valid range is 0 to 65536.  This is a 
+	negotiable parameter, both peers must agree on the same value for this 
+	parameter.  A value of 0 indicates the connection will be auto-reset 
+	immediately. 
+	*/
+	int32 transfer_state_timeout = 8;
+	/*
+	The maximum number of times consecutive retransmission(s) will be attempted 
+	before the connection is considered broken.  The valid range for this value 
+	is 0 to 255.  A value of 0 indicates retransmission should be attempted 
+	forever.  This is a negotiable parameter, both peers must agree on the same 
+	value for this parameter. 
+	*/
+	int32 max_retrans = 9;
+	/*
+	The maximum number of acknowledgments that will be accumulated before 
+	sending an acknowledgment if another segment is not sent. The valid range 
+	for this value is 0 to 255.  A value of 0 indicates an acknowledgment 
+	segment will be send immediately when a data, null, or reset segment is 
+	received.  This is a negotiable parameter, both peers must agree on the 
+	same value for this parameter. 
+	*/
+	int32 max_cum_ack = 10;
+	/*
+	The maximum number of out of sequence packets that will be accumulated 
+	before an EACK (Extended Acknowledgement) segment is sent. The valid range 
+	for this value is 0 to 255.  A value of 0 indicates an EACK will be sent 
+	immediately if an out of order segment is received.  This is a negotiable 
+	parameter, both peers must agree on the same value for this parameter.
+	*/
+	int32 max_out_of_seq = 11;
+	/*
+	The maximum number of consecutive auto reset that will performed before 
+	a connection is reset.  The valid range for this value is 0 to 255.  A 
+	value of 0 indicates that an auto reset will not be attempted, the 
+	connection will be reset immediately if an auto reset condition occurs.  
+	This is a negotiable parameter, both peers must agree on the same value 
+	for this parameter.  The consecutive auto reset counter is cleared once 
+	a connection is opened.
+	*/
+	int32 max_auto_reset = 12;
+	/*
+	This bit must be set during an auto reset to 
+    indicate the previous negotiable parameters 
+    should be used.  When this bit is set the 
+    following fields of the SYN should be set to 
+    zero by the sender and must be ignored by the 
+    receiver:  Maximum Segment Size, 
+    Retransmission Timeout Value, Cumulative Ack 
+    Timeout Value, Max Retransmissions, Max 
+    Cumulative Ack, Max Out of Sequence, and Max
+    Auto Reset.
+	*/
+	bool reuse = 13;
+}
+
+message Ack {
+	/*
+	the sequence number of the last segment received in sequence
+	*/
+	uint64 ack_seq_number = 1;
+	/*
+	bit sequence of reseived out-of-seq segments from ack_seq_number onwards
+	*/
+	bytes out_of_seq_packets = 2;
+	/*
+	LEDBAT bundled delay samples
+	*/
+	repeated int32 delay = 3;
+}
+
+message Probe {
+	/*
+	probe id
+	*/
+	int32 id = 1;
+	/*
+	sender timestamp
+	*/
+	google.protobuf.Timestamp timestamp = 2;
+	/*
+	test ect marker
+	*/
+	bool ecn_check = 3;
+	/*
+	generate report
+	*/
+	bool report = 4;
+}
+
+message ProbeReply {
+	/*
+	probe id
+	*/
+	int32 id = 1;
+	google.protobuf.Timestamp sender_timestamp = 2;
+	google.protobuf.Timestamp reciever_timestamp = 3;
+	IPEndPoint sender_address = 4;
+	//ect marker present
+	enum ECN {
+		NONE = 0;
+		ECT0 = 1;
+		ECT1 = 2;
+		CE = 3;
+    }
+	ECN ecn = 5;
+	Report report = 6;
+}
+
+message Report {
+	/*
+	Lost Packets Counter
+	*/
+	int32 lost_packets = 1;
+	/*
+	Duplication Counter
+	*/
+	int32 duplications = 2;
+	/*
+	ECN-CE Counter
+	*/
+	int32 ecn_ce = 3;
+	/*
+	ECT (0/1) Counters
+	*/
+	int32 ect = 4;
+	/*
+	not-ECT Counter
+	*/
+	int32 no_ect = 5;
+}
+
+message CandidateExchange {
+	repeated Candidate candidates = 1;
+	/*
+	ICE lite agent type
+	*/
+	bool lite = 2;
+	uint32 check_pacing = 3; //Connectivity-Check Pacing Value
+	string user_pass = 4;
+	//todo extensions ICE options
+}
+
+message Candidate {
+	EndPoint address = 1;
+	enum Protocol {
+		UDP = 0;
+		TCP = 1;
+    }
+	Protocol protocol = 2;
+	/*
+	A sequence of up to 32 characters.
+	*/
+	string foundation = 3;
+	/*
+	The component ID of the candidate.
+	*/
+	uint32 component_id = 4;
+	uint32 priority = 5;
+	enum Type {
+		Host = 0;
+		ServerReflexive = 1;
+		PeerReflexive = 2;
+		Relayed = 3;
+    }
+	Type type = 6;
+	EndPoint related_address = 7;
+}
+
+message Relay {
+	/*
+	destination address (hashed)
+	not-set indicate a broadcast
+	*/
+	MeshEndPoint address = 1;
+	/*
+	senders relay sequence number
+	duplication detection over sender + seq_number 
+	*/
+	uint64 seq_number = 2;
+	/*
+	candidate exchange of sender to relay
+	*/
+	CandidateExchange candidate_exchange = 3;
+	/*
+	decrementing hop count
+	at zero the receiving node should only relay to a known peer
+	local to remote to known-remote: 0
+	local to remote to remote to known-remote: 1 
+	local to cluster: 0
+	local to cluster to known-remote: 1
+	local to cluster1 to cluster2 to known-remote: 2
+	broadcast to everyone: 3-4
+	*/
+	uint32 hop_count = 4;
+	/*
+	route of relay starting with sender 
+	*/
+	repeated MeshEndPoint route = 5;
+
+	oneof payload {
+		/*
+		transport packet 
+		most likly the handshake_initiation 
+		maybe handshake_reply to reply candidate_exchange
+		*/
+		bytes packet = 6;
+	}
+}
+
+message EndPoint {
+	oneof value {
+		IPEndPoint ip = 1;
+		DnsEndPoint dns = 2;
+		MeshEndPoint mesh = 3;
+	}
+	//maybe string name = 4;
+}
+
+message IPEndPoint {
+	oneof ip {
+		fixed32 v4 = 1;
+		bytes v6 = 2;
+	}
+	uint32 port = 3;	
+}
+
+message DnsEndPoint {
+	string hostname = 1;
+	uint32 port = 2;
+}
+
+message MeshEndPoint {
+	oneof key {
+		/*
+		static public key
+		*/
+		bytes static = 1;
+		/*
+		hash of static public key
+		*/
+		bytes hash = 2;
+	}
+}
+
+message Compression {
+	enum Type {
+		NONE = 0;
+		DEFLATE = 1;
+		BROTLI = 2;
+		ZSTD = 3;
+		LZ4 = 4;
+	}
+	Type type = 1;
+	/*
+	compression dictionary id
+	*/
+	int32 dictionary_id = 2;
+	/*
+	compression dictionary hash
+	*/
+	bytes dictionary_hash = 3;
+	/*
+	compression dictionary source url
+	hash is used as key 
+	source is used as side-channel
+	*/
+	string dictionary_source = 4;
+}

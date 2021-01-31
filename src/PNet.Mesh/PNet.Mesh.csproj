@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net5.0</TargetFramework>
+  </PropertyGroup>
+
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" Version="3.14.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="5.0.0" />
+    <PackageReference Include="Noise" Version="1.0.0-pre-201227" />
+    <PackageReference Include="NSec.Cryptography" Version="20.11.0-preview1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="info.md" />
+    <Resource Include="Protos\MeshProtocol.proto" />
+  </ItemGroup>  
+</Project>
