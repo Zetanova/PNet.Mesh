@@ -6,7 +6,7 @@ using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Text;
 
-namespace PNet.Actor.Mesh
+namespace PNet.Mesh
 {
 
     /*

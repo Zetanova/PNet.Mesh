@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 
-namespace PNet.Actor.Mesh
+namespace PNet.Mesh
 {
     public sealed class PNetMeshByteArrayComparer : IEqualityComparer<byte[]>
     {

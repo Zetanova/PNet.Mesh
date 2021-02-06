@@ -4,7 +4,9 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 
-namespace PNet.Actor.Mesh
+using Protos = PNet.Actor.Mesh.Protos;
+
+namespace PNet.Mesh
 {
     public static class PNetMeshUtils
     {

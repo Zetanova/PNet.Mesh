@@ -8,7 +8,9 @@ using System.Net;
 using System.Threading;
 using System.Threading.Channels;
 
-namespace PNet.Actor.Mesh
+using Protos = PNet.Actor.Mesh.Protos;
+
+namespace PNet.Mesh
 {
     public enum PNetMeshSessionStatus
     {

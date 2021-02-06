@@ -4,7 +4,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace PNet.Actor.Mesh
+namespace PNet.Mesh
 {
     public sealed class PNetMeshPacketBuffer
     {

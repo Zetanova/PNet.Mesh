@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Net;
 
-namespace PNet.Actor.Mesh
+namespace PNet.Mesh
 {
     public sealed class PNetMeshAgent
     {

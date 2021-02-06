@@ -5,7 +5,7 @@ using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 
-namespace PNet.Actor.Mesh
+namespace PNet.Mesh
 {
     public sealed class PNetMeshChannel : IDisposable
     {

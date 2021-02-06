@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Buffers;
 
-namespace PNet.Actor.Mesh
+namespace PNet.Mesh
 {
     /// <summary>
     /// Implementation of Anti-Replay Algorithm without Bit Shifting.

@@ -1,4 +1,4 @@
-﻿namespace PNet.Actor.Mesh
+﻿namespace PNet.Mesh
 {
 
 
