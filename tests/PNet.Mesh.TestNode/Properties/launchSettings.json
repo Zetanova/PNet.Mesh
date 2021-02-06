@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "PNet.Mesh.TestNode": {
+      "commandName": "Project"
+    },
+    "Docker": {
+      "commandName": "Docker"
+    }
+  }
+}

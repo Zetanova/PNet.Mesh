@@ -13,6 +13,11 @@ namespace PNet.Actor.Mesh
             if (IPEndPoint.TryParse(s, out var ep))
                 return ep;
 
+            //dns
+            int i = s.IndexOf(':');
+            if(i > 0 && int.TryParse(s.Substring(i + 1), out var port))
+                return new DnsEndPoint(s.Substring(0, i), port);
+
             throw new FormatException("unknown endpoint format");
         }
 

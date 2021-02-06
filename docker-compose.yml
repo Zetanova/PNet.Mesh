@@ -1,0 +1,107 @@
+version: '3.7'
+
+services:
+  node00:
+    image: ${DOCKER_REGISTRY-}pnetmeshtestnode
+    build:
+      context: .
+      dockerfile: tests/PNet.Mesh.TestNode/Dockerfile
+    environment:
+      DOTNET_ENVIRONMENT: Development
+      NodeName: "node00"
+      PublicKey: "zE/XdpVKkCnoNElMYntOQ043bXvc5x9K4jeyg+uZbjg="
+      PrivateKey: "H+wvAlb/Q+pKX2z9l5qJpD+ikXm+6pxJQtrp69ZkyYI="
+      Psk: "lBeIat8LnqvYKJ7hZBIysLwkUbxLoTfSYzq+wIDENa4="
+      BindTo__0: "[::]:12401"
+    ports:
+    - "12443:12401"
+    networks: 
+    - meshnet0
+  node01:
+    image: ${DOCKER_REGISTRY-}pnetmeshtestnode
+    build:
+      context: .
+      dockerfile: tests/PNet.Mesh.TestNode/Dockerfile
+    environment:
+      DOTNET_ENVIRONMENT: Development
+      NodeName: "node01"
+      PublicKey: "ytmio4/zTDDXHt0A6jb8G7Gcr3ty7iMOEkduloie1Rk="
+      PrivateKey: "3VXQslNLrlZMjjo6T+RJ77WKnynH+LT1ZOBs74kISOk="
+      Psk: "lBeIat8LnqvYKJ7hZBIysLwkUbxLoTfSYzq+wIDENa4="
+      BindTo__0: "[::]:12402"
+      Peers__0__PublicKey: "zE/XdpVKkCnoNElMYntOQ043bXvc5x9K4jeyg+uZbjg="
+      Peers__0__Endpoints__0: "node00:12401"
+    networks: 
+    - meshnet0
+  node10:
+    image: ${DOCKER_REGISTRY-}pnetmeshtestnode
+    build:
+      context: .
+      dockerfile: tests/PNet.Mesh.TestNode/Dockerfile
+    environment:
+      DOTNET_ENVIRONMENT: Development
+      NodeName: "node10"
+      PublicKey: "1BvJiBowJJExAa0+4VkquRkGJ06R5e+wYw1KCQu04iU="
+      PrivateKey: "NTxs6EdH52kw7bsDp0W1A5LD588wthPlrFU8K3RgP7Y="
+      Psk: "lBeIat8LnqvYKJ7hZBIysLwkUbxLoTfSYzq+wIDENa4="
+      BindTo__0: "[::]:12410"
+      Peers__0__PublicKey: "zE/XdpVKkCnoNElMYntOQ043bXvc5x9K4jeyg+uZbjg="
+      Peers__0__Endpoints__0: "host.docker.internal:12443"
+    networks: 
+    - meshnet1
+  node11:
+    image: ${DOCKER_REGISTRY-}pnetmeshtestnode
+    build:
+      context: .
+      dockerfile: tests/PNet.Mesh.TestNode/Dockerfile
+    environment:
+      DOTNET_ENVIRONMENT: Development
+      NodeName: "node11"
+      PublicKey: "F42i92MeeCp3hsKmO7XVLvJVhjK3EDZCgDMDGFM0YiI="
+      PrivateKey: "1hhY9rLTyqxDf9ZpzRxKigyGWhh+rqABV7CEcRKPAHM="
+      Psk: "lBeIat8LnqvYKJ7hZBIysLwkUbxLoTfSYzq+wIDENa4="
+      BindTo__0: "[::]:12411"
+      Peers__0__PublicKey: "zE/XdpVKkCnoNElMYntOQ043bXvc5x9K4jeyg+uZbjg="
+      Peers__0__Endpoints__0: "host.docker.internal:12443"
+    networks: 
+    - meshnet1
+  node20:
+    image: ${DOCKER_REGISTRY-}pnetmeshtestnode
+    build:
+      context: .
+      dockerfile: tests/PNet.Mesh.TestNode/Dockerfile
+    environment:
+      DOTNET_ENVIRONMENT: Development
+      NodeName: "node20"
+      PublicKey: "GIXvRdbvp/pN+3yY1OiuYGYQNSnY7Y35GUKkUmBHRCc="
+      PrivateKey: "D0cOwLrDQt4oM1kIEWI+vYrKmP1W57MdfOLmrXdE70k="
+      Psk: "lBeIat8LnqvYKJ7hZBIysLwkUbxLoTfSYzq+wIDENa4="
+      BindTo__0: "[::]:12420"
+      Peers__0__PublicKey: "zE/XdpVKkCnoNElMYntOQ043bXvc5x9K4jeyg+uZbjg="
+      Peers__0__Endpoints__0: "host.docker.internal:12443"
+    networks: 
+    - meshnet2
+  node21:
+    image: ${DOCKER_REGISTRY-}pnetmeshtestnode
+    build:
+      context: .
+      dockerfile: tests/PNet.Mesh.TestNode/Dockerfile
+    environment:
+      DOTNET_ENVIRONMENT: Development
+      NodeName: "node21"
+      PublicKey: "s6hJSti/lhOL3iWG/cXJpV+uyRuKLQ1XVQXwNKRFZiQ="
+      PrivateKey: "B/B2Gd7/YHJ49yv04uQ+XZSRbKH7GvUecq5SQd3gOOA="
+      Psk: "lBeIat8LnqvYKJ7hZBIysLwkUbxLoTfSYzq+wIDENa4="
+      BindTo__0: "[::]:12421"
+      Peers__0__PublicKey: "GIXvRdbvp/pN+3yY1OiuYGYQNSnY7Y35GUKkUmBHRCc="
+      Peers__0__Endpoints__0: "node20:12420"
+    networks: 
+    - meshnet2
+
+networks:
+  meshnet0: 
+    name: meshnet0
+  meshnet1: 
+    name: meshnet1
+  meshnet2: 
+    name: meshnet2
