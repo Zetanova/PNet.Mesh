@@ -13,7 +13,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Resource Include="info.md" />
     <Resource Include="Protos\MeshProtocol.proto" />
   </ItemGroup>  
 </Project>
