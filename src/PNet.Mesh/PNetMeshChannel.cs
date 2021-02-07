@@ -1,4 +1,6 @@
-﻿using System;
+﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using System;
 using System.Buffers;
 using System.Collections.Immutable;
 using System.Threading;
@@ -9,6 +11,8 @@ namespace PNet.Mesh
 {
     public sealed class PNetMeshChannel : IDisposable
     {
+        readonly ILogger _logger;
+
         Channel<ReadOnlyMemory<byte>> _inboundChannel;
 
         Channel<PNetMeshChannelCommands.Command> _controlChannel;
@@ -23,8 +27,10 @@ namespace PNet.Mesh
 
         public bool IsOpen => _currentSession?.Status == PNetMeshSessionStatus.Open;
 
-        public PNetMeshChannel()
+        public PNetMeshChannel(ILogger<PNetMeshChannel> logger = null)
         {
+            _logger = logger ?? NullLogger<PNetMeshChannel>.Instance;
+
             _inboundChannel = Channel.CreateBounded<ReadOnlyMemory<byte>>(new BoundedChannelOptions(100)
             {
                 AllowSynchronousContinuations = true,
@@ -75,7 +81,8 @@ namespace PNet.Mesh
                 case PNetMeshSessionStatus.Open:
                     _currentSession = session; //undone close other
                     if (_controlTask.IsCompleted)
-                        _controlTask = Task.Run(ProcessControl);
+                        _controlTask = Task.Run(ProcessControl)
+                            .ContinueWith(t => _logger.LogError(t.Exception, "control process error"), TaskContinuationOptions.OnlyOnFaulted);
                     break;
                 case PNetMeshSessionStatus.Closed:
                     session.StatusChanged -= OnSessionStatusChanged;
@@ -105,8 +112,7 @@ namespace PNet.Mesh
                             }
                             catch (Exception ex)
                             {
-                                //log error
-                                ;
+                                _logger.LogError(ex, "invoke command error");
                             }
                             break;
                         case PNetMeshChannelCommands.Relay cmd:
@@ -116,7 +122,7 @@ namespace PNet.Mesh
                             cmd.Result?.SetResult();
                             break;
                         default:
-                            //log unknown command
+                            _logger.LogWarning("unknown command '{commandType}'", command?.GetType());
                             break;
                     }
                 }

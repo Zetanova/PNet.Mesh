@@ -1,6 +1,6 @@
 ﻿using Microsoft.Extensions.Logging.Abstractions;
 using Noise;
-using PNet.Actor.Mesh;
+using PNet.Mesh;
 using System;
 using System.Security.Cryptography;
 using System.Text;
@@ -70,9 +70,9 @@ namespace PNet.Actor.UnitTests.Mesh
                 }
             };
 
-            using var server1 = new PNetMeshServer(settings1, NullLogger<PNetMeshServer>.Instance);
-            using var server2 = new PNetMeshServer(settings2, NullLogger<PNetMeshServer>.Instance);
-            using var server3 = new PNetMeshServer(settings3, NullLogger<PNetMeshServer>.Instance);
+            using var server1 = new PNetMeshServer(settings1);
+            using var server2 = new PNetMeshServer(settings2);
+            using var server3 = new PNetMeshServer(settings3);
 
             server1.Start();
             server2.Start();
@@ -189,8 +189,8 @@ namespace PNet.Actor.UnitTests.Mesh
                 }
             };
 
-            using var server1 = new PNetMeshServer(settings1, NullLogger<PNetMeshServer>.Instance);
-            using var server2 = new PNetMeshServer(settings2, NullLogger<PNetMeshServer>.Instance);
+            using var server1 = new PNetMeshServer(settings1);
+            using var server2 = new PNetMeshServer(settings2);
 
             server1.Start();
             server2.Start();

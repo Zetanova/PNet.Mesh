@@ -1,4 +1,6 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -29,14 +31,12 @@ namespace PNet.Mesh
     public sealed class PNetMeshServer : IDisposable
     {
         readonly PNetMeshServerSettings _settings;
-
         readonly PNetMeshProtocol _protocol;
-
         readonly PNetMeshRouter _router;
-
+        readonly IServiceProvider _services;
         readonly ILogger _logger;
-
         readonly PNetMeshPeer _localPeer;
+        readonly Func<PNetMeshChannel> _channelFactory;
 
         Channel<PNetMeshOutboundMessages.Message> _outboundChannel;
         Task _outboundTask = Task.CompletedTask;
@@ -46,9 +46,16 @@ namespace PNet.Mesh
 
         ImmutableArray<Socket> _sockets = ImmutableArray<Socket>.Empty;
 
-        public PNetMeshServer(PNetMeshServerSettings settings, ILogger<PNetMeshServer> logger)
+
+        public PNetMeshServer(PNetMeshServerSettings settings, IServiceProvider services = null, ILogger<PNetMeshServer> logger = null)
         {
             _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+            _services = services;
+            _logger = logger ?? NullLogger<PNetMeshServer>.Instance;
+
+            _channelFactory = _services != null
+                ? () => ActivatorUtilities.CreateInstance<PNetMeshChannel>(_services)
+                : () => new PNetMeshChannel();
 
             //todo gen key pair
 
@@ -59,7 +66,6 @@ namespace PNet.Mesh
             };
 
             _protocol = new PNetMeshProtocol(settings.PrivateKey, settings.PublicKey, settings.Psk);
-            _logger = logger;
 
             _router = new PNetMeshRouter();
             var address = new byte[10];
@@ -100,8 +106,10 @@ namespace PNet.Mesh
                 FullMode = BoundedChannelFullMode.Wait
             });
 
-            _outboundTask = Task.Run(ProcessOutbound);
-            _controlTask = Task.Run(ProcessControl);
+            _outboundTask = Task.Run(ProcessOutbound)
+                .ContinueWith(t => _logger.LogError(t.Exception, "outbound process error"), TaskContinuationOptions.OnlyOnFaulted);
+            _controlTask = Task.Run(ProcessControl)
+                .ContinueWith(t => _logger.LogError(t.Exception, "control process error"), TaskContinuationOptions.OnlyOnFaulted);
 
             var sockets = ImmutableArray.CreateBuilder<Socket>();
 
@@ -253,10 +261,8 @@ namespace PNet.Mesh
 
                                             if (!channels.TryGetValue(session.RemoteAddress, out var channel))
                                             {
-                                                channel = new PNetMeshChannel
-                                                {
+                                                channel = _channelFactory();
 
-                                                };
                                                 channels.Add(session.RemoteAddress, channel);
 
                                                 localAddresses.Add(session.LocalAddress);
@@ -301,12 +307,12 @@ namespace PNet.Mesh
                                                 }
                                                 else
                                                 {
-                                                    //log channel not found
+                                                    _logger.LogWarning("channel not found");
                                                 }
                                             }
                                             else
                                             {
-                                                //todo log unknown session
+                                                _logger.LogWarning("unknown session");
                                             }
                                         }
                                         break;
@@ -329,10 +335,8 @@ namespace PNet.Mesh
 
                                 if (!channels.TryGetValue(address, out var channel))
                                 {
-                                    channel = new PNetMeshChannel
-                                    {
-                                        //RemotePublicKey = cmd.Peer.PublicKey
-                                    };
+                                    channel = _channelFactory();
+
                                     channels.Add(address, channel);
 
                                     IEnumerable<EndPoint> endpoints = Array.Empty<EndPoint>();
@@ -366,8 +370,16 @@ namespace PNet.Mesh
                                     }
                                     else if (cmd.Peer.EndPoints?.Length > 0)
                                     {
-                                        endpoints = cmd.Peer.EndPoints.Select(n => PNetMeshUtils.ParseEndPoint(n));
+                                        endpoints = cmd.Peer.EndPoints
+                                            .Select(n => PNetMeshUtils.ParseEndPoint(n));
                                     }
+
+                                    //todo async dns lookup
+                                    endpoints = endpoints.SelectMany(n => n switch
+                                    {
+                                        DnsEndPoint ep => Dns.GetHostAddresses(ep.Host).Select(p => (EndPoint)new IPEndPoint(p, ep.Port)),
+                                        EndPoint ep => new[] { ep }
+                                    });
 
                                     //todo check multi session support
                                     foreach (var ep in endpoints)
@@ -387,10 +399,10 @@ namespace PNet.Mesh
                                         localAddresses.Add(session.LocalAddress);
                                     }
                                 }
+
                                 if (!cmd.Result.TrySetResult(channel))
                                 {
-                                    //log open channel timeout
-                                    ;
+                                    _logger.LogError("open channel timeout");
                                 }
                             }
                             break;
@@ -421,9 +433,7 @@ namespace PNet.Mesh
 
                                     if (!channels.TryGetValue(remoteAddress, out var channel))
                                     {
-                                        channel = new PNetMeshChannel
-                                        {
-                                        };
+                                        channel = _channelFactory();
 
                                         channels.Add(remoteAddress, channel);
                                     }

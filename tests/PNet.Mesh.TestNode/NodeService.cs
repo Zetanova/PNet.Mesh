@@ -89,7 +89,7 @@ namespace PNet.Mesh.TestNode
             _peers = new Dictionary<string, PNetMeshPeer>(options.Nodes.Length);
             foreach (var n in options.Nodes)
             {
-                if(n.PublicKey != options.PublicKey)
+                if (n.PublicKey != options.PublicKey)
                     _peers[n.Name] = new PNetMeshPeer
                     {
                         PublicKey = Convert.FromBase64String(n.PublicKey),
@@ -123,9 +123,9 @@ namespace PNet.Mesh.TestNode
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            var channels = new List<(string Name, PNetMeshPeer Peer, PNetMeshChannel Channel)>();            
+            var channels = new List<(string Name, PNetMeshPeer Peer, PNetMeshChannel Channel)>();
 
-            foreach(var entry in _peers)
+            foreach (var entry in _peers)
             {
                 var channel = await _server.ConnectToAsync(entry.Value, stoppingToken);
 
@@ -134,7 +134,7 @@ namespace PNet.Mesh.TestNode
 
             var pongs = new bool[channels.Count];
 
-            for(int i = 0; i < channels.Count; i++)
+            for (int i = 0; i < channels.Count; i++)
             {
                 _ = Task.Run(async () =>
                 {
@@ -163,19 +163,25 @@ namespace PNet.Mesh.TestNode
                                 case "pong":
                                     _logger.LogInformation("pong from {remoteName} to {nodeName}", entry.Name, _name);
                                     pongs[i] = true;
+                                    r = channel.TryWrite(Encoding.UTF8.GetBytes("ping"));
+                                    Debug.Assert(r);
                                     break;
                                 default:
                                     break;
                             }
                         }
                     }
-                    while (await channel.WaitToReadAsync(stoppingToken));                    
+                    while (await channel.WaitToReadAsync(stoppingToken));
                 });
             }
 
             await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
 
-            Debug.Assert(pongs.All(n => n));
+            //Debug.Assert(pongs.All(n => n));
+
+            var pongCount = pongs.Count(n => n);
+
+            _logger.LogInformation("{nodeName} got {pongCount} pongs", _name, pongCount);
         }
     }
 }
