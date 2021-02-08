@@ -70,6 +70,9 @@ namespace PNet.Mesh
             OnSessionStatusChanged(session, EventArgs.Empty);
 
             //todo cleanup _sessions
+
+            _logger.LogDebug("session[{sessionIndex}] to {remoteEndPoint} added.", 
+                session.SenderIndex, session.RemoteEndPoint);
         }
 
         private void OnSessionStatusChanged(object sender, EventArgs e)

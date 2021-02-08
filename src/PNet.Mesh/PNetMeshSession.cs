@@ -69,6 +69,8 @@ namespace PNet.Mesh
 
         public long Timestamp => _handshake.Timestamp;
 
+        public uint SenderIndex => _handshake.SenderIndex;
+
 
         public event EventHandler StatusChanged;
 

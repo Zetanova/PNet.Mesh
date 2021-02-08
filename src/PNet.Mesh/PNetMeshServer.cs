@@ -418,7 +418,7 @@ namespace PNet.Mesh
 
                                     if (!entry.Tracker.TryAdd(packet.SeqNumber))
                                     {
-                                        //ignore duplicat
+                                        //ignore duplicate
                                         break;
                                     }
                                 }
@@ -507,10 +507,20 @@ namespace PNet.Mesh
 
                                     if (tasks.Count > 0)
                                     {
-                                        _ = Task.WhenAll(tasks).ContinueWith(_ =>
+                                        _ = Task.WhenAll(tasks).ContinueWith(t =>
                                         {
                                             cmd.MemoryOwner?.Dispose();
-                                            cmd.Result?.SetResult();
+
+                                            if (t.IsFaulted)
+                                            {
+                                                //maybe only log error
+                                                if(cmd.Result != null)
+                                                    cmd.Result?.SetException(t.Exception);
+                                                else
+                                                    _logger.LogError(t.Exception, "relay error");
+                                            } 
+                                            else
+                                                cmd.Result?.SetResult();
                                         });
                                     }
                                     else
@@ -631,6 +641,7 @@ namespace PNet.Mesh
                                 {
                                     var socket = _sockets[i];
 
+                                    //maybe case of DnsEndPoint not required 
                                     var name = socket.LocalEndPoint switch
                                     {
                                         IPEndPoint ipEP => ipEP.Address.ToString(),
@@ -671,7 +682,7 @@ namespace PNet.Mesh
 
                                 if (!_controlChannel.Writer.TryWrite(cmd))
                                 {
-                                    //log warning
+                                    _logger.LogWarning("relay packet to address[{remotePeer}] failed", msg.RemoteAddress);
 
                                     msg.MemoryOwner?.Dispose();
                                 }
@@ -688,7 +699,7 @@ namespace PNet.Mesh
 
                                 if (!_controlChannel.Writer.TryWrite(cmd))
                                 {
-                                    //log warning
+                                    _logger.LogWarning("relay packet to address[{remotePeer}] failed", msg.Packet.Address);
 
                                     //msg.MemoryOwner?.Dispose();
                                 }
@@ -711,7 +722,7 @@ namespace PNet.Mesh
 
             if (args.SocketError != SocketError.Success)
             {
-                //todo log error
+                //todo error
                 //_logger.LogError("socket error");
             }
 

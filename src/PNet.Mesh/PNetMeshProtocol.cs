@@ -264,6 +264,8 @@ namespace PNet.Mesh
 
         public long Timestamp { get; private set; }
 
+        public uint SenderIndex => _senderIndex;
+
         uint _receiverIndex;
 
         public PNetMeshHandshake(PNetMeshProtocol protocol, uint senderIndex, byte[] localStaticPubKey, HandshakeState handshake)

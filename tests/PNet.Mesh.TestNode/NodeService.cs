@@ -2,7 +2,6 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using PNet.Actor.Mesh;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -48,6 +47,8 @@ namespace PNet.Mesh.TestNode
     {
         readonly IServiceProvider _services;
 
+        readonly IHostApplicationLifetime _lifetime;
+
         readonly ILogger _logger;
 
         IServiceScope _scope;
@@ -58,10 +59,10 @@ namespace PNet.Mesh.TestNode
 
         Dictionary<string, PNetMeshPeer> _peers;
 
-        public NodeService(IServiceProvider services, ILogger<NodeService> logger)
+        public NodeService(IServiceProvider services, IHostApplicationLifetime lifetime,  ILogger<NodeService> logger)
         {
             _services = services;
-
+            _lifetime = lifetime;
             _logger = logger;
         }
 
@@ -123,6 +124,9 @@ namespace PNet.Mesh.TestNode
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
+            //tmp delay traffic
+            await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken);
+
             var channels = new List<(string Name, PNetMeshPeer Peer, PNetMeshChannel Channel)>();
 
             foreach (var entry in _peers)
@@ -136,9 +140,11 @@ namespace PNet.Mesh.TestNode
 
             for (int i = 0; i < channels.Count; i++)
             {
-                _ = Task.Run(async () =>
+                _ = Task.Factory.StartNew(async (state) =>
                 {
-                    var entry = channels[i];
+                    var index = (int)state;
+
+                    var entry = channels[index];
 
                     var channel = entry.Channel;
 
@@ -162,7 +168,7 @@ namespace PNet.Mesh.TestNode
                                     break;
                                 case "pong":
                                     _logger.LogInformation("pong from {remoteName} to {nodeName}", entry.Name, _name);
-                                    pongs[i] = true;
+                                    pongs[index] = true;
                                     r = channel.TryWrite(Encoding.UTF8.GetBytes("ping"));
                                     Debug.Assert(r);
                                     break;
@@ -172,7 +178,7 @@ namespace PNet.Mesh.TestNode
                         }
                     }
                     while (await channel.WaitToReadAsync(stoppingToken));
-                });
+                }, i).ContinueWith(t => _logger.LogError(t.Exception, "node process error"), TaskContinuationOptions.OnlyOnFaulted);
             }
 
             await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
@@ -182,6 +188,9 @@ namespace PNet.Mesh.TestNode
             var pongCount = pongs.Count(n => n);
 
             _logger.LogInformation("{nodeName} got {pongCount} pongs", _name, pongCount);
+
+            //stop application
+            _lifetime.StopApplication();
         }
     }
 }
