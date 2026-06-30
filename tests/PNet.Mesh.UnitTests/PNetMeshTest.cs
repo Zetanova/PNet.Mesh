@@ -2,7 +2,6 @@
 using System;
 using System.Security.Cryptography;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace PNet.Actor.UnitTests.Mesh
 {

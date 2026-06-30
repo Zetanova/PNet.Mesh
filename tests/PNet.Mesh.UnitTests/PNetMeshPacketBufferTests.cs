@@ -1,4 +1,4 @@
-﻿using PNet.Actor.Mesh;
+﻿using PNet.Mesh;
 using System.Linq;
 using Xunit;
 

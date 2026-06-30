@@ -4,6 +4,7 @@ using System;
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Diagnostics;
+using System.Reflection;
 using System.Text;
 
 namespace PNet.Mesh
@@ -73,8 +74,6 @@ namespace PNet.Mesh
     public sealed class PNetMeshProtocol
     {
         readonly static string Mac1Label = "mac1----"; //8 bytes
-
-        readonly static string Mac2Label = "cookie--"; //8 bytes
 
         //"Noise_IKpsk2_25519_ChaChaPoly_BLAKE2b"
         //static readonly Protocol Protocol = new Protocol(
@@ -458,6 +457,12 @@ namespace PNet.Mesh
 
         readonly uint _receiverIndex;
 
+        readonly Action<ulong> _setWriteNonce;
+
+        readonly Action<ulong> _setReadNonce;
+
+        ulong _sendCounter;
+
         public uint SenderIndex => _senderIndex;
 
         public uint ReceiverIndex => _receiverIndex;
@@ -470,6 +475,7 @@ namespace PNet.Mesh
             _receiverIndex = receiverIndex;
             _transport = transport;
             _tracker = new PNetMeshPacketTracker();
+            (_setWriteNonce, _setReadNonce) = CreateNonceSetters(transport);
         }
 
         public void WriteMessage(ReadOnlySpan<byte> payload, Span<byte> buffer, out int bytesWritten, out ulong counter)
@@ -514,7 +520,10 @@ namespace PNet.Mesh
                 padded_payload.Slice(payload.Length, padding - 1).Clear();
                 padded_payload[paddedSize - 1] = (byte)(padding - 1); //padding length
 
-                bytesWritten += _transport.WriteMessage(padded_payload.Slice(0, paddedSize), buffer[16..], out counter);
+                counter = _sendCounter;
+                _setWriteNonce(counter);
+                bytesWritten += _transport.WriteMessage(padded_payload.Slice(0, paddedSize), buffer[16..]);
+                _sendCounter++;
 
                 if (rented_padded_payload != null)
                 {
@@ -524,7 +533,10 @@ namespace PNet.Mesh
             }
             else
             {
-                bytesWritten += _transport.WriteMessage(payload, buffer[16..], out counter);
+                counter = _sendCounter;
+                _setWriteNonce(counter);
+                bytesWritten += _transport.WriteMessage(payload, buffer[16..]);
+                _sendCounter++;
             }
 
             BinaryPrimitives.WriteUInt64LittleEndian(buffer[8..16], counter);
@@ -555,7 +567,8 @@ namespace PNet.Mesh
                 return false;
             }
 
-            bytesWritten = _transport.ReadMessage(counter, payload[16..], buffer);
+            _setReadNonce(counter);
+            bytesWritten = _transport.ReadMessage(payload[16..], buffer);
 
             if (bytesWritten > 1)
             {
@@ -575,6 +588,31 @@ namespace PNet.Mesh
         {
             _transport.Dispose();
             _tracker.Dispose();
+        }
+
+        static (Action<ulong> write, Action<ulong> read) CreateNonceSetters(Transport transport)
+        {
+            var transportType = transport.GetType();
+            var initiator = (bool)GetRequiredField(transportType, "initiator").GetValue(transport);
+            var c1 = GetRequiredField(transportType, "c1").GetValue(transport);
+            var c2 = GetRequiredField(transportType, "c2").GetValue(transport);
+
+            var writeState = initiator ? c1 : c2;
+            var readState = initiator ? c2 : c1;
+
+            return (CreateNonceSetter(writeState), CreateNonceSetter(readState));
+        }
+
+        static FieldInfo GetRequiredField(Type type, string name)
+            => type.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
+               ?? throw new NotSupportedException($"Noise transport field '{name}' was not found.");
+
+        static Action<ulong> CreateNonceSetter(object cipherState)
+        {
+            var setNonce = cipherState.GetType().GetMethod("SetNonce", new[] { typeof(ulong) })
+                ?? throw new NotSupportedException("Noise cipher state does not expose SetNonce(ulong).");
+
+            return (Action<ulong>)setNonce.CreateDelegate(typeof(Action<ulong>), cipherState);
         }
     }
 

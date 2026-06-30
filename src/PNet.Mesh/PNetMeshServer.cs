@@ -106,10 +106,10 @@ namespace PNet.Mesh
                 FullMode = BoundedChannelFullMode.Wait
             });
 
-            _outboundTask = Task.Run(ProcessOutbound)
-                .ContinueWith(t => _logger.LogError(t.Exception, "outbound process error"), TaskContinuationOptions.OnlyOnFaulted);
-            _controlTask = Task.Run(ProcessControl)
-                .ContinueWith(t => _logger.LogError(t.Exception, "control process error"), TaskContinuationOptions.OnlyOnFaulted);
+            _outboundTask = Task.Run(ProcessOutbound);
+            _ = _outboundTask.ContinueWith(t => _logger.LogError(t.Exception, "outbound process error"), TaskContinuationOptions.OnlyOnFaulted);
+            _controlTask = Task.Run(ProcessControl);
+            _ = _controlTask.ContinueWith(t => _logger.LogError(t.Exception, "control process error"), TaskContinuationOptions.OnlyOnFaulted);
 
             var sockets = ImmutableArray.CreateBuilder<Socket>();
 
@@ -153,28 +153,28 @@ namespace PNet.Mesh
 
         public void Stop()
         {
-            _outboundChannel?.Writer.Complete();
+            _outboundChannel?.Writer.TryComplete();
             _outboundChannel = null;
 
-            _controlChannel?.Writer.Complete();
+            _controlChannel?.Writer.TryComplete();
             _controlChannel = null;
 
             foreach (var socket in _sockets)
             {
-                socket.Shutdown(SocketShutdown.Both);
+                socket.Dispose();
             }
             _sockets = ImmutableArray<Socket>.Empty;
         }
 
         public async Task ShutdownAsync(CancellationToken cancellationToken = default)
         {
-            _controlChannel?.Writer.Complete();
+            _controlChannel?.Writer.TryComplete();
 
             await _controlTask;
 
             _controlChannel = null;
 
-            _outboundChannel?.Writer.Complete();
+            _outboundChannel?.Writer.TryComplete();
             _outboundChannel = null;
 
             await _outboundTask;
@@ -737,7 +737,7 @@ namespace PNet.Mesh
             var socket = sender as Socket;
             var item = args.UserToken as PNetMeshSocketReceiveWorkItem;
 
-            do
+            while (true)
             {
                 //args.SocketFlags == SocketFlags.Truncated
                 //args.SocketError == SocketError.MessageSize
@@ -765,6 +765,8 @@ namespace PNet.Mesh
 
                             //todo no cookie => send cookie reply
                             //todo valid cookie => push
+                            cmd.MemoryOwner?.Dispose();
+                            return;
                         }
 
                         //set new buffer
@@ -785,8 +787,16 @@ namespace PNet.Mesh
                 {
                     //log socket error
                 }
+                try
+                {
+                    if (socket.ReceiveMessageFromAsync(args))
+                        break;
+                }
+                catch (ObjectDisposedException)
+                {
+                    break;
+                }
             }
-            while (!socket.ReceiveMessageFromAsync(args));
         }
     }
 

@@ -1,5 +1,5 @@
 ﻿using Noise;
-using PNet.Actor.Mesh;
+using PNet.Mesh;
 using System;
 using System.Collections.Generic;
 using System.Linq;

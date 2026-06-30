@@ -85,7 +85,6 @@ namespace PNet.Mesh
 
         ulong _receiveCounter = 0;
         ulong _receiveAck = 0;
-
         int _cumAck_max = 2;
         //int _cumAck_count = 0;
         int _cumAck_timeout = 100;
@@ -552,7 +551,7 @@ namespace PNet.Mesh
                             Type = (PNetMeshCandidateType)candidate.Type,
                             Base = PNetMeshUtils.MapToItem(candidate.RelatedAddress),
                             ComponentId = candidate.ComponentId > 0
-                                ? (byte)candidate.ComponentId : 1,
+                                ? (byte)candidate.ComponentId : (byte)1,
                             Foundation = candidate.Foundation,
                             Priority = candidate.Priority
                         });
@@ -593,7 +592,7 @@ namespace PNet.Mesh
                     {
                         Address = relay.Address.Hash.ToByteArray(),
                         SeqNumber = relay.SeqNumber,
-                        HopCount = relay.HopCount > 0 ? (ushort)(relay.HopCount - 1) : 0,
+                        HopCount = relay.HopCount > 0 ? (ushort)(relay.HopCount - 1) : (ushort)0,
                         Route = route.ToImmutable(),
                         Payload = relay.PayloadCase switch
                         {
@@ -655,6 +654,5 @@ namespace PNet.Mesh
                 }
             }
         }
-
     }
 }

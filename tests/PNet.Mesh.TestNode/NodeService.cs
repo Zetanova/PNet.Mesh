@@ -28,6 +28,16 @@ namespace PNet.Mesh.TestNode
 
         public Node[] Nodes { get; set; } = Array.Empty<Node>();
 
+        public string[] ConnectNodes { get; set; } = Array.Empty<string>();
+
+        public bool PingAllConnectedNodes { get; set; } = true;
+
+        public string[] PingNodes { get; set; } = Array.Empty<string>();
+
+        public int ConnectDelaySeconds { get; set; } = 3;
+
+        public int RunDurationSeconds { get; set; } = 60;
+
         public sealed class Peer
         {
             public string PublicKey { get; set; }
@@ -59,6 +69,12 @@ namespace PNet.Mesh.TestNode
 
         Dictionary<string, PNetMeshPeer> _peers;
 
+        HashSet<string> _pingNodes;
+
+        TimeSpan _connectDelay;
+
+        TimeSpan _runDuration;
+
         public NodeService(IServiceProvider services, IHostApplicationLifetime lifetime, ILogger<NodeService> logger)
         {
             _services = services;
@@ -73,6 +89,11 @@ namespace PNet.Mesh.TestNode
             var options = _scope.ServiceProvider.GetRequiredService<IOptionsSnapshot<NodeOptions>>().Value;
 
             _name = options.NodeName;
+            _connectDelay = TimeSpan.FromSeconds(Math.Max(0, options.ConnectDelaySeconds));
+            _runDuration = TimeSpan.FromSeconds(Math.Max(1, options.RunDurationSeconds));
+            _pingNodes = options.PingAllConnectedNodes
+                ? null
+                : new HashSet<string>(options.PingNodes, StringComparer.OrdinalIgnoreCase);
 
             var settings = new PNetMeshServerSettings
             {
@@ -87,10 +108,14 @@ namespace PNet.Mesh.TestNode
                 }).ToArray()
             };
 
+            var connectNodes = options.ConnectNodes.Length > 0
+                ? new HashSet<string>(options.ConnectNodes, StringComparer.OrdinalIgnoreCase)
+                : null;
+
             _peers = new Dictionary<string, PNetMeshPeer>(options.Nodes.Length);
             foreach (var n in options.Nodes)
             {
-                if (n.PublicKey != options.PublicKey)
+                if (n.PublicKey != options.PublicKey && (connectNodes == null || connectNodes.Contains(n.Name)))
                     _peers[n.Name] = new PNetMeshPeer
                     {
                         PublicKey = Convert.FromBase64String(n.PublicKey),
@@ -125,7 +150,7 @@ namespace PNet.Mesh.TestNode
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             //tmp delay traffic
-            await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken);
+            await Task.Delay(_connectDelay, stoppingToken);
 
             var channels = new List<(string Name, PNetMeshPeer Peer, PNetMeshChannel Channel)>();
 
@@ -147,12 +172,16 @@ namespace PNet.Mesh.TestNode
                     var entry = channels[index];
 
                     var channel = entry.Channel;
+                    var sendsPings = _pingNodes == null || _pingNodes.Contains(entry.Name);
 
                     ReadOnlyMemory<byte> payload;
                     bool r;
 
-                    r = channel.TryWrite(Encoding.UTF8.GetBytes("ping"));
-                    Debug.Assert(r);
+                    if (sendsPings)
+                    {
+                        r = channel.TryWrite(Encoding.UTF8.GetBytes("ping"));
+                        Debug.Assert(r);
+                    }
 
                     do
                     {
@@ -169,8 +198,11 @@ namespace PNet.Mesh.TestNode
                                 case "pong":
                                     _logger.LogInformation("pong from {remoteName} to {nodeName}", entry.Name, _name);
                                     pongs[index] = true;
-                                    r = channel.TryWrite(Encoding.UTF8.GetBytes("ping"));
-                                    Debug.Assert(r);
+                                    if (sendsPings)
+                                    {
+                                        r = channel.TryWrite(Encoding.UTF8.GetBytes("ping"));
+                                        Debug.Assert(r);
+                                    }
                                     break;
                                 default:
                                     break;
@@ -181,7 +213,7 @@ namespace PNet.Mesh.TestNode
                 }, i).ContinueWith(t => _logger.LogError(t.Exception, "node process error"), TaskContinuationOptions.OnlyOnFaulted);
             }
 
-            await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+            await Task.Delay(_runDuration, stoppingToken);
 
             //Debug.Assert(pongs.All(n => n));
 

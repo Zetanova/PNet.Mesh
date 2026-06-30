@@ -78,7 +78,8 @@ namespace PNet.Mesh
                             V6 = Google.Protobuf.ByteString.CopyFrom(ep.Address.GetAddressBytes()),
                             Port = (uint)ep.Port
                         }
-                    }
+                    },
+                    _ => null
                 },
                 DnsEndPoint ep => new Protos.EndPoint
                 {

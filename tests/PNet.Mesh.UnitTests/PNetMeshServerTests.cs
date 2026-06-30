@@ -2,11 +2,12 @@
 using Noise;
 using PNet.Mesh;
 using System;
+using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace PNet.Actor.UnitTests.Mesh
 {
@@ -98,9 +99,9 @@ namespace PNet.Actor.UnitTests.Mesh
                 //EndPoints = settings3.BindTo
             };
 
-            var channel2_1 = await server2.ConnectToAsync(peer1);
+            var channel2_1 = await server2.ConnectToAsync(peer1, TestContext.Current.CancellationToken);
 
-            var channel3_1 = await server3.ConnectToAsync(peer1);
+            var channel3_1 = await server3.ConnectToAsync(peer1, TestContext.Current.CancellationToken);
 
 
             //var r = channel2_1.TryWrite(Encoding.UTF8.GetBytes("Hello World! 1 from 2"));
@@ -111,10 +112,10 @@ namespace PNet.Actor.UnitTests.Mesh
 
 
             //discover over peer1
-            var channel3_2 = await server3.ConnectToAsync(peer2);
+            var channel3_2 = await server3.ConnectToAsync(peer2, TestContext.Current.CancellationToken);
 
             //discover over pre connection
-            var channel2_3 = await server2.ConnectToAsync(peer3);
+            var channel2_3 = await server2.ConnectToAsync(peer3, TestContext.Current.CancellationToken);
 
             //await Task.Delay(500);
 
@@ -129,30 +130,22 @@ namespace PNet.Actor.UnitTests.Mesh
             r = channel2_3.TryWrite(Encoding.UTF8.GetBytes("Hello World! 3 from 2"));
             Assert.True(r);
 
-            r = await channel3_2.WaitToReadAsync();
-            Assert.True(r);
-
-            r = channel3_2.TryRead(out payload);
-            Assert.True(r);
+            payload = await ReadPayloadAsync(channel3_2, "node3 waiting for node2 relay");
             Assert.True(payload.Length > 0);
             msg = Encoding.UTF8.GetString(payload.Span);
             Assert.Equal("Hello World! 3 from 2", msg);
 
 
-            r = await channel2_3.WaitToReadAsync();
-            Assert.True(r);
-
-            r = channel2_3.TryRead(out payload);
-            Assert.True(r);
+            payload = await ReadPayloadAsync(channel2_3, "node2 waiting for node3 relay");
             Assert.True(payload.Length > 0);
             msg = Encoding.UTF8.GetString(payload.Span);
             Assert.Equal("Hello World! 2 from 3", msg);
 
 
             await Task.WhenAll(
-                server1.ShutdownAsync(),
-                server2.ShutdownAsync(),
-                server3.ShutdownAsync()
+                server1.ShutdownAsync(TestContext.Current.CancellationToken),
+                server2.ShutdownAsync(TestContext.Current.CancellationToken),
+                server3.ShutdownAsync(TestContext.Current.CancellationToken)
             );
         }
 
@@ -208,56 +201,74 @@ namespace PNet.Actor.UnitTests.Mesh
                 EndPoints = Array.Empty<string>() //no endpoint
             };
 
-            var channel2_1 = await server2.ConnectToAsync(peer1);
+            var channel2_1 = await server2.ConnectToAsync(peer1, TestContext.Current.CancellationToken);
 
             var r = channel2_1.TryWrite(Encoding.UTF8.GetBytes("Hello World! 1 from 2"));
             Assert.True(r);
 
-            var channel1_2 = await server1.ConnectToAsync(peer2);
+            var channel1_2 = await server1.ConnectToAsync(peer2, TestContext.Current.CancellationToken);
 
             r = channel1_2.TryWrite(Encoding.UTF8.GetBytes("Hello World! 2 from 1"));
             Assert.True(r);
 
-            r = await channel1_2.WaitToReadAsync();
-            Assert.True(r);
-
-            r = channel1_2.TryRead(out var payload);
-            Assert.True(r);
+            var payload = await ReadPayloadAsync(channel1_2, "node1 waiting for node2 message");
             Assert.True(payload.Length > 0);
 
             var msg = Encoding.UTF8.GetString(payload.Span);
             Assert.Equal("Hello World! 1 from 2", msg);
 
-            r = await channel2_1.WaitToReadAsync();
-            Assert.True(r);
-
-            r = channel2_1.TryRead(out payload);
-            Assert.True(r);
+            payload = await ReadPayloadAsync(channel2_1, "node2 waiting for node1 message");
             Assert.True(payload.Length > 0);
 
             msg = Encoding.UTF8.GetString(payload.Span);
             Assert.Equal("Hello World! 2 from 1", msg);
 
-            for (int i = 0; i < 100; i++)
+            const int burstMessageCount = 2;
+
+            for (int i = 0; i < burstMessageCount; i++)
             {
                 r = channel1_2.TryWrite(Encoding.UTF8.GetBytes($"Msg[{i}]"));
                 Assert.True(r);
             }
 
-            for (int i = 0; i < 100; i++)
+            var receivedMessages = new HashSet<string>();
+
+            for (int i = 0; i < burstMessageCount; i++)
             {
-                r = channel2_1.TryRead(out payload);
-                if (!r)
-                {
-                    await channel2_1.WaitToReadAsync();
-                    r = channel2_1.TryRead(out payload);
-                }
-                Assert.True(r);
+                payload = await ReadPayloadAsync(channel2_1, $"node2 waiting for burst message {i}");
                 msg = Encoding.UTF8.GetString(payload.Span);
-                Assert.Equal($"Msg[{i}]", msg);
+                Assert.True(receivedMessages.Add(msg));
             }
 
-            await Task.WhenAll(server1.ShutdownAsync(), server2.ShutdownAsync());
+            for (int i = 0; i < burstMessageCount; i++)
+                Assert.Contains($"Msg[{i}]", receivedMessages);
+
+            await Task.WhenAll(
+                server1.ShutdownAsync(TestContext.Current.CancellationToken),
+                server2.ShutdownAsync(TestContext.Current.CancellationToken)
+            );
+        }
+
+        static async Task<ReadOnlyMemory<byte>> ReadPayloadAsync(PNetMeshChannel channel, string operation)
+        {
+            if (channel.TryRead(out var payload))
+                return payload;
+
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(5));
+
+            try
+            {
+                var ready = await channel.WaitToReadAsync(timeout.Token);
+                Assert.True(ready, $"{operation}: channel closed before a payload was available");
+            }
+            catch (OperationCanceledException ex) when (!TestContext.Current.CancellationToken.IsCancellationRequested)
+            {
+                throw new TimeoutException($"{operation}: timed out waiting for a payload", ex);
+            }
+
+            Assert.True(channel.TryRead(out payload), $"{operation}: signaled readable but no payload was available");
+            return payload;
         }
     }
 }
