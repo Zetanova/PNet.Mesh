@@ -514,11 +514,11 @@ namespace PNet.Mesh
                                             if (t.IsFaulted)
                                             {
                                                 //maybe only log error
-                                                if(cmd.Result != null)
+                                                if (cmd.Result != null)
                                                     cmd.Result?.SetException(t.Exception);
                                                 else
                                                     _logger.LogError(t.Exception, "relay error");
-                                            } 
+                                            }
                                             else
                                                 cmd.Result?.SetResult();
                                         });

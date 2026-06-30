@@ -1,4 +1,4 @@
-using Noise;
+﻿using Noise;
 using System;
 using System.Security.Cryptography;
 using Xunit;

@@ -17,7 +17,7 @@ namespace PNet.Mesh
 
             //dns
             int i = s.IndexOf(':');
-            if(i > 0 && int.TryParse(s.Substring(i + 1), out var port))
+            if (i > 0 && int.TryParse(s.Substring(i + 1), out var port))
                 return new DnsEndPoint(s.Substring(0, i), port);
 
             throw new FormatException("unknown endpoint format");

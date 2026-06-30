@@ -59,7 +59,7 @@ namespace PNet.Mesh.TestNode
 
         Dictionary<string, PNetMeshPeer> _peers;
 
-        public NodeService(IServiceProvider services, IHostApplicationLifetime lifetime,  ILogger<NodeService> logger)
+        public NodeService(IServiceProvider services, IHostApplicationLifetime lifetime, ILogger<NodeService> logger)
         {
             _services = services;
             _lifetime = lifetime;

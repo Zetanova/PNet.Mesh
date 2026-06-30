@@ -71,7 +71,7 @@ namespace PNet.Mesh
 
             //todo cleanup _sessions
 
-            _logger.LogDebug("session[{sessionIndex}] to {remoteEndPoint} added.", 
+            _logger.LogDebug("session[{sessionIndex}] to {remoteEndPoint} added.",
                 session.SenderIndex, session.RemoteEndPoint);
         }
 
