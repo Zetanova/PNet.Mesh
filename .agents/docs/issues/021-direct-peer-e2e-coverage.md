@@ -3,10 +3,12 @@ issue: 021
 date: 2026-06-30
 source: e2e/coverage
 priority: high
-status: ready
+status: completed
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
+completion-date: 2026-06-30
+commits: [61af492]
 split-status: child
 parent-issue: 009
 brief: "description+playbook"
@@ -54,4 +56,13 @@ Parent research identified direct peer exchange as one independent scenario fami
 
 ## Completion Report
 
-Pending.
+Completed in `61af492`.
+
+- Added a two-node direct peer Testcontainers topology using only `node00` and `node01` as each other's static peers on the shared test network.
+- Added bidirectional assertions for ping and pong logs, including exact `1 pongs` counters on both peers.
+- Reused the shared log wait and diagnostic capture path so missing readiness or payload logs fail with relevant container output.
+- Verified Release build, unit tests (`28` total), e2e tests (`4` total), scoped whitespace formatting, `git diff --check`, and Docker cleanup; final testing and review passes approved the change.
+
+## Resolving Commits
+
+- `61af4927ae94d686a2e1597bb0b6df17be8ad0d5` - add direct peer Testcontainers coverage

@@ -2,7 +2,7 @@
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
 last-entry: 2026-06-30
 last-opened: 2026-06-30-033
-open-count: 25
+open-count: 24
 last-completed: 2026-06-30
 ---
 
@@ -26,7 +26,6 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | 018 | 2026-06-30 | coverage/readme | Implement and test NAT traversal, neighbor detection, and ICE candidate behavior. | high | ready | [018-nat-traversal-neighbor-ice-coverage](issues/018-nat-traversal-neighbor-ice-coverage.md) |
 | 019 | 2026-06-30 | coverage/readme | Implement and test compression negotiation and compressed payload handling. | medium | ready | [019-compression-feature-coverage](issues/019-compression-feature-coverage.md) |
 | 020 | 2026-06-30 | coverage/readme | Implement and test ECN and LEDBAT probe/telemetry behavior referenced by the README. | medium | ready | [020-ecn-ledbat-coverage](issues/020-ecn-ledbat-coverage.md) |
-| 021 | 2026-06-30 | e2e/coverage | Direct peer Testcontainers scenario with bidirectional payload exchange. | high | ready | [021-direct-peer-e2e-coverage](issues/021-direct-peer-e2e-coverage.md) |
 | 022 | 2026-06-30 | e2e/coverage | Bootstrap discovery Testcontainers scenario through a connected peer. | high | ready | [022-bootstrap-discovery-e2e-coverage](issues/022-bootstrap-discovery-e2e-coverage.md) |
 | 023 | 2026-06-30 | e2e/coverage | Multi-hop relay Testcontainers scenario across separated segments. | high | ready | [023-multi-hop-route-e2e-coverage](issues/023-multi-hop-route-e2e-coverage.md) |
 | 024 | 2026-06-30 | e2e/coverage | Restart recovery Testcontainers scenario for a rejoining node. | high | ready | [024-restart-recovery-e2e-coverage](issues/024-restart-recovery-e2e-coverage.md) |
@@ -67,3 +66,4 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | 007 | 2026-06-30 | 2026-06-30 | Add a Testcontainers-based xUnit e2e harness for PNet.Mesh test nodes. | 52cf1f7 | [007-testcontainers-e2e-harness](issues/007-testcontainers-e2e-harness.md) |
 | 008 | 2026-06-30 | 2026-06-30 | Port the existing six-node compose mesh smoke topology to Testcontainers. | 948f553 | [008-port-compose-topology-to-testcontainers](issues/008-port-compose-topology-to-testcontainers.md) |
 | 010 | 2026-06-30 | 2026-06-30 | Add deterministic routing, relay duplicate, route-loop, and session relay unit coverage. | 49deb32 | [010-unit-test-doubles-for-routing](issues/010-unit-test-doubles-for-routing.md) |
+| 021 | 2026-06-30 | 2026-06-30 | Add direct peer Testcontainers coverage for bidirectional payload exchange. | 61af492 | [021-direct-peer-e2e-coverage](issues/021-direct-peer-e2e-coverage.md) |
