@@ -210,6 +210,54 @@ public sealed class PNetMeshTestNodeSpec
         return new[] { node10, node00, node20, node01 };
     }
 
+    public static IReadOnlyList<PNetMeshTestNodeSpec> RestartRecoveryTopology()
+    {
+        var node00 = new PNetMeshTestNodeSpec
+        {
+            Name = "node00",
+            PublicKey = GetComposePublicKey("node00"),
+            PrivateKey = "H+wvAlb/Q+pKX2z9l5qJpD+ikXm+6pxJQtrp69ZkyYI=",
+            Psk = ComposePsk,
+            Port = 12401,
+            ConnectDelaySeconds = 28,
+            RunDurationSeconds = 60,
+            ConnectNodes = new[] { "node01" },
+            Peers = new[] { StaticPeer("node01", "node01:12402") },
+            Nodes = NodeIdentities("node00", "node01")
+        };
+
+        var node10 = RestartRecoveryUnrelatedNode(
+            "node10",
+            "NTxs6EdH52kw7bsDp0W1A5LD588wthPlrFU8K3RgP7Y=",
+            12410,
+            "node11",
+            12411);
+
+        var node11 = RestartRecoveryUnrelatedNode(
+            "node11",
+            "1hhY9rLTyqxDf9ZpzRxKigyGWhh+rqABV7CEcRKPAHM=",
+            12411,
+            "node10",
+            12410);
+
+        var node01 = new PNetMeshTestNodeSpec
+        {
+            Name = "node01",
+            PublicKey = GetComposePublicKey("node01"),
+            PrivateKey = "3VXQslNLrlZMjjo6T+RJ77WKnynH+LT1ZOBs74kISOk=",
+            Psk = ComposePsk,
+            Port = 12402,
+            ConnectDelaySeconds = 8,
+            RunDurationSeconds = 32,
+            ConnectNodes = new[] { "node00" },
+            PingNodes = new[] { "node00" },
+            Peers = new[] { StaticPeer("node00", "node00:12401") },
+            Nodes = NodeIdentities("node01", "node00")
+        };
+
+        return new[] { node00, node10, node11, node01 };
+    }
+
     static PNetMeshTestNodeSpec ComposeNode(
         string name,
         string privateKey,
@@ -254,7 +302,7 @@ public sealed class PNetMeshTestNodeSpec
             Psk = ComposePsk,
             Port = port,
             ConnectDelaySeconds = connectDelaySeconds,
-            RunDurationSeconds = 28,
+            RunDurationSeconds = 60,
             ConnectNodes = connectNodes,
             PingNodes = pingNodes,
             NetworkNames = networkNames,
@@ -282,6 +330,29 @@ public sealed class PNetMeshTestNodeSpec
                 new PNetMeshNodeIdentity { Name = name, PublicKey = GetComposePublicKey(name) },
                 new PNetMeshNodeIdentity { Name = peerName, PublicKey = GetComposePublicKey(peerName) }
             }
+        };
+    }
+
+    static PNetMeshTestNodeSpec RestartRecoveryUnrelatedNode(
+        string name,
+        string privateKey,
+        int port,
+        string peerName,
+        int peerPort)
+    {
+        return new PNetMeshTestNodeSpec
+        {
+            Name = name,
+            PublicKey = GetComposePublicKey(name),
+            PrivateKey = privateKey,
+            Psk = ComposePsk,
+            Port = port,
+            ConnectDelaySeconds = 8,
+            RunDurationSeconds = 60,
+            ConnectNodes = new[] { peerName },
+            PingNodes = new[] { peerName },
+            Peers = new[] { StaticPeer(peerName, $"{peerName}:{peerPort}") },
+            Nodes = NodeIdentities(name, peerName)
         };
     }
 

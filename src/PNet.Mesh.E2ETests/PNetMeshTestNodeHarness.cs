@@ -88,15 +88,25 @@ public sealed class PNetMeshTestNodeHarness : IAsyncDisposable
 
     public static async Task<string> GetLogsAsync(IContainer container, CancellationToken cancellationToken)
     {
-        var logs = await container.GetLogsAsync(DateTime.UtcNow.AddMinutes(-10), DateTime.UtcNow.AddMinutes(1), true, cancellationToken);
+        return await GetLogsAsync(container, DateTime.UtcNow.AddMinutes(-10), cancellationToken);
+    }
+
+    public static async Task<string> GetLogsAsync(IContainer container, DateTime sinceUtc, CancellationToken cancellationToken)
+    {
+        var logs = await container.GetLogsAsync(sinceUtc, DateTime.UtcNow.AddMinutes(1), true, cancellationToken);
         return string.Concat(logs.Stdout, logs.Stderr);
     }
 
     public static async Task<string> WaitForLogsAsync(IContainer container, IReadOnlyCollection<string> expectedLogEntries, CancellationToken cancellationToken)
     {
+        return await WaitForLogsAsync(container, DateTime.UtcNow.AddMinutes(-10), expectedLogEntries, cancellationToken);
+    }
+
+    public static async Task<string> WaitForLogsAsync(IContainer container, DateTime sinceUtc, IReadOnlyCollection<string> expectedLogEntries, CancellationToken cancellationToken)
+    {
         while (true)
         {
-            var logs = await TryGetLogsAsync(container, cancellationToken);
+            var logs = await TryGetLogsAsync(container, sinceUtc, cancellationToken);
             var missing = GetMissingLogEntries(logs, expectedLogEntries);
 
             if (missing.Count == 0)
@@ -114,7 +124,7 @@ public sealed class PNetMeshTestNodeHarness : IAsyncDisposable
             }
             catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
             {
-                logs = await TryGetLogsAsync(container, DiagnosticLogTimeout);
+                logs = await TryGetLogsAsync(container, sinceUtc, DiagnosticLogTimeout);
                 missing = GetMissingLogEntries(logs, expectedLogEntries);
                 throw CreateMissingLogsException(container, missing, logs, ex);
             }
@@ -157,6 +167,18 @@ public sealed class PNetMeshTestNodeHarness : IAsyncDisposable
         }
     }
 
+    static async Task<string> TryGetLogsAsync(IContainer container, DateTime sinceUtc, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await GetLogsAsync(container, sinceUtc, cancellationToken);
+        }
+        catch (Exception logException)
+        {
+            return $"<log collection failed: {logException.Message}>";
+        }
+    }
+
     async Task<INetwork> GetOrCreateNetworkAsync(string networkName, CancellationToken cancellationToken)
     {
         if (_networks.TryGetValue(networkName, out var network))
@@ -180,6 +202,12 @@ public sealed class PNetMeshTestNodeHarness : IAsyncDisposable
     {
         using var cancellation = new CancellationTokenSource(timeout);
         return await TryGetLogsAsync(container, cancellation.Token);
+    }
+
+    static async Task<string> TryGetLogsAsync(IContainer container, DateTime sinceUtc, TimeSpan timeout)
+    {
+        using var cancellation = new CancellationTokenSource(timeout);
+        return await TryGetLogsAsync(container, sinceUtc, cancellation.Token);
     }
 
     static List<string> GetMissingLogEntries(string logs, IReadOnlyCollection<string> expectedLogEntries)
