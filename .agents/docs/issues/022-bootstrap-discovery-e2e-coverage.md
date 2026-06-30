@@ -3,10 +3,12 @@ issue: 022
 date: 2026-06-30
 source: e2e/coverage
 priority: high
-status: ready
+status: completed
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
+completion-date: 2026-06-30
+commits: [56a70ff]
 split-status: child
 parent-issue: 009
 brief: "description+playbook"
@@ -54,4 +56,14 @@ Parent research treats discovery through a connected peer as a separate test con
 
 ## Completion Report
 
-Pending.
+Completed in `56a70ff`.
+
+- Added a three-node Testcontainers bootstrap discovery topology where edge nodes seed only `node00` as a static endpoint and learn each other through that bootstrap path.
+- Added bidirectional edge payload assertions for `node01` and `node10`, including ping, pong, and exact `1 pongs` counters.
+- Added all-node topology log capture so missing bootstrap discovery or payload logs fail with each participating container's logs.
+- Fixed relay candidate handling needed by the discovered Docker route: null candidate bases are accepted, known router endpoints win, and the observed server-reflexive endpoint is preferred until real ICE candidate-pair checks exist.
+- Verified Release build, unit tests (`29` total), full e2e tests (`5` total), scoped whitespace formatting, `git diff --check`, and Docker cleanup; final tester rerun passed and reviewer approved.
+
+## Resolving Commits
+
+- `56a70ff4a1508c6a8c4c5b76051aa46ae766911c` - add bootstrap discovery Testcontainers coverage

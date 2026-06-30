@@ -6,9 +6,8 @@ priority: high
 status: gated
 split-status: parent
 terminal-state: gated
-gate: "Close only after child issues 022, 023, 024, and 025 are completed or explicitly superseded. Child issue 021 completed in 61af492."
+gate: "Close only after child issues 023, 024, and 025 are completed or explicitly superseded. Child issues 021 and 022 are completed."
 gate-depends:
-  - 022
   - 023
   - 024
   - 025
@@ -59,7 +58,7 @@ This is a parent tracking issue. Implement child issues, not this parent directl
 | Child | Scope | Status | Notes |
 |-------|-------|--------|-------|
 | #021 | Direct peer payload exchange | completed | Completed in 61af492 |
-| #022 | Bootstrap discovery through a peer | open | Discovery path before payload exchange |
+| #022 | Bootstrap discovery through a peer | completed | Completed in 56a70ff |
 | #023 | Multi-hop relay route delivery | open | Separate route-path coverage |
 | #024 | Restart and rejoin recovery | open | Non-bootstrap node restarts safely |
 | #025 | Invalid key or route failure | open | Negative path without accepted payloads |
@@ -83,6 +82,7 @@ none
 
 ## Enrichment History
 
+- 2026-06-30: Removed completed child issue #022 from the active gate after 56a70ff; parent remains gated on #023, #024, and #025.
 - 2026-06-30: Removed completed child issue #021 from the active gate after 61af492; parent remains gated on #022, #023, #024, and #025.
 - 2026-06-30: Marked ready because the current unit-test surface already exposes router, session, and channel seams for deterministic doubles. Evidence: `PNetMeshServer.cs`, `PNetMeshSession.cs`, `PNetMeshChannel.cs`, `PNetMeshRouter.cs`, `PNetMeshServerTests.cs`.
 
