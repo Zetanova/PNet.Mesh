@@ -3,10 +3,12 @@ issue: 005
 date: 2026-06-30
 source: user/request
 priority: medium
-status: ready
+status: completed
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
+completion-date: 2026-06-30
+commits: [3b657cb]
 brief: "description+playbook"
 views:
   enrich: "description+playbook+research+assumptions"
@@ -66,7 +68,13 @@ Move the current test projects from `tests/` into the repository's `src/` layout
 
 ## Completion Report
 
+Completed in `3b657cb`.
+
 - Moved tracked unit-test and test-node project files under `src/PNet.Mesh.UnitTests` and `src/PNet.Mesh.TestNode`; ignored generated `bin/obj` outputs were left behind.
 - Updated solution paths, project references, test-node Dockerfile restore/build paths, Compose Dockerfile paths, README command, AGENTS guidance, and project best-practices guidance.
 - Verified `dotnet restore PNet.Mesh.sln`, Release build, moved unit-test command, scoped whitespace formatting, Compose config, and stale `tests/PNet.Mesh.*` reference scan.
-- Tracker row completion is still pending issue-steward closeout because no resolving commit exists yet.
+- Tracker row completion is now recorded in the issue tracker.
+
+## Resolving Commits
+
+- `3b657cbcc6cbaf11f9b4fca4eaaf063a67076d82` - move test projects under src layout

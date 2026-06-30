@@ -2,7 +2,7 @@
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
 last-entry: 2026-06-30
 last-opened: 2026-06-30-033
-open-count: 29
+open-count: 28
 last-completed: 2026-06-30
 ---
 
@@ -14,7 +14,6 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 
 | # | Date | Source | Summary | Priority | Status | File |
 |---|------|--------|---------|----------|--------|------|
-| 005 | 2026-06-30 | user/request | Move test projects from `tests/` into the `src/` project layout and update all references. | medium | ready | [005-tests-projects-under-src](issues/005-tests-projects-under-src.md) |
 | 006 | 2026-06-30 | e2e/testcontainers | Track Testcontainers migration and coverage expansion child issues through completion. | high | gated | [006-testcontainers-coverage-tracking](issues/006-testcontainers-coverage-tracking.md) |
 | 007 | 2026-06-30 | e2e/testcontainers | Add a Testcontainers-based xUnit e2e harness for PNet.Mesh test nodes. | high | ready | [007-testcontainers-e2e-harness](issues/007-testcontainers-e2e-harness.md) |
 | 008 | 2026-06-30 | e2e/testcontainers | Port the existing six-node compose mesh smoke topology to Testcontainers. | high | ready | [008-port-compose-topology-to-testcontainers](issues/008-port-compose-topology-to-testcontainers.md) |
@@ -67,3 +66,4 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | 002 | 2026-06-30 | 2026-06-30 | Replace unavailable `Noise` package with `Noise.NET` and restore/build/audit successfully. | 30ea5f8 | [002-noise-package-restore-blocker.md](issues/002-noise-package-restore-blocker.md) |
 | 003 | 2026-06-30 | 2026-06-30 | Add compose e2e story and runnable mesh topology smoke flow. | 30ea5f8 | [003-mesh-topology-e2e-story.md](issues/003-mesh-topology-e2e-story.md) |
 | 004 | 2026-06-30 | 2026-06-30 | Normalize existing C# whitespace and add formatting config. | 7e8340f, 30ea5f8 | [004-dotnet-format-drift.md](issues/004-dotnet-format-drift.md) |
+| 005 | 2026-06-30 | 2026-06-30 | Move test projects from `tests/` into the `src/` project layout and update all references. | 3b657cb | [005-tests-projects-under-src](issues/005-tests-projects-under-src.md) |
