@@ -3,9 +3,9 @@ issue: 010
 date: 2026-06-30
 source: tests/unit-doubles
 priority: high
-status: open
+status: ready
 research-date: 2026-06-30
-research-status: none
+research-status: complete
 assumptions-date: 2026-06-30
 brief: "description+playbook"
 views:
@@ -53,7 +53,11 @@ Add deterministic unit or component tests with doubles around routing, session, 
 | # | Cat | Assumption | Status | Method | Detail |
 |---|-----|------------|--------|--------|--------|
 | 1 | F | Routing and relay logic currently lives across server, session, channel, and router classes. | verified | source | Relevant code paths are in `PNetMeshServer`, `PNetMeshSession`, `PNetMeshChannel`, and `PNetMeshRouter`. |
-| 2 | I | Some test seams may be required to cover relay decisions without sockets. | unverified | internal | Needs source-level design during enrichment. |
+| 2 | I | Some test seams may be required to cover relay decisions without sockets. | verified | source | `PNetMeshServer`, `PNetMeshSession`, `PNetMeshChannel`, and `PNetMeshRouter` already expose internal seams for deterministic tests. |
+
+## Enrichment History
+
+- 2026-06-30: Marked ready after confirming internal seams already support in-memory relay/session/channel tests without sockets. Evidence: `PNetMeshServer.cs`, `PNetMeshSession.cs`, `PNetMeshChannel.cs`, `PNetMeshRouter.cs`.
 
 ## Completion Report
 

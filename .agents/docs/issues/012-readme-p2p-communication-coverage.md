@@ -3,9 +3,9 @@ issue: 012
 date: 2026-06-30
 source: coverage/readme
 priority: high
-status: open
+status: ready
 research-date: 2026-06-30
-research-status: none
+research-status: complete
 assumptions-date: 2026-06-30
 brief: "description+playbook"
 views:
@@ -50,6 +50,10 @@ Implement and cover the README description that PNet.Mesh is a P2P protocol for 
 |---|-----|------------|--------|--------|--------|
 | 1 | F | README describes PNet.Mesh as a P2P protocol. | verified | source | README Description says "P2P protocol to use inside managed dotnet application". |
 | 2 | F | Existing tests include a two-server localhost exchange. | verified | source | `PNetMeshServerTests` contains `bind_two_server_to_localhost_and_exchange`. |
+
+## Enrichment History
+
+- 2026-06-30: Marked ready after confirming direct two-peer localhost exchange already exists and can anchor the feature coverage command. Evidence: `PNetMeshServerTests.cs` and `README.md`.
 
 ## Completion Report
 

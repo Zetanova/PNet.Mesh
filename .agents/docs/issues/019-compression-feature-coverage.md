@@ -3,9 +3,9 @@ issue: 019
 date: 2026-06-30
 source: coverage/readme
 priority: medium
-status: open
+status: ready
 research-date: 2026-06-30
-research-status: partial
+research-status: complete
 assumptions-date: 2026-06-30
 brief: "description+playbook"
 views:
@@ -50,7 +50,11 @@ The proto defines compressed payload forms and compression metadata. `PNetMeshSe
 |---|-----|------------|--------|--------|--------|
 | 1 | F | README lists compression as a feature. | verified | source | README Features includes compression. |
 | 2 | F | Compression protocol fields exist. | verified | source | `MeshProtocol.proto` defines `Payload` compressed forms and `Compression`. |
-| 3 | F | Runtime compression behavior needs implementation or README narrowing. | unverified | source | Source review found no completed compression handling during issue filing. |
+| 3 | F | Runtime compression behavior needs implementation or README narrowing. | verified | source | `PNetMeshSession` iterates compression metadata without implementing payload compression handling. |
+
+## Enrichment History
+
+- 2026-06-30: Marked ready after confirming compression fields exist but runtime handling is still absent from the session path. Evidence: `MeshProtocol.proto`, `PNetMeshSession.cs`.
 
 ## Completion Report
 

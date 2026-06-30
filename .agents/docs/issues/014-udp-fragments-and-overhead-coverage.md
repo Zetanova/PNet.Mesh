@@ -3,9 +3,11 @@ issue: 014
 date: 2026-06-30
 source: coverage/readme
 priority: high
-status: open
+status: clarify
+terminal-state: extended-clarify
+clarify-prompt: "Which layer and packet shape should the README's exact `18 bytes per datagram` overhead claim cover? Options: A. encrypted PNet.Mesh payload over UDP, updating the claim if measured overhead is variable (recommended); B. raw UDP/IP envelope only; C. remove the exact byte count and replace it with benchmark-driven wording."
 research-date: 2026-06-30
-research-status: none
+research-status: complete
 assumptions-date: 2026-06-30
 brief: "description+playbook"
 views:
@@ -52,7 +54,11 @@ Implement or verify the README claims for communication over UDP data fragments 
 | # | Cat | Assumption | Status | Method | Detail |
 |---|-----|------------|--------|--------|--------|
 | 1 | F | README lists UDP data fragments and 18-byte datagram overhead as features. | verified | source | README Features includes both claims. |
-| 2 | F | Protocol packet sizing needs source verification before implementation. | unverified | source | The README claim is not currently tied to a named automated test. |
+| 2 | F | Protocol packet sizing needs source verification before implementation. | verified | source | The README claim is not tied to a named automated test or a single packet layer, so clarification is still required. |
+
+## Enrichment History
+
+- 2026-06-30: Kept clarify because no source or test pins the 18-byte claim to a single packet layer. Evidence: `README.md`, `PNetMeshProtocol.cs`, `PNetMeshSession.cs`.
 
 ## Completion Report
 

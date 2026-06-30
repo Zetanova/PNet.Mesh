@@ -3,9 +3,9 @@ issue: 018
 date: 2026-06-30
 source: coverage/readme
 priority: high
-status: open
+status: ready
 research-date: 2026-06-30
-research-status: partial
+research-status: complete
 assumptions-date: 2026-06-30
 brief: "description+playbook"
 views:
@@ -52,7 +52,11 @@ The proto defines candidate exchange and ICE-related fields. `PNetMeshSession` m
 |---|-----|------------|--------|--------|--------|
 | 1 | F | README lists NAT traversal and neighbor detection as a feature and references ICE. | verified | source | README Features and Used Protocols include these items. |
 | 2 | F | Candidate exchange types exist in the proto and source model. | verified | source | `MeshProtocol.proto` and `PNetMeshTopology.cs` define candidate exchange structures. |
-| 3 | I | Full ICE behavior may not be implemented yet. | unverified | internal | Source comments include TODOs; enrichment must classify exact support. |
+| 3 | I | Full ICE behavior may not be implemented yet. | verified | source | Source comments and branch behavior show the current ICE path is temporary/lite rather than full ICE. |
+
+## Enrichment History
+
+- 2026-06-30: Marked ready after confirming candidate exchange exists in proto and code while full ICE remains a narrower lite path. Evidence: `MeshProtocol.proto`, `PNetMeshTopology.cs`, `PNetMeshServer.cs`.
 
 ## Completion Report
 

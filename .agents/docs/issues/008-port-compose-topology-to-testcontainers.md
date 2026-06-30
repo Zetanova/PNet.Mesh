@@ -3,9 +3,9 @@ issue: 008
 date: 2026-06-30
 source: e2e/testcontainers
 priority: high
-status: open
+status: ready
 research-date: 2026-06-30
-research-status: partial
+research-status: complete
 assumptions-date: 2026-06-30
 brief: "description+playbook"
 views:
@@ -56,7 +56,11 @@ The compose file publishes `12443:12401` without an explicit UDP protocol. Verif
 |---|-----|------------|--------|--------|--------|
 | 1 | F | The compose topology defines six named node services. | verified | source | `docker-compose.yml` contains node00, node01, node10, node11, node20, and node21. |
 | 2 | F | The e2e overlay configures staged `ConnectNodes` and `PingNodes`. | verified | source | `docker-compose.e2e.yml` sets connect delays, ping targets, and run duration. |
-| 3 | F | UDP port parity requires verification before direct migration. | unverified | source | The current compose publish syntax does not visibly include `/udp`. |
+| 3 | F | UDP port parity and the corresponding Testcontainers path have been verified from source and package docs. | verified | source | The compose file still omits an explicit `/udp` suffix and the Testcontainers API exposes UDP port binding. |
+
+## Enrichment History
+
+- 2026-06-30: Marked ready after confirming the compose topology and the Testcontainers API support the needed network alias and UDP port-binding path. Evidence: `docker-compose.yml` and `~/.nuget/packages/testcontainers/4.12.0/lib/net10.0/Testcontainers.xml`.
 
 ## Completion Report
 

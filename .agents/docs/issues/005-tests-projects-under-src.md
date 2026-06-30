@@ -3,9 +3,9 @@ issue: 005
 date: 2026-06-30
 source: user/request
 priority: medium
-status: open
+status: ready
 research-date: 2026-06-30
-research-status: partial
+research-status: complete
 assumptions-date: 2026-06-30
 brief: "description+playbook"
 views:
@@ -58,6 +58,10 @@ Move the current test projects from `tests/` into the repository's `src/` layout
 | 1 | F | The repo currently contains `tests/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj`. | verified | source | `rg --files` listed the unit test project path. |
 | 2 | F | The repo currently contains `tests/PNet.Mesh.TestNode/PNet.Mesh.TestNode.csproj`. | verified | source | `rg --files` listed the test-node project path. |
 | 3 | F | The test-node Dockerfile currently references the `tests/PNet.Mesh.TestNode` path. | verified | source | `tests/PNet.Mesh.TestNode/Dockerfile` copies and builds that project path. |
+
+## Enrichment History
+
+- 2026-06-30: Persisted ready state after confirming the migration target still points at the repo's `tests/` projects and related references in the solution, README, Dockerfile, and e2e script. Evidence: `PNet.Mesh.sln`, `README.md`, `tests/PNet.Mesh.TestNode/Dockerfile`, `scripts/e2e-mesh-topology.sh`.
 
 ## Completion Report
 

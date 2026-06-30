@@ -12,7 +12,7 @@ gate-depends:
   - 009
   - 010
 research-date: 2026-06-30
-research-status: partial
+research-status: complete
 assumptions-date: 2026-06-30
 brief: "description+playbook"
 views:
@@ -70,6 +70,10 @@ The repo has a completed compose smoke story and script, but the current asserti
 | 1 | F | The current e2e runner is Docker Compose based. | verified | source | `scripts/e2e-mesh-topology.sh` constructs and runs a `docker compose` command. |
 | 2 | F | Current compose e2e coverage checks a six-node topology. | verified | source | The runner lists `node00`, `node01`, `node10`, `node11`, `node20`, and `node21`. |
 | 3 | F | The current unit test project contains localhost server integration tests. | verified | source | `PNetMeshServerTests.cs` includes two-server and three-server exchange tests. |
+
+## Enrichment History
+
+- 2026-06-30: Kept the parent tracker gated while child issues #007, #008, #009, and #010 remain the path to closing the Testcontainers migration. Evidence: `scripts/e2e-mesh-topology.sh`, `README.md`, `PNet.Mesh.sln`.
 
 ## Completion Report
 

@@ -3,9 +3,9 @@ issue: 007
 date: 2026-06-30
 source: e2e/testcontainers
 priority: high
-status: open
+status: ready
 research-date: 2026-06-30
-research-status: none
+research-status: complete
 assumptions-date: 2026-06-30
 brief: "description+playbook"
 views:
@@ -53,7 +53,11 @@ Create a dedicated xUnit e2e test project that can build or reuse the PNet.Mesh 
 |---|-----|------------|--------|--------|--------|
 | 1 | F | The repo uses xUnit v3 packages in the current unit test project. | verified | source | `tests/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj` references `xunit.v3`. |
 | 2 | F | The existing test-node project can run as a container entrypoint. | verified | source | `tests/PNet.Mesh.TestNode/Dockerfile` publishes and runs `PNet.Mesh.TestNode.dll`. |
-| 3 | F | The exact Testcontainers API usage for this repo still needs package/API verification. | unverified | source | No Testcontainers package reference exists in the current project files. |
+| 3 | F | The exact Testcontainers API usage for this repo has been verified from the cached package metadata. | verified | source | Testcontainers 4.12.0 exposes Dockerfile image build, xUnit-compatible use, network, alias, port binding, and UDP APIs in the net10.0 package docs. |
+
+## Enrichment History
+
+- 2026-06-30: Marked ready after confirming Testcontainers 4.12.0 restores on net10.0 and exposes Dockerfile image-build, network, alias, port-binding, and UDP APIs. Evidence: the cached package metadata and XML docs under `~/.nuget/packages/testcontainers/4.12.0/`.
 
 ## Completion Report
 

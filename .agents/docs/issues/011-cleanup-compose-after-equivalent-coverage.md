@@ -11,7 +11,7 @@ gate-depends:
   - 008
   - 009
 research-date: 2026-06-30
-research-status: partial
+research-status: complete
 assumptions-date: 2026-06-30
 brief: "description+playbook"
 views:
@@ -56,6 +56,10 @@ The current README still documents the compose smoke command, and the repo conta
 |---|-----|------------|--------|--------|--------|
 | 1 | F | The README currently references `scripts/e2e-mesh-topology.sh`. | verified | source | README maintenance commands include the compose e2e script. |
 | 2 | F | Compose artifacts are currently the only container e2e implementation in the repo. | verified | source | No Testcontainers project or package reference was found during issue filing. |
+
+## Enrichment History
+
+- 2026-06-30: Kept compose cleanup gated because the README, solution, and runner still depend on compose artifacts. Evidence: `README.md`, `PNet.Mesh.sln`, `scripts/e2e-mesh-topology.sh`, `docker-compose.yml`, `docker-compose.e2e.yml`.
 
 ## Completion Report
 

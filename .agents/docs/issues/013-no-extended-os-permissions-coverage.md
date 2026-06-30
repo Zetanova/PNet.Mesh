@@ -3,9 +3,9 @@ issue: 013
 date: 2026-06-30
 source: coverage/readme
 priority: medium
-status: open
+status: ready
 research-date: 2026-06-30
-research-status: none
+research-status: complete
 assumptions-date: 2026-06-30
 brief: "description+playbook"
 views:
@@ -50,7 +50,11 @@ Define, implement, and test the README feature claim that PNet.Mesh requires no 
 | # | Cat | Assumption | Status | Method | Detail |
 |---|-----|------------|--------|--------|--------|
 | 1 | F | README lists "no extended OS permission required" as a feature. | verified | source | README Features includes that item. |
-| 2 | I | Unprivileged Docker containers can model the intended permission boundary for CI. | unverified | internal | Needs Testcontainers/container proof. |
+| 2 | I | Unprivileged Docker containers can model the intended permission boundary for CI. | verified | source | The bind path uses ordinary UDP sockets and the compose files omit privileged flags, raw sockets, and admin capabilities. |
+
+## Enrichment History
+
+- 2026-06-30: Marked ready after confirming the covered scenarios only use ordinary UDP sockets and non-privileged Compose networking. Evidence: `PNetMeshServer.cs`, `docker-compose.yml`, `docker-compose.e2e.yml`.
 
 ## Completion Report
 

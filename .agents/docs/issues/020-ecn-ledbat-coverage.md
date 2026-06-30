@@ -3,9 +3,9 @@ issue: 020
 date: 2026-06-30
 source: coverage/readme
 priority: medium
-status: open
+status: ready
 research-date: 2026-06-30
-research-status: partial
+research-status: complete
 assumptions-date: 2026-06-30
 brief: "description+playbook"
 views:
@@ -51,7 +51,11 @@ The proto defines probe, probe reply, ECN enum, reports, ack delay, and timestam
 |---|-----|------------|--------|--------|--------|
 | 1 | F | README references ECN and LEDBAT. | verified | source | README Used Protocols includes both protocol references. |
 | 2 | F | Proto fields exist for probe, ECN, reports, timestamps, and ack delay. | verified | source | `MeshProtocol.proto` defines those fields. |
-| 3 | F | Runtime ECN/LEDBAT behavior needs source verification before implementation. | unverified | source | Current issue filing only verified placeholders in inspected session code. |
+| 3 | F | Runtime ECN/LEDBAT behavior needs source verification before implementation. | verified | source | Probe/probe-reply branches are empty and timestamp is read then discarded in the session path. |
+
+## Enrichment History
+
+- 2026-06-30: Marked ready after confirming probe, ECN, and LEDBAT schema exists while runtime behavior remains stubbed in the session path. Evidence: `MeshProtocol.proto`, `PNetMeshSession.cs`.
 
 ## Completion Report
 
