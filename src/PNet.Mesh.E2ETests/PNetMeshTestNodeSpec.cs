@@ -114,6 +114,14 @@ public sealed class PNetMeshTestNodeSpec
         return new[] { node00, node01, node10, node11, node20, node21 };
     }
 
+    public static IReadOnlyList<PNetMeshTestNodeSpec> DirectPeerTopology()
+    {
+        var node00 = DirectPeerNode("node00", "H+wvAlb/Q+pKX2z9l5qJpD+ikXm+6pxJQtrp69ZkyYI=", 12401, "node01", 12402);
+        var node01 = DirectPeerNode("node01", "3VXQslNLrlZMjjo6T+RJ77WKnynH+LT1ZOBs74kISOk=", 12402, "node00", 12401);
+
+        return new[] { node00, node01 };
+    }
+
     static PNetMeshTestNodeSpec ComposeNode(
         string name,
         string privateKey,
@@ -136,6 +144,28 @@ public sealed class PNetMeshTestNodeSpec
             PingNodes = pingNodes,
             Peers = peers,
             Nodes = ComposeNodes
+        };
+    }
+
+    static PNetMeshTestNodeSpec DirectPeerNode(string name, string privateKey, int port, string peerName, int peerPort)
+    {
+        return new PNetMeshTestNodeSpec
+        {
+            Name = name,
+            PublicKey = GetComposePublicKey(name),
+            PrivateKey = privateKey,
+            Psk = ComposePsk,
+            Port = port,
+            ConnectDelaySeconds = 1,
+            RunDurationSeconds = 10,
+            ConnectNodes = new[] { peerName },
+            PingNodes = new[] { peerName },
+            Peers = new[] { StaticPeer(peerName, $"{peerName}:{peerPort}") },
+            Nodes = new[]
+            {
+                new PNetMeshNodeIdentity { Name = name, PublicKey = GetComposePublicKey(name) },
+                new PNetMeshNodeIdentity { Name = peerName, PublicKey = GetComposePublicKey(peerName) }
+            }
         };
     }
 

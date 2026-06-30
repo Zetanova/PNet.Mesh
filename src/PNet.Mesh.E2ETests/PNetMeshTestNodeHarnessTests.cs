@@ -52,6 +52,52 @@ public sealed class PNetMeshTestNodeHarnessTests
     }
 
     [Fact]
+    public async Task direct_peers_exchange_payloads_in_both_directions()
+    {
+        await using var harness = new PNetMeshTestNodeHarness();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromMinutes(5));
+
+        await harness.InitializeAsync(timeout.Token);
+
+        var containers = new Dictionary<string, IContainer>(StringComparer.Ordinal);
+        var nodes = PNetMeshTestNodeSpec.DirectPeerTopology();
+        var expectedLogsByNode = new Dictionary<string, string[]>(StringComparer.Ordinal)
+        {
+            ["node00"] = new[]
+            {
+                "Node[node00] started",
+                "ping from node01 to node00",
+                "pong from node01 to node00",
+                "node00 got 1 pongs"
+            },
+            ["node01"] = new[]
+            {
+                "Node[node01] started",
+                "ping from node00 to node01",
+                "pong from node00 to node01",
+                "node01 got 1 pongs"
+            }
+        };
+
+        foreach (var node in nodes)
+        {
+            containers[node.Name] = await harness.StartNodeAsync(node, timeout.Token);
+        }
+
+        foreach (var node in nodes)
+        {
+            var logs = await PNetMeshTestNodeHarness.WaitForLogsAsync(
+                containers[node.Name],
+                expectedLogsByNode[node.Name],
+                timeout.Token);
+
+            _output.WriteLine($"===== {node.Name} =====");
+            _output.WriteLine(logs);
+        }
+    }
+
+    [Fact]
     public async Task six_node_topology_matches_compose_smoke_route_with_docker_dns_aliases()
     {
         await using var harness = new PNetMeshTestNodeHarness();
