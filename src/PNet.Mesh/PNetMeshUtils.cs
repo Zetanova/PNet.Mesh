@@ -43,6 +43,9 @@ namespace PNet.Mesh
 
         public static EndPoint MapToItem(Protos.EndPoint item)
         {
+            if (item is null)
+                return null;
+
             return item.ValueCase switch
             {
                 Protos.EndPoint.ValueOneofCase.Ip => item.Ip.IpCase switch

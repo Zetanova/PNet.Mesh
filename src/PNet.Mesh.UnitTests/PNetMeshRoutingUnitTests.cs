@@ -89,6 +89,51 @@ namespace PNet.Actor.UnitTests.Mesh
         }
 
         [Fact]
+        public void server_relay_candidate_selection_prefers_known_route_then_reflexive_endpoint()
+        {
+            var router = new PNetMeshRouter();
+            var remoteAddress = Address(35);
+            var anyHost = new IPEndPoint(IPAddress.Any, 12402);
+            var validHost = new IPEndPoint(IPAddress.Parse("172.18.0.7"), 12402);
+            var reflexive = new IPEndPoint(IPAddress.Parse("172.18.0.8"), 12402);
+            var candidates = ImmutableArray.Create(
+                new PNetMeshCandidate
+                {
+                    Address = anyHost,
+                    Protocol = PNetMeshProtocolType.UDP,
+                    Type = PNetMeshCandidateType.Host
+                },
+                new PNetMeshCandidate
+                {
+                    Address = reflexive,
+                    Protocol = PNetMeshProtocolType.UDP,
+                    Type = PNetMeshCandidateType.ServerReflexive
+                });
+
+            Assert.Equal(reflexive, PNetMeshServer.SelectRelayRemoteEndPoint(router, remoteAddress, candidates));
+
+            candidates = candidates.Insert(0, new PNetMeshCandidate
+            {
+                Address = validHost,
+                Protocol = PNetMeshProtocolType.UDP,
+                Type = PNetMeshCandidateType.Host
+            });
+
+            Assert.Equal(reflexive, PNetMeshServer.SelectRelayRemoteEndPoint(router, remoteAddress, candidates));
+
+            var knownRoute = new IPEndPoint(IPAddress.Loopback, 12402);
+            router.SetEntry(remoteAddress, knownRoute);
+            candidates = candidates.Add(new PNetMeshCandidate
+            {
+                Address = knownRoute,
+                Protocol = PNetMeshProtocolType.UDP,
+                Type = PNetMeshCandidateType.Host
+            });
+
+            Assert.Equal(knownRoute, PNetMeshServer.SelectRelayRemoteEndPoint(router, remoteAddress, candidates));
+        }
+
+        [Fact]
         public void session_relay_roundtrips_route_hop_payload_and_candidate_exchange()
         {
             using var senderKey = KeyPair.Generate();
@@ -131,16 +176,27 @@ namespace PNet.Actor.UnitTests.Mesh
                     Lite = true,
                     CheckPacing = 250,
                     UserPass = "user:pass",
-                    Candidates = ImmutableArray.Create(new PNetMeshCandidate
-                    {
-                        Address = new DnsEndPoint("relay.example", 3478),
-                        Base = new DnsEndPoint("base.example", 3479),
-                        ComponentId = 2,
-                        Foundation = "foundation-1",
-                        Priority = 12345,
-                        Protocol = PNetMeshProtocolType.TCP,
-                        Type = PNetMeshCandidateType.Relayed
-                    })
+                    Candidates = ImmutableArray.Create(
+                        new PNetMeshCandidate
+                        {
+                            Address = new DnsEndPoint("relay.example", 3478),
+                            Base = new DnsEndPoint("base.example", 3479),
+                            ComponentId = 2,
+                            Foundation = "foundation-1",
+                            Priority = 12345,
+                            Protocol = PNetMeshProtocolType.TCP,
+                            Type = PNetMeshCandidateType.Relayed
+                        },
+                        new PNetMeshCandidate
+                        {
+                            Address = new IPEndPoint(IPAddress.Loopback, 3480),
+                            Base = null,
+                            ComponentId = 1,
+                            Foundation = "foundation-null-base",
+                            Priority = 54321,
+                            Protocol = PNetMeshProtocolType.UDP,
+                            Type = PNetMeshCandidateType.ServerReflexive
+                        })
                 }
             };
 
@@ -166,7 +222,9 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.Equal(250u, exchange.CheckPacing);
             Assert.Equal("user:pass", exchange.UserPass);
 
-            var candidate = Assert.Single(exchange.Candidates);
+            Assert.Equal(2, exchange.Candidates.Length);
+
+            var candidate = exchange.Candidates.Single(n => n.Foundation == "foundation-1");
             AssertDnsEndPoint("relay.example", 3478, candidate.Address);
             AssertDnsEndPoint("base.example", 3479, candidate.Base);
             Assert.Equal((byte)2, candidate.ComponentId);
@@ -174,6 +232,14 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.Equal(12345u, candidate.Priority);
             Assert.Equal(PNetMeshProtocolType.TCP, candidate.Protocol);
             Assert.Equal(PNetMeshCandidateType.Relayed, candidate.Type);
+
+            var nullBaseCandidate = exchange.Candidates.Single(n => n.Foundation == "foundation-null-base");
+            Assert.Equal(new IPEndPoint(IPAddress.Loopback, 3480), nullBaseCandidate.Address);
+            Assert.Null(nullBaseCandidate.Base);
+            Assert.Equal((byte)1, nullBaseCandidate.ComponentId);
+            Assert.Equal(54321u, nullBaseCandidate.Priority);
+            Assert.Equal(PNetMeshProtocolType.UDP, nullBaseCandidate.Protocol);
+            Assert.Equal(PNetMeshCandidateType.ServerReflexive, nullBaseCandidate.Type);
         }
 
         static void OpenSessionPair(

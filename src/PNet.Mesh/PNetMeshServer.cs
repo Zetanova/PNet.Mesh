@@ -429,22 +429,10 @@ namespace PNet.Mesh
                                         channels.Add(remoteAddress, channel);
                                     }
 
-                                    //temp till ICE agent
-                                    {
-                                        var candidates = packet.CandidateExchange.Candidates;
-
-                                        if (_router.TryGetEntry(remoteAddress, out var entry)
-                                            && entry.EndPoint != null
-                                            && candidates.Any(n => n.Address.Equals(entry.EndPoint)))
-                                        {
-                                            remoteEndPoint = entry.EndPoint;
-                                        }
-                                        else
-                                        {
-                                            //todo select neighbor 
-                                            remoteEndPoint = candidates.FirstOrDefault()?.Address;
-                                        }
-                                    }
+                                    remoteEndPoint = SelectRelayRemoteEndPoint(
+                                        _router,
+                                        remoteAddress,
+                                        packet.CandidateExchange?.Candidates ?? ImmutableArray<PNetMeshCandidate>.Empty);
 
                                     //deliver local
                                     var receive = new PNetMeshControlCommands.Receive
@@ -728,6 +716,37 @@ namespace PNet.Mesh
         internal static bool ShouldRelayToPeer(byte[] peerAddress, HashSet<byte[]> routeSet)
         {
             return !routeSet.Contains(peerAddress);
+        }
+
+        internal static EndPoint SelectRelayRemoteEndPoint(
+            PNetMeshRouter router,
+            byte[] remoteAddress,
+            ImmutableArray<PNetMeshCandidate> candidates)
+        {
+            if (router.TryGetEntry(remoteAddress, out var entry)
+                && entry.EndPoint != null
+                && candidates.Any(n => entry.EndPoint.Equals(n.Address)))
+            {
+                return entry.EndPoint;
+            }
+
+            // Until ICE checks rank candidate pairs, prefer the observed reflexive address over advertised host endpoints.
+            return candidates.FirstOrDefault(n =>
+                    n.Type == PNetMeshCandidateType.ServerReflexive
+                    && IsUsableRemoteEndPoint(n.Address))?.Address
+                ?? candidates.FirstOrDefault(n => IsUsableRemoteEndPoint(n.Address))?.Address
+                ?? candidates.FirstOrDefault(n => n.Address != null)?.Address;
+        }
+
+        static bool IsUsableRemoteEndPoint(EndPoint endPoint)
+        {
+            return endPoint switch
+            {
+                IPEndPoint ip => !IPAddress.Any.Equals(ip.Address) && !IPAddress.IPv6Any.Equals(ip.Address),
+                DnsEndPoint dns => !string.IsNullOrWhiteSpace(dns.Host),
+                null => false,
+                _ => true
+            };
         }
 
         static void ProcessSend(object sender, SocketAsyncEventArgs args)

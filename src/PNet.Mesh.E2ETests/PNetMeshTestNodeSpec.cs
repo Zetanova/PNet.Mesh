@@ -122,6 +122,37 @@ public sealed class PNetMeshTestNodeSpec
         return new[] { node00, node01 };
     }
 
+    public static IReadOnlyList<PNetMeshTestNodeSpec> BootstrapDiscoveryTopology()
+    {
+        var node00 = new PNetMeshTestNodeSpec
+        {
+            Name = "node00",
+            PublicKey = GetComposePublicKey("node00"),
+            PrivateKey = "H+wvAlb/Q+pKX2z9l5qJpD+ikXm+6pxJQtrp69ZkyYI=",
+            Psk = ComposePsk,
+            Port = 12401,
+            ConnectDelaySeconds = 8,
+            RunDurationSeconds = 28,
+            ConnectNodes = new[] { "node10", "node01" },
+            Peers = new[]
+            {
+                StaticPeer("node10", "node10:12410"),
+                StaticPeer("node01", "node01:12402")
+            },
+            Nodes = new[]
+            {
+                new PNetMeshNodeIdentity { Name = "node00", PublicKey = GetComposePublicKey("node00") },
+                new PNetMeshNodeIdentity { Name = "node10", PublicKey = GetComposePublicKey("node10") },
+                new PNetMeshNodeIdentity { Name = "node01", PublicKey = GetComposePublicKey("node01") }
+            }
+        };
+
+        var node10 = BootstrapDiscoveryEdgeNode("node10", "NTxs6EdH52kw7bsDp0W1A5LD588wthPlrFU8K3RgP7Y=", 12410, "node01", 12);
+        var node01 = BootstrapDiscoveryEdgeNode("node01", "3VXQslNLrlZMjjo6T+RJ77WKnynH+LT1ZOBs74kISOk=", 12402, "node10", 12);
+
+        return new[] { node00, node10, node01 };
+    }
+
     static PNetMeshTestNodeSpec ComposeNode(
         string name,
         string privateKey,
@@ -156,7 +187,7 @@ public sealed class PNetMeshTestNodeSpec
             PrivateKey = privateKey,
             Psk = ComposePsk,
             Port = port,
-            ConnectDelaySeconds = 1,
+            ConnectDelaySeconds = 4,
             RunDurationSeconds = 10,
             ConnectNodes = new[] { peerName },
             PingNodes = new[] { peerName },
@@ -165,6 +196,35 @@ public sealed class PNetMeshTestNodeSpec
             {
                 new PNetMeshNodeIdentity { Name = name, PublicKey = GetComposePublicKey(name) },
                 new PNetMeshNodeIdentity { Name = peerName, PublicKey = GetComposePublicKey(peerName) }
+            }
+        };
+    }
+
+    static PNetMeshTestNodeSpec BootstrapDiscoveryEdgeNode(
+        string name,
+        string privateKey,
+        int port,
+        string discoveredPeerName,
+        int connectDelaySeconds)
+    {
+        // The edge nodes intentionally seed only node00; the edge-to-edge peer must be learned through that open channel.
+        return new PNetMeshTestNodeSpec
+        {
+            Name = name,
+            PublicKey = GetComposePublicKey(name),
+            PrivateKey = privateKey,
+            Psk = ComposePsk,
+            Port = port,
+            ConnectDelaySeconds = connectDelaySeconds,
+            RunDurationSeconds = 20,
+            ConnectNodes = new[] { "node00", discoveredPeerName },
+            PingNodes = new[] { discoveredPeerName },
+            Peers = new[] { StaticPeer("node00", "node00:12401") },
+            Nodes = new[]
+            {
+                new PNetMeshNodeIdentity { Name = "node00", PublicKey = GetComposePublicKey("node00") },
+                new PNetMeshNodeIdentity { Name = name, PublicKey = GetComposePublicKey(name) },
+                new PNetMeshNodeIdentity { Name = discoveredPeerName, PublicKey = GetComposePublicKey(discoveredPeerName) }
             }
         };
     }
