@@ -3,10 +3,12 @@ issue: 023
 date: 2026-06-30
 source: e2e/coverage
 priority: high
-status: ready
+status: completed
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
+completion-date: 2026-06-30
+commits: [84bb53b]
 split-status: child
 parent-issue: 009
 brief: "description+playbook"
@@ -54,4 +56,14 @@ Parent research identified multi-hop relay delivery as a distinct scenario famil
 
 ## Completion Report
 
-Pending.
+Completed in `84bb53b`.
+
+- Added a four-node segmented Testcontainers topology where edge nodes on separated Docker networks exchange payloads only through relay nodes.
+- Extended the e2e harness to attach nodes to multiple named networks while preserving the default single-network behavior.
+- Added route-response handling needed by the segmented relay path: long relay routes stay relay-backed until a known route exists, relay-only packets are acknowledged, and relay commands flush immediately.
+- Tightened relay fan-out to routable open sessions with concrete remote endpoints and added a regression for fallback to an older open session when the current session is disposed.
+- Verified Release build, unit tests (`30` total), targeted multi-hop e2e (`1` total), full e2e tests (`6` total), scoped whitespace formatting, `git diff --check`, Docker cleanup, and focused reviewer approval.
+
+## Resolving Commits
+
+- `84bb53b6c04243b41b70931ba3e186b59bdc55f0` - add segmented multi-hop relay coverage
