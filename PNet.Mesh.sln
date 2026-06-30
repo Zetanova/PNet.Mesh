@@ -11,6 +11,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PNet.Mesh.TestNode", "src\P
 EndProject
 Project("{E53339B2-1760-4266-BCC7-CA923CBCF16C}") = "docker-compose", "docker-compose.dcproj", "{DCE8675B-577F-49C4-A58C-1682223E3612}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PNet.Mesh.E2ETests", "src\PNet.Mesh.E2ETests\PNet.Mesh.E2ETests.csproj", "{D20EFCFA-70FD-42DB-9D0C-6E3E1DC16612}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -33,6 +35,10 @@ Global
 		{DCE8675B-577F-49C4-A58C-1682223E3612}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{DCE8675B-577F-49C4-A58C-1682223E3612}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{DCE8675B-577F-49C4-A58C-1682223E3612}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D20EFCFA-70FD-42DB-9D0C-6E3E1DC16612}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D20EFCFA-70FD-42DB-9D0C-6E3E1DC16612}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D20EFCFA-70FD-42DB-9D0C-6E3E1DC16612}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D20EFCFA-70FD-42DB-9D0C-6E3E1DC16612}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
