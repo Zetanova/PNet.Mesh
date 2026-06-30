@@ -3,10 +3,12 @@ issue: 007
 date: 2026-06-30
 source: e2e/testcontainers
 priority: high
-status: ready
+status: completed
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
+completion-date: 2026-06-30
+commits: [52cf1f7]
 brief: "description+playbook"
 views:
   enrich: "description+playbook+research+assumptions"
@@ -51,8 +53,8 @@ Create a dedicated xUnit e2e test project that can build or reuse the PNet.Mesh 
 
 | # | Cat | Assumption | Status | Method | Detail |
 |---|-----|------------|--------|--------|--------|
-| 1 | F | The repo uses xUnit v3 packages in the current unit test project. | verified | source | `tests/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj` references `xunit.v3`. |
-| 2 | F | The existing test-node project can run as a container entrypoint. | verified | source | `tests/PNet.Mesh.TestNode/Dockerfile` publishes and runs `PNet.Mesh.TestNode.dll`. |
+| 1 | F | The repo uses xUnit v3 packages in the current unit test project. | verified | source | `src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj` references `xunit.v3`. |
+| 2 | F | The existing test-node project can run as a container entrypoint. | verified | source | `src/PNet.Mesh.TestNode/Dockerfile` publishes and runs `PNet.Mesh.TestNode.dll`. |
 | 3 | F | The exact Testcontainers API usage for this repo has been verified from the cached package metadata. | verified | source | Testcontainers 4.12.0 exposes Dockerfile image build, xUnit-compatible use, network, alias, port binding, and UDP APIs in the net10.0 package docs. |
 
 ## Enrichment History
@@ -61,4 +63,14 @@ Create a dedicated xUnit e2e test project that can build or reuse the PNet.Mesh 
 
 ## Completion Report
 
-Pending.
+Completed in `52cf1f7`.
+
+- Added a dedicated xUnit v3 Testcontainers e2e project to the solution.
+- Added a reusable test-node harness that builds the Dockerfile from the repository context, creates isolated Docker networks, starts node containers, waits for readiness logs, captures failed-startup logs, and performs best-effort cleanup across containers, networks, and generated images.
+- Added e2e coverage for successful single-node readiness and failed-startup diagnostics.
+- Documented the timeout-wrapped e2e command in the README and project guidance.
+- Verified restore, Release build, unit tests, e2e tests, package health checks, scoped whitespace formatting, and `git diff --check`; testing, container, config, and doc-sync reviewers approved the change.
+
+## Resolving Commits
+
+- `52cf1f75cbe19142b3c83952b081bdad186122a8` - add Testcontainers e2e harness
