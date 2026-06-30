@@ -3,10 +3,12 @@ issue: 010
 date: 2026-06-30
 source: tests/unit-doubles
 priority: high
-status: ready
+status: completed
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
+completion-date: 2026-06-30
+commits: [49deb32]
 brief: "description+playbook"
 views:
   enrich: "description+playbook+research+assumptions"
@@ -61,4 +63,14 @@ Add deterministic unit or component tests with doubles around routing, session, 
 
 ## Completion Report
 
-Pending.
+Completed in `49deb32`.
+
+- Added deterministic xUnit coverage for router insert/update/lookup, route freshness, unknown lookup, and invalid address rejection.
+- Extracted small internal `PNetMeshServer` relay decision helpers and covered duplicate relay suppression plus route-loop peer filtering without live sockets.
+- Added an in-memory session relay round-trip test covering relay encode/decode, hop-count decrement, route append, payload preservation, and candidate exchange field mapping.
+- Verified Release build, full unit-test command (`28` total, `0` failed/skipped/not-run), scoped whitespace formatting, and `git diff --check`.
+- Testing specialist approved the patch with no blocking findings.
+
+## Resolving Commits
+
+- `49deb32fd59c4bb277c9bb5e2d0410d201bfbf69` - add deterministic routing unit coverage

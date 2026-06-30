@@ -5,12 +5,11 @@ source: e2e/testcontainers
 priority: high
 status: gated
 terminal-state: gated
-gate: "Close only after child issues 007, 008, 009, and 010 are completed or explicitly superseded."
+gate: "Close only after child issues 007, 008, and 009 are completed or explicitly superseded. Child issue 010 completed in 49deb32."
 gate-depends:
   - 007
   - 008
   - 009
-  - 010
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
@@ -45,7 +44,7 @@ This is a parent tracking issue. Implement child issues, not this parent directl
 
 ## Acceptance Criteria
 
-- Child issues #007, #008, #009, and #010 are completed or replaced by explicit follow-up issues.
+- Child issues #007, #008, and #009 are completed or replaced by explicit follow-up issues; child #010 is completed.
 - The README test commands point at the new e2e path.
 - The remaining test coverage gaps are tracked as focused feature issues.
 
@@ -60,8 +59,8 @@ The repo has a completed compose smoke story and script, but the current asserti
 - `scripts/e2e-mesh-topology.sh`
 - `docker-compose.yml`
 - `docker-compose.e2e.yml`
-- `tests/PNet.Mesh.UnitTests/PNetMeshServerTests.cs`
-- `tests/PNet.Mesh.TestNode/NodeService.cs`
+- `src/PNet.Mesh.UnitTests/PNetMeshServerTests.cs`
+- `src/PNet.Mesh.TestNode/NodeService.cs`
 
 ## Assumptions
 
@@ -74,6 +73,7 @@ The repo has a completed compose smoke story and script, but the current asserti
 ## Enrichment History
 
 - 2026-06-30: Kept the parent tracker gated while child issues #007, #008, #009, and #010 remain the path to closing the Testcontainers migration. Evidence: `scripts/e2e-mesh-topology.sh`, `README.md`, `PNet.Mesh.sln`.
+- 2026-06-30: Removed completed child issue #010 from the active gate after `49deb32`; parent remains gated on #007, #008, and #009.
 
 ## Completion Report
 
