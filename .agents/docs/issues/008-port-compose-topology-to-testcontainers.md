@@ -3,10 +3,12 @@ issue: 008
 date: 2026-06-30
 source: e2e/testcontainers
 priority: high
-status: ready
+status: completed
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
+completion-date: 2026-06-30
+commits: [948f553]
 brief: "description+playbook"
 views:
   enrich: "description+playbook+research+assumptions"
@@ -64,4 +66,14 @@ The compose file publishes `12443:12401` without an explicit UDP protocol. Verif
 
 ## Completion Report
 
-Pending.
+Completed in `948f553`.
+
+- Extended the Testcontainers harness with multi-log waits, bounded diagnostic log capture, bounded disposal, and early failure when expected route logs are missing after node shutdown.
+- Added a six-node Testcontainers scenario for `node00`, `node01`, `node10`, `node11`, `node20`, and `node21` using the compose keys, PSK, connect delays, ping targets, and node catalog.
+- Preserved the smoke route assertions through Docker DNS aliases on one isolated Testcontainers network; the code documents why this replaces the compose host-gateway publishing path, which is TCP while the mesh server speaks UDP.
+- Verified the scenario fails on missing startup or missing expected route logs and captures container logs in failure messages.
+- Verified Release build, unit tests (`28` total), e2e tests (`3` total), scoped whitespace formatting, `git diff --check`, and Docker cleanup; final testing and review passes approved the change.
+
+## Resolving Commits
+
+- `948f553c0e08594447dfe0e6aac59a25f8c85124` - port compose smoke topology to Testcontainers

@@ -5,9 +5,8 @@ source: e2e/testcontainers
 priority: high
 status: gated
 terminal-state: gated
-gate: "Close only after child issues 008 and 009 are completed or explicitly superseded. Child issues 007 and 010 completed in 52cf1f7 and 49deb32."
+gate: "Close only after child issue 009 is completed or explicitly superseded. Child issues 007, 008, and 010 completed in 52cf1f7, 948f553, and 49deb32."
 gate-depends:
-  - 008
   - 009
 research-date: 2026-06-30
 research-status: complete
@@ -30,7 +29,7 @@ This is a parent tracking issue. Implement child issues, not this parent directl
 ## Playbook
 
 - `Harness foundation`: child #007 created a reusable Testcontainers xUnit project and node harness.
-- `Topology parity`: child #008 reproduces the current six-node compose smoke topology in Testcontainers.
+- `Topology parity`: child #008 reproduced the current six-node compose smoke route in Testcontainers.
 - `Coverage expansion`: child #009 adds direct, multi-hop, discovery, restart, and negative e2e scenarios.
 - `Unit doubles`: child #010 adds deterministic tests for routing/session/relay decisions that should not require Docker.
 - `Cleanup gate`: issue #011 removes compose artifacts only after equivalent Testcontainers coverage exists.
@@ -43,7 +42,7 @@ This is a parent tracking issue. Implement child issues, not this parent directl
 
 ## Acceptance Criteria
 
-- Child issues #008 and #009 are completed or replaced by explicit follow-up issues; child issues #007 and #010 are completed.
+- Child issue #009 is completed or replaced by explicit follow-up issues; child issues #007, #008, and #010 are completed.
 - The README test commands point at the new e2e path.
 - The remaining test coverage gaps are tracked as focused feature issues.
 
@@ -74,6 +73,7 @@ The repo has a completed compose smoke story and script, but the current asserti
 - 2026-06-30: Kept the parent tracker gated while child issues #007, #008, #009, and #010 remain the path to closing the Testcontainers migration. Evidence: `scripts/e2e-mesh-topology.sh`, `README.md`, `PNet.Mesh.sln`.
 - 2026-06-30: Removed completed child issue #010 from the active gate after `49deb32`; parent remains gated on #007, #008, and #009.
 - 2026-06-30: Removed completed child issue #007 from the active gate after `52cf1f7`; parent remains gated on #008 and #009.
+- 2026-06-30: Removed completed child issue #008 from the active gate after `948f553`; parent remains gated on #009.
 
 ## Completion Report
 
