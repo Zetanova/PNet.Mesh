@@ -27,6 +27,10 @@ namespace PNet.Mesh
 
         public bool IsOpen => _currentSession?.Status == PNetMeshSessionStatus.Open;
 
+        internal bool CanRelayDirect => TryGetRelaySession(out _);
+
+        internal bool HasRoutableSession => TryGetRelaySession(out _);
+
         public PNetMeshChannel(ILogger<PNetMeshChannel> logger = null)
         {
             _logger = logger ?? NullLogger<PNetMeshChannel>.Instance;
@@ -120,7 +124,15 @@ namespace PNet.Mesh
                             break;
                         case PNetMeshChannelCommands.Relay cmd:
                             //todo open session on demand
-                            _currentSession.WriteRelay(cmd.Packet);
+                            if (!TryGetRelaySession(out var relaySession))
+                            {
+                                cmd.MemoryOwner?.Dispose();
+                                cmd.Result?.SetException(new InvalidOperationException("No routable session is available."));
+                                break;
+                            }
+
+                            relaySession.WriteRelay(cmd.Packet);
+                            relaySession.WritePacket();
                             cmd.MemoryOwner?.Dispose();
                             cmd.Result?.SetResult();
                             break;
@@ -178,6 +190,30 @@ namespace PNet.Mesh
             await _controlChannel.Writer.WriteAsync(cmd, cancellationToken);
 
             await cmd.Result.Task;
+        }
+
+        bool TryGetRelaySession(out PNetMeshSession session)
+        {
+            session = _currentSession;
+            if (IsRelaySession(session))
+                return true;
+
+            foreach (var candidate in _sessions)
+            {
+                if (IsRelaySession(candidate))
+                {
+                    session = candidate;
+                    return true;
+                }
+            }
+
+            session = null;
+            return false;
+        }
+
+        static bool IsRelaySession(PNetMeshSession session)
+        {
+            return session?.Status == PNetMeshSessionStatus.Open && session.RemoteEndPoint is not null;
         }
     }
 

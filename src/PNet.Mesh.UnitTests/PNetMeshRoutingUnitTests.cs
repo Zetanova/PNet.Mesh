@@ -7,6 +7,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Channels;
+using System.Threading.Tasks;
 using Xunit;
 
 namespace PNet.Actor.UnitTests.Mesh
@@ -120,6 +121,8 @@ namespace PNet.Actor.UnitTests.Mesh
             });
 
             Assert.Equal(reflexive, PNetMeshServer.SelectRelayRemoteEndPoint(router, remoteAddress, candidates));
+            Assert.Equal(reflexive, PNetMeshServer.SelectRelayRemoteEndPoint(router, remoteAddress, candidates, routeLength: 3));
+            Assert.Null(PNetMeshServer.SelectRelayRemoteEndPoint(router, remoteAddress, candidates, routeLength: 4));
 
             var knownRoute = new IPEndPoint(IPAddress.Loopback, 12402);
             router.SetEntry(remoteAddress, knownRoute);
@@ -131,6 +134,8 @@ namespace PNet.Actor.UnitTests.Mesh
             });
 
             Assert.Equal(knownRoute, PNetMeshServer.SelectRelayRemoteEndPoint(router, remoteAddress, candidates));
+            Assert.Equal(knownRoute, PNetMeshServer.SelectRelayRemoteEndPoint(router, remoteAddress, candidates, routeLength: 3));
+            Assert.Equal(knownRoute, PNetMeshServer.SelectRelayRemoteEndPoint(router, remoteAddress, candidates, routeLength: 4));
         }
 
         [Fact]
@@ -240,6 +245,75 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.Equal(54321u, nullBaseCandidate.Priority);
             Assert.Equal(PNetMeshProtocolType.UDP, nullBaseCandidate.Protocol);
             Assert.Equal(PNetMeshCandidateType.ServerReflexive, nullBaseCandidate.Type);
+        }
+
+        [Fact]
+        public async Task channel_relay_uses_open_routable_session_when_current_session_is_disposed()
+        {
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            using var firstSenderKey = KeyPair.Generate();
+            using var firstReceiverKey = KeyPair.Generate();
+            var firstSenderProtocol = new PNetMeshProtocol(firstSenderKey.PrivateKey, firstSenderKey.PublicKey, psk);
+            var firstReceiverProtocol = new PNetMeshProtocol(firstReceiverKey.PrivateKey, firstReceiverKey.PublicKey, psk);
+            var firstSenderOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+            var firstReceiverOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+
+            using var secondSenderKey = KeyPair.Generate();
+            using var secondReceiverKey = KeyPair.Generate();
+            var secondSenderProtocol = new PNetMeshProtocol(secondSenderKey.PrivateKey, secondSenderKey.PublicKey, psk);
+            var secondReceiverProtocol = new PNetMeshProtocol(secondReceiverKey.PrivateKey, secondReceiverKey.PublicKey, psk);
+            var secondSenderOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+            var secondReceiverOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+
+            using var channel = new PNetMeshChannel();
+            using var firstSender = new PNetMeshSession(firstSenderProtocol, firstSenderOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 20101),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 20102)
+            };
+            using var firstReceiver = new PNetMeshSession(firstReceiverProtocol, firstReceiverOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 20102),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 20101)
+            };
+            using var secondSender = new PNetMeshSession(secondSenderProtocol, secondSenderOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 20201),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 20202)
+            };
+            using var secondReceiver = new PNetMeshSession(secondReceiverProtocol, secondReceiverOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 20202),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 20201)
+            };
+
+            AttachSession(firstReceiver);
+            OpenSessionPair(firstSender, firstReceiver, firstSenderOutbound, firstReceiverOutbound, firstReceiverKey.PublicKey);
+            channel.AddSession(firstSender);
+
+            AttachSession(secondReceiver);
+            OpenSessionPair(secondSender, secondReceiver, secondSenderOutbound, secondReceiverOutbound, secondReceiverKey.PublicKey);
+            channel.AddSession(secondSender);
+
+            secondSender.Dispose();
+
+            var packet = new PNetMeshRelayPacket
+            {
+                Address = Address(41),
+                SeqNumber = 100,
+                HopCount = 4,
+                Route = ImmutableArray.Create<byte[]>(Address(42)),
+                Payload = Encoding.UTF8.GetBytes("fallback relay")
+            };
+
+            await channel.RelayAsync(packet, cancellationToken: TestContext.Current.CancellationToken)
+                .WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+
+            var relayed = ReadPacket(firstSenderOutbound);
+            Assert.Equal(firstSender.RemoteEndPoint, relayed.RemoteEndPoint);
+            Assert.False(secondSenderOutbound.Reader.TryRead(out _));
         }
 
         static void OpenSessionPair(

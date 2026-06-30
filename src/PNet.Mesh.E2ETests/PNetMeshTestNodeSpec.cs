@@ -40,6 +40,8 @@ public sealed class PNetMeshTestNodeSpec
 
     public IReadOnlyList<string> PingNodes { get; init; } = Array.Empty<string>();
 
+    public IReadOnlyList<string> NetworkNames { get; init; } = Array.Empty<string>();
+
     public IReadOnlyList<PNetMeshPeerEndpoint> Peers { get; init; } = Array.Empty<PNetMeshPeerEndpoint>();
 
     public IReadOnlyList<PNetMeshNodeIdentity> Nodes { get; init; } = Array.Empty<PNetMeshNodeIdentity>();
@@ -153,6 +155,61 @@ public sealed class PNetMeshTestNodeSpec
         return new[] { node00, node10, node01 };
     }
 
+    public static IReadOnlyList<PNetMeshTestNodeSpec> MultiHopRouteTopology()
+    {
+        const string leftSegment = "left";
+        const string middleSegment = "middle";
+        const string rightSegment = "right";
+
+        var node10 = MultiHopRouteNode(
+            "node10",
+            "NTxs6EdH52kw7bsDp0W1A5LD588wthPlrFU8K3RgP7Y=",
+            12410,
+            14,
+            new[] { "node00", "node01" },
+            new[] { "node01" },
+            new[] { leftSegment },
+            NodeIdentities("node00", "node01", "node10", "node20"),
+            StaticPeer("node00", "node00:12401"));
+
+        var node00 = MultiHopRouteNode(
+            "node00",
+            "H+wvAlb/Q+pKX2z9l5qJpD+ikXm+6pxJQtrp69ZkyYI=",
+            12401,
+            8,
+            new[] { "node10", "node20" },
+            Array.Empty<string>(),
+            new[] { leftSegment, middleSegment },
+            NodeIdentities("node10", "node20", "node00", "node01"),
+            StaticPeer("node10", "node10:12410"),
+            StaticPeer("node20", "node20:12420"));
+
+        var node20 = MultiHopRouteNode(
+            "node20",
+            "D0cOwLrDQt4oM1kIEWI+vYrKmP1W57MdfOLmrXdE70k=",
+            12420,
+            8,
+            new[] { "node00", "node01" },
+            Array.Empty<string>(),
+            new[] { middleSegment, rightSegment },
+            NodeIdentities("node00", "node01", "node20", "node10"),
+            StaticPeer("node00", "node00:12401"),
+            StaticPeer("node01", "node01:12402"));
+
+        var node01 = MultiHopRouteNode(
+            "node01",
+            "3VXQslNLrlZMjjo6T+RJ77WKnynH+LT1ZOBs74kISOk=",
+            12402,
+            14,
+            new[] { "node20", "node10" },
+            new[] { "node10" },
+            new[] { rightSegment },
+            NodeIdentities("node20", "node10", "node01", "node00"),
+            StaticPeer("node20", "node20:12420"));
+
+        return new[] { node10, node00, node20, node01 };
+    }
+
     static PNetMeshTestNodeSpec ComposeNode(
         string name,
         string privateKey,
@@ -175,6 +232,34 @@ public sealed class PNetMeshTestNodeSpec
             PingNodes = pingNodes,
             Peers = peers,
             Nodes = ComposeNodes
+        };
+    }
+
+    static PNetMeshTestNodeSpec MultiHopRouteNode(
+        string name,
+        string privateKey,
+        int port,
+        int connectDelaySeconds,
+        IReadOnlyList<string> connectNodes,
+        IReadOnlyList<string> pingNodes,
+        IReadOnlyList<string> networkNames,
+        IReadOnlyList<PNetMeshNodeIdentity> nodes,
+        params PNetMeshPeerEndpoint[] peers)
+    {
+        return new PNetMeshTestNodeSpec
+        {
+            Name = name,
+            PublicKey = GetComposePublicKey(name),
+            PrivateKey = privateKey,
+            Psk = ComposePsk,
+            Port = port,
+            ConnectDelaySeconds = connectDelaySeconds,
+            RunDurationSeconds = 28,
+            ConnectNodes = connectNodes,
+            PingNodes = pingNodes,
+            NetworkNames = networkNames,
+            Peers = peers,
+            Nodes = nodes
         };
     }
 
@@ -227,6 +312,22 @@ public sealed class PNetMeshTestNodeSpec
                 new PNetMeshNodeIdentity { Name = discoveredPeerName, PublicKey = GetComposePublicKey(discoveredPeerName) }
             }
         };
+    }
+
+    static PNetMeshNodeIdentity[] NodeIdentities(params string[] nodeNames)
+    {
+        var nodes = new PNetMeshNodeIdentity[nodeNames.Length];
+
+        for (var i = 0; i < nodeNames.Length; i++)
+        {
+            nodes[i] = new PNetMeshNodeIdentity
+            {
+                Name = nodeNames[i],
+                PublicKey = GetComposePublicKey(nodeNames[i])
+            };
+        }
+
+        return nodes;
     }
 
     static PNetMeshPeerEndpoint StaticPeer(string nodeName, params string[] endpoints)

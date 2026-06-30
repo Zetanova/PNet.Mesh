@@ -142,6 +142,57 @@ public sealed class PNetMeshTestNodeHarnessTests
     }
 
     [Fact]
+    public async Task multi_hop_route_crosses_separated_container_segments()
+    {
+        await using var harness = new PNetMeshTestNodeHarness();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromMinutes(6));
+
+        await harness.InitializeAsync(timeout.Token);
+
+        var containers = new Dictionary<string, IContainer>(StringComparer.Ordinal);
+        var nodes = PNetMeshTestNodeSpec.MultiHopRouteTopology();
+        var expectedLogsByNode = new Dictionary<string, string[]>(StringComparer.Ordinal)
+        {
+            ["node00"] = new[]
+            {
+                "Node[node00] started"
+            },
+            ["node01"] = new[]
+            {
+                "Node[node01] started",
+                "ping from node10 to node01",
+                "pong from node10 to node01",
+                "node01 got 1 pongs"
+            },
+            ["node10"] = new[]
+            {
+                "Node[node10] started",
+                "ping from node01 to node10",
+                "pong from node01 to node10",
+                "node10 got 1 pongs"
+            },
+            ["node20"] = new[]
+            {
+                "Node[node20] started"
+            }
+        };
+
+        foreach (var node in nodes)
+        {
+            containers[node.Name] = await harness.StartNodeAsync(node, timeout.Token);
+        }
+
+        var logsByNode = await WaitForTopologyLogsAsync(containers, expectedLogsByNode, timeout.Token);
+
+        foreach (var entry in logsByNode.OrderBy(n => n.Key, StringComparer.Ordinal))
+        {
+            _output.WriteLine($"===== {entry.Key} =====");
+            _output.WriteLine(entry.Value);
+        }
+    }
+
+    [Fact]
     public async Task six_node_topology_matches_compose_smoke_route_with_docker_dns_aliases()
     {
         await using var harness = new PNetMeshTestNodeHarness();

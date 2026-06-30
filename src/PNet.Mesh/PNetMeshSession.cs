@@ -368,7 +368,7 @@ namespace PNet.Mesh
                 };
             }
 
-            packet.DoNotAck = packet.Payload.Count == 0;
+            packet.DoNotAck = packet.Payload.Count == 0 && packet.Relay.Count == 0;
 
             var packetSize = packet.CalculateSize();
 

@@ -17,12 +17,13 @@ public sealed class PNetMeshTestNodeHarness : IAsyncDisposable
     static readonly TimeSpan NodeStartupTimeout = TimeSpan.FromSeconds(30);
     static readonly TimeSpan DiagnosticLogTimeout = TimeSpan.FromSeconds(5);
     static readonly TimeSpan CleanupTimeout = TimeSpan.FromSeconds(30);
+    const string DefaultNetworkName = "default";
 
     readonly string _runId = Guid.NewGuid().ToString("N");
     readonly List<IContainer> _containers = new List<IContainer>();
+    readonly Dictionary<string, INetwork> _networks = new Dictionary<string, INetwork>(StringComparer.Ordinal);
 
     IFutureDockerImage _image;
-    INetwork _network;
 
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
@@ -40,33 +41,35 @@ public sealed class PNetMeshTestNodeHarness : IAsyncDisposable
 
         await _image.CreateAsync(timeout.Token);
 
-        using var networkTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        networkTimeout.CancelAfter(NetworkTimeout);
-
-        _network = new NetworkBuilder()
-            .WithName($"pnet-mesh-e2e-{_runId}")
-            .WithCleanUp(true)
-            .Build();
-
-        await _network.CreateAsync(networkTimeout.Token);
+        await GetOrCreateNetworkAsync(DefaultNetworkName, cancellationToken);
     }
 
     public async Task<IContainer> StartNodeAsync(PNetMeshTestNodeSpec node, CancellationToken cancellationToken)
     {
-        if (_image is null || _network is null)
+        if (_image is null)
             throw new InvalidOperationException("Harness is not initialized.");
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(NodeStartupTimeout);
 
-        var container = new ContainerBuilder(_image)
+        var builder = new ContainerBuilder(_image)
             .WithName($"pnet-mesh-{node.Name}-{_runId}")
             .WithCleanUp(true)
-            .WithNetwork(_network)
             .WithNetworkAliases(node.Name)
             .WithExposedPort($"{node.Port}/udp")
-            .WithEnvironment(node.ToEnvironment())
-            .Build();
+            .WithEnvironment(node.ToEnvironment());
+
+        var networkNames = node.NetworkNames.Count > 0
+            ? node.NetworkNames
+            : new[] { DefaultNetworkName };
+
+        foreach (var networkName in networkNames)
+        {
+            var network = await GetOrCreateNetworkAsync(networkName, cancellationToken);
+            builder = builder.WithNetwork(network);
+        }
+
+        var container = builder.Build();
 
         _containers.Add(container);
 
@@ -127,8 +130,10 @@ public sealed class PNetMeshTestNodeHarness : IAsyncDisposable
             await TryDisposeAsync(container, "container", cleanupErrors);
         }
 
-        if (_network is not null)
-            await TryDisposeAsync(_network, "network", cleanupErrors);
+        foreach (var network in _networks.Values)
+        {
+            await TryDisposeAsync(network, "network", cleanupErrors);
+        }
 
         if (_image is not null)
             await TryDeleteImageAsync(_image, cleanupErrors);
@@ -150,6 +155,25 @@ public sealed class PNetMeshTestNodeHarness : IAsyncDisposable
         {
             return $"<log collection failed: {logException.Message}>";
         }
+    }
+
+    async Task<INetwork> GetOrCreateNetworkAsync(string networkName, CancellationToken cancellationToken)
+    {
+        if (_networks.TryGetValue(networkName, out var network))
+            return network;
+
+        using var networkTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        networkTimeout.CancelAfter(NetworkTimeout);
+
+        network = new NetworkBuilder()
+            .WithName($"pnet-mesh-e2e-{networkName}-{_runId}")
+            .WithCleanUp(true)
+            .Build();
+
+        await network.CreateAsync(networkTimeout.Token);
+
+        _networks.Add(networkName, network);
+        return network;
     }
 
     static async Task<string> TryGetLogsAsync(IContainer container, TimeSpan timeout)

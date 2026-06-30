@@ -432,7 +432,8 @@ namespace PNet.Mesh
                                     remoteEndPoint = SelectRelayRemoteEndPoint(
                                         _router,
                                         remoteAddress,
-                                        packet.CandidateExchange?.Candidates ?? ImmutableArray<PNetMeshCandidate>.Empty);
+                                        packet.CandidateExchange?.Candidates ?? ImmutableArray<PNetMeshCandidate>.Empty,
+                                        packet.Route.Length);
 
                                     //deliver local
                                     var receive = new PNetMeshControlCommands.Receive
@@ -454,7 +455,7 @@ namespace PNet.Mesh
                                         cmd.Result?.SetResult();
                                     }
                                 }
-                                else if (channels.TryGetValue(packet.Address, out var channel) && channel.IsOpen)
+                                else if (channels.TryGetValue(packet.Address, out var channel) && channel.CanRelayDirect)
                                 {
                                     //relay to known peer
                                     if (cmd.Result != null)
@@ -479,9 +480,10 @@ namespace PNet.Mesh
                                     foreach (var (k, c) in channels)
                                     {
                                         //do not relay to peers in route
-                                        //todo filter opening routes 
-                                        if (ShouldRelayToPeer(k, rset))
+                                        if (c.HasRoutableSession && ShouldRelayToPeer(k, rset))
+                                        {
                                             tasks.Add(c.RelayAsync(packet));
+                                        }
                                     }
 
                                     if (tasks.Count > 0)
@@ -723,13 +725,51 @@ namespace PNet.Mesh
             byte[] remoteAddress,
             ImmutableArray<PNetMeshCandidate> candidates)
         {
+            if (TrySelectKnownRoute(router, remoteAddress, candidates, out var knownRoute))
+            {
+                return knownRoute;
+            }
+
+            return SelectCandidateRemoteEndPoint(candidates);
+        }
+
+        internal static EndPoint SelectRelayRemoteEndPoint(
+            PNetMeshRouter router,
+            byte[] remoteAddress,
+            ImmutableArray<PNetMeshCandidate> candidates,
+            int routeLength)
+        {
+            if (TrySelectKnownRoute(router, remoteAddress, candidates, out var knownRoute))
+                return knownRoute;
+
+            // Routes include source and target addresses; two or more intermediate relays need a relay-backed response
+            // until ICE checks prove a direct candidate pair.
+            if (routeLength > 3)
+                return null;
+
+            return SelectCandidateRemoteEndPoint(candidates);
+        }
+
+        static bool TrySelectKnownRoute(
+            PNetMeshRouter router,
+            byte[] remoteAddress,
+            ImmutableArray<PNetMeshCandidate> candidates,
+            out EndPoint remoteEndPoint)
+        {
             if (router.TryGetEntry(remoteAddress, out var entry)
                 && entry.EndPoint != null
                 && candidates.Any(n => entry.EndPoint.Equals(n.Address)))
             {
-                return entry.EndPoint;
+                remoteEndPoint = entry.EndPoint;
+                return true;
             }
 
+            remoteEndPoint = null;
+            return false;
+        }
+
+        static EndPoint SelectCandidateRemoteEndPoint(ImmutableArray<PNetMeshCandidate> candidates)
+        {
             // Until ICE checks rank candidate pairs, prefer the observed reflexive address over advertised host endpoints.
             return candidates.FirstOrDefault(n =>
                     n.Type == PNetMeshCandidateType.ServerReflexive
