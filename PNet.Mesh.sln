@@ -5,9 +5,9 @@ VisualStudioVersion = 16.0.30709.132
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PNet.Mesh", "src\PNet.Mesh\PNet.Mesh.csproj", "{930DAD80-4BAC-4C78-B270-89C0748330EA}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PNet.Mesh.UnitTests", "tests\PNet.Mesh.UnitTests\PNet.Mesh.UnitTests.csproj", "{2A72594D-A162-465A-B1CC-446CD9E9132F}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PNet.Mesh.UnitTests", "src\PNet.Mesh.UnitTests\PNet.Mesh.UnitTests.csproj", "{2A72594D-A162-465A-B1CC-446CD9E9132F}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PNet.Mesh.TestNode", "tests\PNet.Mesh.TestNode\PNet.Mesh.TestNode.csproj", "{7ACA0A65-0C7C-4BC2-92C5-FDE282F37C1F}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PNet.Mesh.TestNode", "src\PNet.Mesh.TestNode\PNet.Mesh.TestNode.csproj", "{7ACA0A65-0C7C-4BC2-92C5-FDE282F37C1F}"
 EndProject
 Project("{E53339B2-1760-4266-BCC7-CA923CBCF16C}") = "docker-compose", "docker-compose.dcproj", "{DCE8675B-577F-49C4-A58C-1682223E3612}"
 EndProject

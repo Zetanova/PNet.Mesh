@@ -5,10 +5,11 @@ WORKDIR /app
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
-COPY ["tests/PNet.Mesh.TestNode/PNet.Mesh.TestNode.csproj", "tests/PNet.Mesh.TestNode/"]
-RUN dotnet restore "tests/PNet.Mesh.TestNode/PNet.Mesh.TestNode.csproj"
+COPY ["src/PNet.Mesh.TestNode/PNet.Mesh.TestNode.csproj", "src/PNet.Mesh.TestNode/"]
+COPY ["src/PNet.Mesh/PNet.Mesh.csproj", "src/PNet.Mesh/"]
+RUN dotnet restore "src/PNet.Mesh.TestNode/PNet.Mesh.TestNode.csproj"
 COPY . .
-WORKDIR "/src/tests/PNet.Mesh.TestNode"
+WORKDIR "/src/src/PNet.Mesh.TestNode"
 RUN dotnet build "PNet.Mesh.TestNode.csproj" -c Release -o /app/build
 
 FROM build AS publish

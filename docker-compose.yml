@@ -3,7 +3,7 @@ services:
     image: ${DOCKER_REGISTRY-}pnetmeshtestnode
     build:
       context: .
-      dockerfile: tests/PNet.Mesh.TestNode/Dockerfile
+      dockerfile: src/PNet.Mesh.TestNode/Dockerfile
     environment:
       DOTNET_ENVIRONMENT: Development
       NodeName: "node00"
@@ -19,7 +19,7 @@ services:
     image: ${DOCKER_REGISTRY-}pnetmeshtestnode
     build:
       context: .
-      dockerfile: tests/PNet.Mesh.TestNode/Dockerfile
+      dockerfile: src/PNet.Mesh.TestNode/Dockerfile
     environment:
       DOTNET_ENVIRONMENT: Development
       NodeName: "node01"
@@ -35,7 +35,7 @@ services:
     image: ${DOCKER_REGISTRY-}pnetmeshtestnode
     build:
       context: .
-      dockerfile: tests/PNet.Mesh.TestNode/Dockerfile
+      dockerfile: src/PNet.Mesh.TestNode/Dockerfile
     environment:
       DOTNET_ENVIRONMENT: Development
       NodeName: "node10"
@@ -51,7 +51,7 @@ services:
     image: ${DOCKER_REGISTRY-}pnetmeshtestnode
     build:
       context: .
-      dockerfile: tests/PNet.Mesh.TestNode/Dockerfile
+      dockerfile: src/PNet.Mesh.TestNode/Dockerfile
     environment:
       DOTNET_ENVIRONMENT: Development
       NodeName: "node11"
@@ -67,7 +67,7 @@ services:
     image: ${DOCKER_REGISTRY-}pnetmeshtestnode
     build:
       context: .
-      dockerfile: tests/PNet.Mesh.TestNode/Dockerfile
+      dockerfile: src/PNet.Mesh.TestNode/Dockerfile
     environment:
       DOTNET_ENVIRONMENT: Development
       NodeName: "node20"
@@ -83,7 +83,7 @@ services:
     image: ${DOCKER_REGISTRY-}pnetmeshtestnode
     build:
       context: .
-      dockerfile: tests/PNet.Mesh.TestNode/Dockerfile
+      dockerfile: src/PNet.Mesh.TestNode/Dockerfile
     environment:
       DOTNET_ENVIRONMENT: Development
       NodeName: "node21"

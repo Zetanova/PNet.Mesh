@@ -44,9 +44,9 @@ Move the current test projects from `tests/` into the repository's `src/` layout
 
 ### Code References
 
-- `tests/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj`
-- `tests/PNet.Mesh.TestNode/PNet.Mesh.TestNode.csproj`
-- `tests/PNet.Mesh.TestNode/Dockerfile`
+- `src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj`
+- `src/PNet.Mesh.TestNode/PNet.Mesh.TestNode.csproj`
+- `src/PNet.Mesh.TestNode/Dockerfile`
 - `docker-compose.yml`
 - `scripts/e2e-mesh-topology.sh`
 - `README.md`
@@ -58,6 +58,7 @@ Move the current test projects from `tests/` into the repository's `src/` layout
 | 1 | F | The repo currently contains `tests/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj`. | verified | source | `rg --files` listed the unit test project path. |
 | 2 | F | The repo currently contains `tests/PNet.Mesh.TestNode/PNet.Mesh.TestNode.csproj`. | verified | source | `rg --files` listed the test-node project path. |
 | 3 | F | The test-node Dockerfile currently references the `tests/PNet.Mesh.TestNode` path. | verified | source | `tests/PNet.Mesh.TestNode/Dockerfile` copies and builds that project path. |
+| 4 | F | Generated `bin/obj` outputs existed under the old `tests/PNet.Mesh.*` directories and were not moved as tracked source. | verified | test | `find tests/PNet.Mesh.UnitTests tests/PNet.Mesh.TestNode -maxdepth 3 -type d` showed `bin/obj`; `git ls-files` identified the tracked files moved to `src/`. |
 
 ## Enrichment History
 
@@ -65,4 +66,7 @@ Move the current test projects from `tests/` into the repository's `src/` layout
 
 ## Completion Report
 
-Pending.
+- Moved tracked unit-test and test-node project files under `src/PNet.Mesh.UnitTests` and `src/PNet.Mesh.TestNode`; ignored generated `bin/obj` outputs were left behind.
+- Updated solution paths, project references, test-node Dockerfile restore/build paths, Compose Dockerfile paths, README command, AGENTS guidance, and project best-practices guidance.
+- Verified `dotnet restore PNet.Mesh.sln`, Release build, moved unit-test command, scoped whitespace formatting, Compose config, and stale `tests/PNet.Mesh.*` reference scan.
+- Tracker row completion is still pending issue-steward closeout because no resolving commit exists yet.

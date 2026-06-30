@@ -13,7 +13,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\PNet.Mesh\PNet.Mesh.csproj" />
+    <ProjectReference Include="..\PNet.Mesh\PNet.Mesh.csproj" />
   </ItemGroup>
 
   <ItemGroup>

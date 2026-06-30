@@ -46,6 +46,6 @@ Build and test:
 ```bash
 dotnet restore PNet.Mesh.sln
 dotnet build PNet.Mesh.sln -c Release --no-restore
-dotnet run --project tests/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -parallel none
+dotnet run --project src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -parallel none
 timeout 120s scripts/e2e-mesh-topology.sh --no-build --timeout 90
 ```

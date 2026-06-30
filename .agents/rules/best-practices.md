@@ -5,7 +5,7 @@
 **Docs:** follow `~/.agents/docs/projects/dotnet.md`, `docker.md`, and `protobuf-grpc.md`; dependency docs include `xunit`, `coverlet`, and `visual-studio-container-tools`.
 **SDK:** use installed .NET 10 SDK for tooling; add `global.json` only as part of the runtime migration decision.
 **Restore:** `dotnet restore PNet.Mesh.sln`; `Noise.NET` is the restored Noise protocol package.
-**Build/test:** run `dotnet build PNet.Mesh.sln -c Release --no-restore`; unit tests use `dotnet run --project tests/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -parallel none`.
+**Build/test:** run `dotnet build PNet.Mesh.sln -c Release --no-restore`; unit tests use `dotnet run --project src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -parallel none`.
 **Formatting:** LF is canonical via `.gitattributes` + `.editorconfig`; verify scoped whitespace with `dotnet format whitespace PNet.Mesh.sln --include <paths> --no-restore --verify-no-changes --verbosity minimal`.
 **NuGet:** use `scripts/packages.sh` for PackageReference maintenance; run vulnerable/outdated/deprecated package checks after restore works.
 **Containers:** use `docker compose`; keep Compose files versionless; .NET 10 base images back the test-node container; smoke with `scripts/e2e-mesh-topology.sh`.
