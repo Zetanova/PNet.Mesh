@@ -408,19 +408,10 @@ namespace PNet.Mesh
                             break;
                         case PNetMeshControlCommands.RelayPacket { Packet: var packet } cmd:
                             {
-                                if (packet.Route.Length > 1)
+                                if (!TryAcceptRelayPacket(_router, packet))
                                 {
-                                    //deduplicate packet with remoteAddress+seqNumber
-                                    var remoteAddress = packet.Route[0];
-
-                                    var entry = _router.GetOrCreateEntry(remoteAddress);
-                                    entry.Tracker ??= new PNetMeshPacketTracker(200);
-
-                                    if (!entry.Tracker.TryAdd(packet.SeqNumber))
-                                    {
-                                        //ignore duplicate
-                                        break;
-                                    }
+                                    //ignore duplicate
+                                    break;
                                 }
 
                                 //maybe push ice candidates into router entry
@@ -495,13 +486,13 @@ namespace PNet.Mesh
                                 {
                                     //relay to unknown address
 
-                                    var rset = new HashSet<byte[]>(packet.Route, PNetMeshByteArrayComparer.Default);
+                                    var rset = CreateRelayRouteSet(packet.Route);
                                     var tasks = new List<Task>(channels.Count);
                                     foreach (var (k, c) in channels)
                                     {
                                         //do not relay to peers in route
                                         //todo filter opening routes 
-                                        if (!rset.Contains(k))
+                                        if (ShouldRelayToPeer(k, rset))
                                             tasks.Add(c.RelayAsync(packet));
                                     }
 
@@ -713,6 +704,30 @@ namespace PNet.Mesh
             sendChannel.Writer.Complete();
 
             _logger.LogDebug("outbound process completed");
+        }
+
+        internal static bool TryAcceptRelayPacket(PNetMeshRouter router, PNetMeshRelayPacket packet)
+        {
+            if (packet.Route.Length <= 1)
+                return true;
+
+            //deduplicate packet with remoteAddress+seqNumber
+            var remoteAddress = packet.Route[0];
+
+            var entry = router.GetOrCreateEntry(remoteAddress);
+            entry.Tracker ??= new PNetMeshPacketTracker(200);
+
+            return entry.Tracker.TryAdd(packet.SeqNumber);
+        }
+
+        internal static HashSet<byte[]> CreateRelayRouteSet(ImmutableArray<byte[]> route)
+        {
+            return new HashSet<byte[]>(route, PNetMeshByteArrayComparer.Default);
+        }
+
+        internal static bool ShouldRelayToPeer(byte[] peerAddress, HashSet<byte[]> routeSet)
+        {
+            return !routeSet.Contains(peerAddress);
         }
 
         static void ProcessSend(object sender, SocketAsyncEventArgs args)
