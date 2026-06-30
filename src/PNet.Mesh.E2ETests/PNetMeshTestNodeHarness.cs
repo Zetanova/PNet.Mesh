@@ -15,6 +15,7 @@ public sealed class PNetMeshTestNodeHarness : IAsyncDisposable
     static readonly TimeSpan ImageBuildTimeout = TimeSpan.FromMinutes(4);
     static readonly TimeSpan NetworkTimeout = TimeSpan.FromSeconds(30);
     static readonly TimeSpan NodeStartupTimeout = TimeSpan.FromSeconds(30);
+    static readonly TimeSpan DiagnosticLogTimeout = TimeSpan.FromSeconds(5);
     static readonly TimeSpan CleanupTimeout = TimeSpan.FromSeconds(30);
 
     readonly string _runId = Guid.NewGuid().ToString("N");
@@ -72,12 +73,12 @@ public sealed class PNetMeshTestNodeHarness : IAsyncDisposable
         try
         {
             await container.StartAsync(timeout.Token);
-            await WaitForLogAsync(container, $"Node[{node.Name}] started", timeout.Token);
+            await WaitForLogsAsync(container, new[] { $"Node[{node.Name}] started" }, timeout.Token);
             return container;
         }
         catch (Exception ex)
         {
-            var logs = await TryGetLogsAsync(container, CancellationToken.None);
+            var logs = await TryGetLogsAsync(container, DiagnosticLogTimeout);
             throw new InvalidOperationException($"Test node '{node.Name}' failed to start. Container logs:{Environment.NewLine}{logs}", ex);
         }
     }
@@ -86,6 +87,35 @@ public sealed class PNetMeshTestNodeHarness : IAsyncDisposable
     {
         var logs = await container.GetLogsAsync(DateTime.UtcNow.AddMinutes(-10), DateTime.UtcNow.AddMinutes(1), true, cancellationToken);
         return string.Concat(logs.Stdout, logs.Stderr);
+    }
+
+    public static async Task<string> WaitForLogsAsync(IContainer container, IReadOnlyCollection<string> expectedLogEntries, CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            var logs = await TryGetLogsAsync(container, cancellationToken);
+            var missing = GetMissingLogEntries(logs, expectedLogEntries);
+
+            if (missing.Count == 0)
+                return logs;
+
+            if (container.State is TestcontainersStates.Exited or TestcontainersStates.Dead)
+                throw CreateMissingLogsException(container, missing, logs, null);
+
+            if (logs.Contains("Application is shutting down...", StringComparison.Ordinal))
+                throw CreateMissingLogsException(container, missing, logs, null);
+
+            try
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(500), cancellationToken);
+            }
+            catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
+            {
+                logs = await TryGetLogsAsync(container, DiagnosticLogTimeout);
+                missing = GetMissingLogEntries(logs, expectedLogEntries);
+                throw CreateMissingLogsException(container, missing, logs, ex);
+            }
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -122,28 +152,36 @@ public sealed class PNetMeshTestNodeHarness : IAsyncDisposable
         }
     }
 
-    static async Task WaitForLogAsync(IContainer container, string expectedLogEntry, CancellationToken cancellationToken)
+    static async Task<string> TryGetLogsAsync(IContainer container, TimeSpan timeout)
     {
-        while (true)
+        using var cancellation = new CancellationTokenSource(timeout);
+        return await TryGetLogsAsync(container, cancellation.Token);
+    }
+
+    static List<string> GetMissingLogEntries(string logs, IReadOnlyCollection<string> expectedLogEntries)
+    {
+        var missing = new List<string>();
+
+        foreach (var expectedLogEntry in expectedLogEntries)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var logs = await TryGetLogsAsync(container, cancellationToken);
-            if (logs.Contains(expectedLogEntry, StringComparison.Ordinal))
-                return;
-
-            if (container.State is TestcontainersStates.Exited or TestcontainersStates.Dead)
-                throw new InvalidOperationException($"Container exited before readiness log '{expectedLogEntry}' was observed.");
-
-            await Task.Delay(TimeSpan.FromMilliseconds(500), cancellationToken);
+            if (!logs.Contains(expectedLogEntry, StringComparison.Ordinal))
+                missing.Add(expectedLogEntry);
         }
+
+        return missing;
+    }
+
+    static InvalidOperationException CreateMissingLogsException(IContainer container, IReadOnlyCollection<string> missing, string logs, Exception innerException)
+    {
+        var message = $"Container '{container.Name}' did not emit expected logs: {string.Join(", ", missing)}.{Environment.NewLine}Container logs:{Environment.NewLine}{logs}";
+        return new InvalidOperationException(message, innerException);
     }
 
     static async Task TryDisposeAsync(IAsyncDisposable resource, string resourceName, List<Exception> cleanupErrors)
     {
         try
         {
-            await resource.DisposeAsync();
+            await resource.DisposeAsync().AsTask().WaitAsync(CleanupTimeout);
         }
         catch (Exception ex)
         {
