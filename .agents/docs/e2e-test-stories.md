@@ -14,4 +14,4 @@ Project story index for feature-carrying artifacts and operator workflows.
 | Story | Source | Status | Issue | Notes |
 |-------|--------|--------|-------|-------|
 | Multi-node mesh topology | `docker-compose.yml`, `docker-compose.e2e.yml` | Covered | [003](issues/003-mesh-topology-e2e-story.md) | `scripts/e2e-mesh-topology.sh` starts six nodes, records per-node pong counts, and asserts the node21 -> node20 route. |
-| Managed mesh packet exchange | `README.md`, `tests/PNet.Mesh.UnitTests/` | Covered | [003](issues/003-mesh-topology-e2e-story.md) | Unit protocol/server tests cover packet exchange; compose smoke adds an operator-visible route check. |
+| Direct P2P packet exchange | `README.md`, `src/PNet.Mesh.UnitTests/PNetMeshServerTests.cs`, `src/PNet.Mesh.E2ETests/PNetMeshTestNodeHarnessTests.cs` | Covered | [012](issues/012-readme-p2p-communication-coverage.md) | Targeted unit and Testcontainers methods assert direct payload delivery in both directions. |
