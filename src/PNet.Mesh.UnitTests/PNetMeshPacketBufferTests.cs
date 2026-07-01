@@ -87,5 +87,49 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.True(seq[1].Span[0] == 23);
             Assert.True(seq[2].Span[0] == 24);
         }
+
+        [Fact]
+        public void untracked_holes_do_not_count_as_outstanding_or_retransmittable()
+        {
+            var buffer = new PNetMeshPacketBuffer();
+
+            var first = buffer.Rent(128);
+            first.Span[0] = 10;
+            Assert.Equal(0u, buffer.Current);
+
+            buffer.AddUntracked(1);
+            Assert.Equal(1u, buffer.Current);
+
+            var second = buffer.Rent(128);
+            second.Span[0] = 12;
+            Assert.Equal(2u, buffer.Current);
+
+            Assert.Equal(2, buffer.Count);
+            Assert.Equal(2, buffer.CountOutstanding(0));
+            Assert.Equal(1, buffer.CountOutstanding(1));
+            Assert.Equal(0, buffer.CountOutstanding(3));
+
+            var sequence = buffer.GetSequence().ToList();
+            Assert.Equal(2, sequence.Count);
+            Assert.Equal(10, sequence[0].Span[0]);
+            Assert.Equal(12, sequence[1].Span[0]);
+
+            var missing = buffer.GetMissingSequence(new byte[] { 0x00 }).ToList();
+            Assert.Equal(2, missing.Count);
+            Assert.Equal(10, missing[0].Span[0]);
+            Assert.Equal(12, missing[1].Span[0]);
+
+            buffer.RemoveUntil(1);
+            Assert.Equal(2u, buffer.Latest);
+            Assert.Equal(1, buffer.Count);
+
+            sequence = buffer.GetSequence().ToList();
+            Assert.Single(sequence);
+            Assert.Equal(12, sequence[0].Span[0]);
+
+            buffer.RemoveUntil(2);
+            Assert.Equal(0, buffer.Count);
+            Assert.Equal(3u, buffer.Latest);
+        }
     }
 }

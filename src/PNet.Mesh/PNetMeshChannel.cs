@@ -108,9 +108,19 @@ namespace PNet.Mesh
                     switch (command)
                     {
                         case PNetMeshChannelCommands.Send cmd:
-                            _currentSession.WritePayload(cmd.Payload.Span);
-                            cmd.MemoryOwner?.Dispose();
-                            cmd.Result?.SetResult();
+                            try
+                            {
+                                _currentSession.WritePayload(cmd.Payload.Span, cmd.Result);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "send command error");
+                                cmd.Result?.TrySetException(ex);
+                            }
+                            finally
+                            {
+                                cmd.MemoryOwner?.Dispose();
+                            }
                             break;
                         case PNetMeshChannelCommands.Invoke cmd:
                             try
@@ -127,14 +137,23 @@ namespace PNet.Mesh
                             if (!TryGetRelaySession(out var relaySession))
                             {
                                 cmd.MemoryOwner?.Dispose();
-                                cmd.Result?.SetException(new InvalidOperationException("No routable session is available."));
+                                cmd.Result?.TrySetException(new InvalidOperationException("No routable session is available."));
                                 break;
                             }
 
-                            relaySession.WriteRelay(cmd.Packet);
-                            relaySession.WritePacket();
-                            cmd.MemoryOwner?.Dispose();
-                            cmd.Result?.SetResult();
+                            try
+                            {
+                                relaySession.WriteRelay(cmd.Packet, cmd.Result);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "relay command error");
+                                cmd.Result?.TrySetException(ex);
+                            }
+                            finally
+                            {
+                                cmd.MemoryOwner?.Dispose();
+                            }
                             break;
                         default:
                             _logger.LogWarning("unknown command '{commandType}'", command?.GetType());
@@ -185,7 +204,7 @@ namespace PNet.Mesh
             };
 
             //todo if (cancellationToken.IsCancellationRequested)
-            await using CancellationTokenRegistration reg = cancellationToken.Register(state => ((TaskCompletionSource<PNetMeshChannel>)state).TrySetCanceled(), cmd.Result);
+            await using CancellationTokenRegistration reg = cancellationToken.Register(state => ((TaskCompletionSource)state).TrySetCanceled(), cmd.Result);
 
             await _controlChannel.Writer.WriteAsync(cmd, cancellationToken);
 

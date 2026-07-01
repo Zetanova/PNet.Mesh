@@ -8,6 +8,7 @@ using System.Linq;
 using System.Net;
 using System.Threading;
 using System.Threading.Channels;
+using System.Threading.Tasks;
 
 using Protos = PNet.Actor.Mesh.Protos;
 
@@ -37,6 +38,8 @@ namespace PNet.Mesh
         readonly ChannelWriter<PNetMeshOutboundMessages.Message> _outboundWriter;
 
         readonly PNetMeshPacketBuffer _retransBuffer;
+        // multi-threading: receive-side ACK processing removes retransmit entries while the control loop counts, adds, and enumerates them for send-window gating.
+        readonly object _retransBufferLock = new object();
 
         PNetMeshHandshake _handshake;
 
@@ -79,8 +82,16 @@ namespace PNet.Mesh
 
         ChannelWriter<ReadOnlyMemory<byte>> _inboundWriter;
         ChannelWriter<PNetMeshChannelCommands.Command> _controlWriter;
+        readonly object _controlQueueLock = new object();
+        readonly Queue<PNetMeshChannelCommands.Invoke> _pendingControlCommands = new Queue<PNetMeshChannelCommands.Invoke>();
+        bool _controlQueueDraining;
+        const int MaxPendingControlCommands = 32;
 
+        // multi-threading: Dispose can fail pending sends while the channel control loop stages or flushes open-packet contents.
+        readonly object _openPacketLock = new object();
         Protos.Packet _openPacket;
+        readonly List<TaskCompletionSource> _openPacketResults = new List<TaskCompletionSource>();
+        bool _disposing;
 
         // multi-threading: server receive handling updates remote ACKs while the channel control/timer loop reads them for payload gating and retransmission.
         readonly object _remoteAckLock = new object();
@@ -97,15 +108,14 @@ namespace PNet.Mesh
 
         int _outOfOrder_max = 2;
         int _outOfOrder_count = 0;
-        ushort _outstanding_max = 1;
-        ushort _packetSize_max = ushort.MaxValue - 8;
+        // multi-threading: SYN negotiation publishes send-side limits on the receive thread while the channel control/timer loop reads them for outbound gating.
+        int _outstanding_max = 1;
+        int _packetSize_max = ushort.MaxValue - 8;
 
         int _retrans_timeout = 250;
 
         Timer _retransTimer;
         Timer _cumAckTimer;
-
-        const ushort PayloadSizeToTarget = 1280;
 
         internal PNetMeshSession(PNetMeshProtocol protocol, ChannelWriter<PNetMeshOutboundMessages.Message> writer)
         {
@@ -116,7 +126,15 @@ namespace PNet.Mesh
 
         public void Dispose()
         {
-            Status = PNetMeshSessionStatus.Disposed;
+            var exception = new ObjectDisposedException(nameof(PNetMeshSession));
+            TaskCompletionSource[] results;
+            lock (_openPacketLock)
+            {
+                _disposing = true;
+                Status = PNetMeshSessionStatus.Disposed;
+                results = FailOpenPacket();
+            }
+            CompleteOpenPacketResults(results, exception);
 
             _cumAckTimer?.Dispose();
             _retransTimer?.Dispose();
@@ -137,7 +155,13 @@ namespace PNet.Mesh
         void OnRetransTimeout(object state)
         {
             //var writer = state as ChannelWriter<PNetMeshChannelCommands.Command>;
-            _controlWriter.TryWrite(new PNetMeshChannelCommands.Invoke
+            lock (_openPacketLock)
+            {
+                if (_disposing || Status != PNetMeshSessionStatus.Open)
+                    return;
+            }
+
+            QueueControl(new PNetMeshChannelCommands.Invoke
             {
                 Handler = RetransmitPackets
             });
@@ -146,9 +170,21 @@ namespace PNet.Mesh
         void OnCumAckTimeout(object state)
         {
             //var writer = state as ChannelWriter<PNetMeshChannelCommands.Command>;
-            _controlWriter.TryWrite(new PNetMeshChannelCommands.Invoke
+            lock (_openPacketLock)
             {
-                Handler = WritePacket
+                if (_disposing || Status != PNetMeshSessionStatus.Open)
+                    return;
+
+                if (!HasOpenPacket() && !HasPendingAck())
+                    return;
+
+                if (HasOpenPacket() && !HasSendWindow() && !HasPendingAck())
+                    return;
+            }
+
+            QueueControl(new PNetMeshChannelCommands.Invoke
+            {
+                Handler = FlushAckTimeoutPacket
             });
         }
 
@@ -258,128 +294,274 @@ namespace PNet.Mesh
                 return;
             }
 
-            _openPacket = new Protos.Packet();
+            lock (_openPacketLock)
+            {
+                if (_disposing || Status == PNetMeshSessionStatus.Disposed || Status == PNetMeshSessionStatus.Closed)
+                {
+                    _transport?.Dispose();
+                    return;
+                }
 
-            Status = PNetMeshSessionStatus.Open;
+                _openPacket = new Protos.Packet();
+                Status = PNetMeshSessionStatus.Open;
+            }
         }
 
         public void WritePayload(ReadOnlySpan<byte> payload)
         {
-            var item = new Protos.Payload();
-            item.Raw = ByteString.CopyFrom(payload);
+            WritePayload(payload, null);
+        }
 
-            _openPacket.Payload.Add(item);
-
-            var packetSize = _openPacket.CalculateSize();
-
-            if (packetSize > PayloadSizeToTarget || (_retransBuffer.Current - _outstanding_max > GetRemoteAckSeqNumber()))
+        public void WritePayload(ReadOnlySpan<byte> payload, TaskCompletionSource result)
+        {
+            TaskCompletionSource[] results = null;
+            Exception resultException = null;
+            try
             {
-                WritePacket();
+                lock (_openPacketLock)
+                {
+                    ThrowIfDisposing();
+
+                    var item = new Protos.Payload();
+                    item.Raw = ByteString.CopyFrom(payload);
+
+                    var itemIndex = _openPacket.Payload.Count;
+                    var resultIndex = _openPacketResults.Count;
+                    _openPacket.Payload.Add(item);
+                    _openPacketResults.Add(result);
+
+                    try
+                    {
+                        EnsurePacketSize(_openPacket.CalculateSize(), nameof(payload));
+
+                        if (HasSendWindow())
+                        {
+                            WriteOpenPacketOrFail(nameof(payload), failBatchOnSizeError: false, out results, out resultException);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        if (_openPacket.Payload.Count > itemIndex)
+                            _openPacket.Payload.RemoveAt(itemIndex);
+                        if (_openPacketResults.Count > resultIndex)
+                            _openPacketResults.RemoveAt(resultIndex);
+                        if (results is null && result is not null)
+                        {
+                            results = new[] { result };
+                            resultException = ex;
+                        }
+                        throw;
+                    }
+                }
+            }
+            finally
+            {
+                CompleteOpenPacketResults(results, resultException);
             }
         }
 
         public void WriteRelay(PNetMeshRelayPacket packet)
         {
-            //maybe use shared proto3 message instead of PNetMeshRelayPacket
-            var item = new Protos.Relay
+            WriteRelay(packet, null);
+        }
+
+        public void WriteRelay(PNetMeshRelayPacket packet, TaskCompletionSource result)
+        {
+            TaskCompletionSource[] results = null;
+            Exception resultException = null;
+            try
             {
-                Address = new Protos.MeshEndPoint
+                lock (_openPacketLock)
                 {
-                    Hash = ByteString.CopyFrom(packet.Address)
-                },
-                SeqNumber = packet.SeqNumber,
-                HopCount = packet.HopCount
-            };
+                    ThrowIfDisposing();
 
-            if (packet.CandidateExchange is not null)
-            {
-                var exg = packet.CandidateExchange;
-
-                var m = new Protos.CandidateExchange
-                {
-                    Lite = exg.Lite,
-                    CheckPacing = exg.CheckPacing
-                };
-
-                if (!string.IsNullOrEmpty(exg.UserPass))
-                    m.UserPass = exg.UserPass;
-
-                foreach (var c in exg.Candidates)
-                    m.Candidates.Add(new Protos.Candidate
+                    //maybe use shared proto3 message instead of PNetMeshRelayPacket
+                    var item = new Protos.Relay
                     {
-                        Address = PNetMeshUtils.MapToProtos(c.Address),
-                        RelatedAddress = PNetMeshUtils.MapToProtos(c.Base),
-                        ComponentId = c.ComponentId,
-                        Foundation = c.Foundation,
-                        Priority = c.Priority,
-                        Protocol = (Protos.Candidate.Types.Protocol)c.Protocol,
-                        Type = (Protos.Candidate.Types.Type)c.Type
+                        Address = new Protos.MeshEndPoint
+                        {
+                            Hash = ByteString.CopyFrom(packet.Address)
+                        },
+                        SeqNumber = packet.SeqNumber,
+                        HopCount = packet.HopCount
+                    };
 
-                    });
+                    if (packet.CandidateExchange is not null)
+                    {
+                        var exg = packet.CandidateExchange;
 
-                item.CandidateExchange = m;
+                        var m = new Protos.CandidateExchange
+                        {
+                            Lite = exg.Lite,
+                            CheckPacing = exg.CheckPacing
+                        };
+
+                        if (!string.IsNullOrEmpty(exg.UserPass))
+                            m.UserPass = exg.UserPass;
+
+                        foreach (var c in exg.Candidates)
+                            m.Candidates.Add(new Protos.Candidate
+                            {
+                                Address = PNetMeshUtils.MapToProtos(c.Address),
+                                RelatedAddress = PNetMeshUtils.MapToProtos(c.Base),
+                                ComponentId = c.ComponentId,
+                                Foundation = c.Foundation,
+                                Priority = c.Priority,
+                                Protocol = (Protos.Candidate.Types.Protocol)c.Protocol,
+                                Type = (Protos.Candidate.Types.Type)c.Type
+
+                            });
+
+                        item.CandidateExchange = m;
+                    }
+
+                    foreach (var r in packet.Route)
+                    {
+                        item.Route.Add(new Protos.MeshEndPoint
+                        {
+                            Hash = ByteString.CopyFrom(r)
+                        });
+                    }
+
+                    item.Packet = ByteString.CopyFrom(packet.Payload.Span);
+
+                    var itemIndex = _openPacket.Relay.Count;
+                    var resultIndex = _openPacketResults.Count;
+                    _openPacket.Relay.Add(item);
+                    _openPacketResults.Add(result);
+
+                    try
+                    {
+                        EnsurePacketSize(_openPacket.CalculateSize(), nameof(packet));
+
+                        if (HasSendWindow())
+                        {
+                            WriteOpenPacketOrFail(nameof(packet), failBatchOnSizeError: false, out results, out resultException);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        if (_openPacket.Relay.Count > itemIndex)
+                            _openPacket.Relay.RemoveAt(itemIndex);
+                        if (_openPacketResults.Count > resultIndex)
+                            _openPacketResults.RemoveAt(resultIndex);
+                        if (results is null && result is not null)
+                        {
+                            results = new[] { result };
+                            resultException = ex;
+                        }
+                        throw;
+                    }
+                }
             }
-
-            foreach (var r in packet.Route)
+            finally
             {
-                item.Route.Add(new Protos.MeshEndPoint
-                {
-                    Hash = ByteString.CopyFrom(r)
-                });
-            }
-
-            item.Packet = ByteString.CopyFrom(packet.Payload.Span);
-
-            _openPacket.Relay.Add(item);
-
-            var packetSize = _openPacket.CalculateSize();
-
-            if (packetSize > PayloadSizeToTarget || (_retransBuffer.Current - _outstanding_max > GetRemoteAckSeqNumber()))
-            {
-                WritePacket();
+                CompleteOpenPacketResults(results, resultException);
             }
         }
 
-        void FlushPayload()
+        void FlushOpenPacket()
         {
-            if (_openPacket.Payload.Count > 0)
-                WritePacket();
+            TaskCompletionSource[] results = null;
+            Exception resultException = null;
+            try
+            {
+                lock (_openPacketLock)
+                {
+                    if (HasOpenPacket() && HasSendWindow())
+                        WriteOpenPacketOrFail("packet", failBatchOnSizeError: true, out results, out resultException);
+                }
+            }
+            finally
+            {
+                CompleteOpenPacketResults(results, resultException);
+            }
+        }
+
+        void FlushAckTimeoutPacket()
+        {
+            TaskCompletionSource[] results = null;
+            Exception resultException = null;
+            try
+            {
+                lock (_openPacketLock)
+                {
+                    if (_disposing)
+                        return;
+
+                    if (!HasOpenPacket())
+                    {
+                        try
+                        {
+                            if (HasPendingAck())
+                                WriteControlPacket();
+                        }
+                        catch
+                        {
+                            Status = PNetMeshSessionStatus.Closed;
+                            throw;
+                        }
+                        return;
+                    }
+
+                    if (HasSendWindow())
+                    {
+                        WriteOpenPacketOrFail("packet", failBatchOnSizeError: true, out results, out resultException);
+                        return;
+                    }
+
+                    try
+                    {
+                        if (HasPendingAck())
+                            WriteControlPacket();
+                    }
+                    catch (Exception ex)
+                    {
+                        Status = PNetMeshSessionStatus.Closed;
+                        results = FailOpenPacket();
+                        resultException = ex;
+                        throw;
+                    }
+                }
+            }
+            finally
+            {
+                CompleteOpenPacketResults(results, resultException);
+            }
         }
 
         public void WritePacket()
         {
+            TaskCompletionSource[] results = null;
+            Exception resultException = null;
+            try
+            {
+                lock (_openPacketLock)
+                    WriteOpenPacketOrFail("packet", failBatchOnSizeError: true, out results, out resultException);
+            }
+            finally
+            {
+                CompleteOpenPacketResults(results, resultException);
+            }
+        }
+
+        TaskCompletionSource[] WritePacket(string sizeParamName)
+        {
+            return WritePacket(_openPacket.Clone(), clearOpenPacket: true, sizeParamName);
+        }
+
+        void WriteControlPacket()
+        {
+            WritePacket(new Protos.Packet(), clearOpenPacket: false, "packet", trackForRetransmit: false);
+        }
+
+        TaskCompletionSource[] WritePacket(Protos.Packet packet, bool clearOpenPacket, string sizeParamName, bool trackForRetransmit = true)
+        {
+            ThrowIfDisposing();
             if (Status != PNetMeshSessionStatus.Open)
                 throw new InvalidOperationException("session not open");
 
-            var packet = _openPacket;
-            _openPacket = new Protos.Packet();
-
-            lock (_receiveStateLock)
-            {
-                if (_receiveAck < _receiveCounter || _pendingPackets.Count > 0)
-                {
-                    _receiveAck = _receiveCounter;
-
-                    _cumAckTimer.Change(Timeout.Infinite, Timeout.Infinite);
-
-                    Span<byte> bitmap = stackalloc byte[16];
-                    _transport.Tracker.GetBitmap(_receiveAck, bitmap, out var bytesWritten);
-                    bitmap = bitmap.Slice(0, bytesWritten);
-
-                    _receiveAck += PNetMeshPacketTracker.RightShift(bitmap, out bytesWritten);
-                    bitmap = bitmap.Slice(0, bytesWritten);
-
-                    packet.Ack = new Protos.Ack
-                    {
-                        AckSeqNumber = _receiveAck,
-                        OutOfSeqPackets = ByteString.CopyFrom(bitmap)
-                    };
-                }
-            }
-
-            packet.DoNotAck = packet.Payload.Count == 0 && packet.Relay.Count == 0;
-
-            var packetSize = packet.CalculateSize();
+            var packetSize = PreparePacketForWrite(packet, sizeParamName);
 
             using var packetBuffer = MemoryPool<byte>.Shared.Rent(packetSize);
 
@@ -387,54 +569,236 @@ namespace PNet.Mesh
 
             packet.WriteTo(payload);
 
-            var buffer = _retransBuffer.Rent(packetSize);
-
-            _transport.WriteMessage(payload, buffer.Span, out var byteWritten, out var counter);
-            Debug.Assert(counter == _retransBuffer.Current);
-
-            //send message
-            var item = new PNetMeshOutboundMessages.Packet
+            if (trackForRetransmit)
             {
-                MemoryOwner = null,
-                MemoryBuffer = _retransBuffer.SliceCurrent(byteWritten),
-                LocalEndPoint = LocalEndPoint,
-                LocalAddress = LocalAddress,
-                RemoteEndPoint = RemoteEndPoint,
-                RemoteAddress = RemoteAddress
-            };
+                lock (_retransBufferLock)
+                {
+                    var rented = false;
+                    try
+                    {
+                        var buffer = _retransBuffer.Rent(packetSize);
+                        rented = true;
+                        _transport.WriteMessage(payload, buffer.Span, out var byteWritten, out var counter);
+                        Debug.Assert(counter == _retransBuffer.Current);
 
-            if (!_outboundWriter.TryWrite(item))
+                        var item = new PNetMeshOutboundMessages.Packet
+                        {
+                            MemoryOwner = null,
+                            MemoryBuffer = _retransBuffer.SliceCurrent(byteWritten),
+                            LocalEndPoint = LocalEndPoint,
+                            LocalAddress = LocalAddress,
+                            RemoteEndPoint = RemoteEndPoint,
+                            RemoteAddress = RemoteAddress
+                        };
+
+                        if (!_outboundWriter.TryWrite(item))
+                        {
+                            //todo log error
+                            Status = PNetMeshSessionStatus.Closed;
+                            throw new InvalidOperationException("Unable to queue outbound packet.");
+                        }
+
+                        rented = false;
+                    }
+                    catch
+                    {
+                        if (rented)
+                            _retransBuffer.DiscardCurrent();
+                        throw;
+                    }
+                }
+            }
+            else
             {
-                //todo log error
+                var bufferOwner = MemoryPool<byte>.Shared.Rent(packetSize + 48);
+                try
+                {
+                    var buffer = bufferOwner.Memory;
+                    _transport.WriteMessage(payload, buffer.Span, out var byteWritten, out var counter);
+
+                    var item = new PNetMeshOutboundMessages.Packet
+                    {
+                        MemoryOwner = bufferOwner,
+                        MemoryBuffer = buffer.Slice(0, byteWritten),
+                        LocalEndPoint = LocalEndPoint,
+                        LocalAddress = LocalAddress,
+                        RemoteEndPoint = RemoteEndPoint,
+                        RemoteAddress = RemoteAddress
+                    };
+
+                    if (!_outboundWriter.TryWrite(item))
+                    {
+                        //todo log error
+                        bufferOwner.Dispose();
+                        bufferOwner = null;
+                        Status = PNetMeshSessionStatus.Closed;
+                        throw new InvalidOperationException("Unable to queue outbound packet.");
+                    }
+
+                    lock (_retransBufferLock)
+                    {
+                        _retransBuffer.AddUntracked(counter);
+                    }
+
+                    bufferOwner = null;
+                }
+                finally
+                {
+                    bufferOwner?.Dispose();
+                }
+            }
+
+            if (clearOpenPacket)
+                return CompleteOpenPacket();
+
+            return null;
+        }
+
+        void WriteOpenPacketOrFail(
+            string sizeParamName,
+            bool failBatchOnSizeError,
+            out TaskCompletionSource[] results,
+            out Exception resultException)
+        {
+            results = null;
+            resultException = null;
+            try
+            {
+                results = WritePacket(sizeParamName);
+            }
+            catch (ArgumentOutOfRangeException) when (!failBatchOnSizeError)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
                 Status = PNetMeshSessionStatus.Closed;
+                results = FailOpenPacket();
+                resultException = ex;
+                throw;
+            }
+        }
+
+        TaskCompletionSource[] CompleteOpenPacket()
+        {
+            _openPacket = new Protos.Packet();
+            return DetachOpenPacketResults();
+        }
+
+        TaskCompletionSource[] FailOpenPacket()
+        {
+            _openPacket = new Protos.Packet();
+            return DetachOpenPacketResults();
+        }
+
+        TaskCompletionSource[] DetachOpenPacketResults()
+        {
+            if (_openPacketResults.Count == 0)
+                return null;
+
+            var results = _openPacketResults.ToArray();
+            _openPacketResults.Clear();
+            return results;
+        }
+
+        static void CompleteOpenPacketResults(TaskCompletionSource[] results, Exception exception)
+        {
+            if (results is null)
                 return;
+
+            foreach (var result in results)
+            {
+                if (exception is null)
+                    result?.TrySetResult();
+                else
+                    result?.TrySetException(exception);
+            }
+        }
+
+        void ThrowIfDisposing()
+        {
+            if (_disposing || Status == PNetMeshSessionStatus.Disposed || Status == PNetMeshSessionStatus.Closed)
+                throw new ObjectDisposedException(nameof(PNetMeshSession));
+        }
+
+        int PreparePacketForWrite(Protos.Packet packet, string sizeParamName)
+        {
+            lock (_receiveStateLock)
+            {
+                ulong? receiveAck = null;
+                if (_receiveAck < _receiveCounter || _pendingPackets.Count > 0)
+                {
+                    var ackSeqNumber = _receiveCounter;
+
+                    Span<byte> bitmap = stackalloc byte[16];
+                    _transport.Tracker.GetBitmap(ackSeqNumber, bitmap, out var bytesWritten);
+                    bitmap = bitmap.Slice(0, bytesWritten);
+
+                    ackSeqNumber += PNetMeshPacketTracker.RightShift(bitmap, out bytesWritten);
+                    bitmap = bitmap.Slice(0, bytesWritten);
+
+                    packet.Ack = new Protos.Ack
+                    {
+                        AckSeqNumber = ackSeqNumber,
+                        OutOfSeqPackets = ByteString.CopyFrom(bitmap)
+                    };
+                    receiveAck = ackSeqNumber;
+                }
+
+                packet.DoNotAck = packet.Payload.Count == 0 && packet.Relay.Count == 0;
+
+                var packetSize = packet.CalculateSize();
+                EnsurePacketSize(packetSize, sizeParamName);
+
+                if (receiveAck.HasValue)
+                {
+                    _receiveAck = receiveAck.Value;
+                    _cumAckTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+                }
+
+                return packetSize;
             }
         }
 
         void RetransmitPackets()
         {
-            var ack = GetRemoteAckSnapshot();
-            if (ack.SeqNumber > 0) _retransBuffer.RemoveUntil(ack.SeqNumber - 1);
-            var packets = ack.OutOfOrder.Length > 0
-                ? _retransBuffer.GetMissingSequence(ack.OutOfOrder)
-                : _retransBuffer.GetSequence();
+            RetransmitPackets(GetRemoteAckSnapshot(), expectedLatest: null);
+        }
 
-            foreach (var packet in packets)
+        void RetransmitPackets(Ack ack, ulong? expectedLatest)
+        {
+            lock (_openPacketLock)
             {
-                var item = new PNetMeshOutboundMessages.Packet
-                {
-                    MemoryOwner = null,
-                    MemoryBuffer = packet,
-                    LocalEndPoint = LocalEndPoint,
-                    RemoteEndPoint = RemoteEndPoint,
-                    RemoteAddress = RemoteAddress
-                };
-
-                if (!_outboundWriter.TryWrite(item))
-                {
-                    //todo log error
-                    Status = PNetMeshSessionStatus.Closed;
+                if (_disposing || Status != PNetMeshSessionStatus.Open)
                     return;
+
+                lock (_retransBufferLock)
+                {
+                    if (expectedLatest.HasValue && _retransBuffer.Latest != expectedLatest.Value)
+                        return;
+
+                    var packets = ack.OutOfOrder.Length > 0
+                        ? _retransBuffer.GetMissingSequence(ack.OutOfOrder)
+                        : _retransBuffer.GetSequence();
+
+                    foreach (var packet in packets)
+                    {
+                        var item = new PNetMeshOutboundMessages.Packet
+                        {
+                            MemoryOwner = null,
+                            MemoryBuffer = packet,
+                            LocalEndPoint = LocalEndPoint,
+                            RemoteEndPoint = RemoteEndPoint,
+                            RemoteAddress = RemoteAddress
+                        };
+
+                        if (!_outboundWriter.TryWrite(item))
+                        {
+                            //todo log error
+                            Status = PNetMeshSessionStatus.Closed;
+                            return;
+                        }
+                    }
                 }
             }
         }
@@ -443,61 +807,85 @@ namespace PNet.Mesh
         {
             using var buffer = MemoryPool<byte>.Shared.Rent(payload.Length);
 
-            lock (_receiveStateLock)
+            if (Status == PNetMeshSessionStatus.Opening)
             {
-                if (!_transport.TryReadMessage(payload, buffer.Memory.Span, out var bytesWritten, out var counter))
+                lock (_openPacketLock)
                 {
-                    //buffer.Dispose();
+                    if (_disposing || Status == PNetMeshSessionStatus.Disposed || Status == PNetMeshSessionStatus.Closed)
+                        return;
 
-                    if (counter > 0)
-                    {
-                        //duplicate message
-                    }
-                    else
-                    {
-                        //invalid message
-                        //todo log
-                    }
+                    lock (_receiveStateLock)
+                        ReadMessage(payload, buffer.Memory, openResponderSession: true);
+                }
+                return;
+            }
 
+            lock (_receiveStateLock)
+                ReadMessage(payload, buffer.Memory, openResponderSession: false);
+        }
+
+        void ReadMessage(
+            ReadOnlySpan<byte> payload,
+            Memory<byte> buffer,
+            bool openResponderSession)
+        {
+            if (!_transport.TryReadMessage(payload, buffer.Span, out var bytesWritten, out var counter))
+            {
+                //buffer.Dispose();
+
+                if (counter > 0)
+                {
+                    //duplicate message
+                }
+                else
+                {
+                    //invalid message
+                    //todo log
+                }
+
+                return;
+            }
+
+            if (openResponderSession && Status == PNetMeshSessionStatus.Opening)
+            {
+                if (_disposing || Status == PNetMeshSessionStatus.Disposed || Status == PNetMeshSessionStatus.Closed)
                     return;
-                }
 
-                if (Status == PNetMeshSessionStatus.Opening)
-                {
-                    //open responder session
-                    _openPacket = new Protos.Packet();
-                    Status = PNetMeshSessionStatus.Open;
-                }
+                _openPacket = new Protos.Packet();
+                Status = PNetMeshSessionStatus.Open;
+            }
 
-                var bufferSeq = new ReadOnlySequence<byte>(buffer.Memory.Slice(0, bytesWritten));
+            var bufferSeq = new ReadOnlySequence<byte>(buffer.Slice(0, bytesWritten));
 
-                var packet = Protos.Packet.Parser.ParseFrom(bufferSeq);
-                ProcessAck(packet);
+            var packet = Protos.Packet.Parser.ParseFrom(bufferSeq);
+            ProcessAck(packet);
 
-                if (counter > _receiveCounter)
-                {
-                    _pendingPackets[counter] = packet;
-                    _outOfOrder_count = _pendingPackets.Count;
-                    UpdateAckTimer(packet);
-                    return;
-                }
+            if (Status != PNetMeshSessionStatus.Open)
+                return;
 
-                if (counter < _receiveCounter)
-                    return;
-
-                ProcessPacket(packet);
-                _receiveCounter++;
-
-                while (_pendingPackets.TryGetValue(_receiveCounter, out var pendingPacket))
-                {
-                    _pendingPackets.Remove(_receiveCounter);
-                    ProcessPacket(pendingPacket);
-                    _receiveCounter++;
-                }
-
+            if (counter > _receiveCounter)
+            {
+                _pendingPackets[counter] = packet;
                 _outOfOrder_count = _pendingPackets.Count;
                 UpdateAckTimer(packet);
+                return;
             }
+
+            if (counter < _receiveCounter)
+                return;
+
+            ProcessPacket(packet);
+            _receiveCounter++;
+
+            while (_pendingPackets.TryGetValue(_receiveCounter, out var pendingPacket))
+            {
+                _pendingPackets.Remove(_receiveCounter);
+                ProcessPacket(pendingPacket);
+                _receiveCounter++;
+            }
+
+            _outOfOrder_count = _pendingPackets.Count;
+            UpdateAckTimer(packet);
         }
 
         void UpdateAckTimer(Protos.Packet packet)
@@ -511,7 +899,7 @@ namespace PNet.Mesh
             if (_outOfOrder_count >= _outOfOrder_max || _pendingPackets.Count > 0)
                 ackTimeout = 0;
 
-            _cumAckTimer.Change(ackTimeout, Timeout.Infinite);
+            _cumAckTimer?.Change(ackTimeout, Timeout.Infinite);
         }
 
         void ProcessPacket(Protos.Packet packet)
@@ -522,8 +910,10 @@ namespace PNet.Mesh
 
                 _cumAck_max = syn.MaxCumAck;
                 _outOfOrder_max = syn.MaxOutOfSeq;
-                _outstanding_max = (ushort)syn.MaxOutstandingSeq;
-                _packetSize_max = (ushort)syn.MaxPacketSize;
+                if (syn.MaxOutstandingSeq > 0)
+                    Volatile.Write(ref _outstanding_max, syn.MaxOutstandingSeq);
+                if (syn.MaxPacketSize > 0)
+                    Volatile.Write(ref _packetSize_max, syn.MaxPacketSize);
 
                 if (syn.RetransmissionTimeout > 0)
                     _retrans_timeout = Math.Max(syn.RetransmissionTimeout, 100);
@@ -672,8 +1062,14 @@ namespace PNet.Mesh
             var outOfOrder = !ack.OutOfSeqPackets.IsEmpty
                 ? ack.OutOfSeqPackets.ToByteArray()
                 : Array.Empty<byte>();
-            Ack remoteAck;
+            var remoteAck = new Ack
+            {
+                SeqNumber = ack.AckSeqNumber,
+                OutOfOrder = outOfOrder
+            };
 
+            var retransTimeout = _retrans_timeout;
+            ulong retransmitBase;
             lock (_remoteAckLock)
             {
                 var ackAdvanced = _remoteAck.SeqNumber < ack.AckSeqNumber;
@@ -683,32 +1079,133 @@ namespace PNet.Mesh
                 if (!ackAdvanced && !outOfOrderChanged)
                     return;
 
-                _remoteAck = new Ack
+                lock (_retransBufferLock)
                 {
-                    SeqNumber = ack.AckSeqNumber,
-                    OutOfOrder = outOfOrder
-                };
-                remoteAck = _remoteAck;
+                    if (remoteAck.SeqNumber > _retransBuffer.Current + 1)
+                        return;
+
+                    if (remoteAck.SeqNumber > 0)
+                        _retransBuffer.RemoveUntil(remoteAck.SeqNumber - 1);
+                    retransmitBase = _retransBuffer.Latest;
+                }
+
+                _remoteAck = remoteAck;
             }
 
-            var retransTimeout = _retrans_timeout;
             if (remoteAck.OutOfOrder.Length > 0)
             {
-                _controlWriter.TryWrite(new PNetMeshChannelCommands.Invoke
+                var retransmitAck = remoteAck;
+                QueueControl(new PNetMeshChannelCommands.Invoke
                 {
-                    Handler = RetransmitPackets
+                    Handler = () => RetransmitPackets(retransmitAck, retransmitBase)
                 });
             }
 
             //todo start retransTimer on send and disable when no unconfirmed packets
-            _retransTimer.Change(retransTimeout, Timeout.Infinite);
+            _retransTimer?.Change(retransTimeout, Timeout.Infinite);
 
-            // AckSeqNumber is the peer's next expected counter, so it is one past Current when all buffered packets are acknowledged.
-            if (remoteAck.SeqNumber > _retransBuffer.Current)
-                _controlWriter.TryWrite(new PNetMeshChannelCommands.Invoke
+            QueueControl(new PNetMeshChannelCommands.Invoke
+            {
+                Handler = FlushOpenPacket
+            });
+        }
+
+        void QueueControl(PNetMeshChannelCommands.Invoke command)
+        {
+            if (_disposing || Status != PNetMeshSessionStatus.Open)
+                return;
+
+            var writer = _controlWriter;
+            if (writer is null)
+            {
+                FailControlQueue(new InvalidOperationException("Control channel is not available."));
+                return;
+            }
+
+            var startDrain = false;
+            var overflow = false;
+            lock (_controlQueueLock)
+            {
+                if (!_controlQueueDraining && _pendingControlCommands.Count == 0 && writer.TryWrite(command))
+                    return;
+
+                if (_pendingControlCommands.Count >= MaxPendingControlCommands)
                 {
-                    Handler = FlushPayload
-                });
+                    _pendingControlCommands.Clear();
+                    overflow = true;
+                }
+                else
+                {
+                    _pendingControlCommands.Enqueue(command);
+                    if (!_controlQueueDraining)
+                    {
+                        _controlQueueDraining = true;
+                        startDrain = true;
+                    }
+                }
+            }
+
+            if (overflow)
+            {
+                FailControlQueue(new InvalidOperationException("Control channel backlog exceeded."));
+                return;
+            }
+
+            if (startDrain)
+                _ = DrainControlQueueAsync(writer);
+        }
+
+        async Task DrainControlQueueAsync(ChannelWriter<PNetMeshChannelCommands.Command> writer)
+        {
+            try
+            {
+                while (true)
+                {
+                    PNetMeshChannelCommands.Invoke command;
+                    lock (_controlQueueLock)
+                    {
+                        if (_pendingControlCommands.Count == 0)
+                        {
+                            _controlQueueDraining = false;
+                            return;
+                        }
+
+                        command = _pendingControlCommands.Peek();
+                    }
+
+                    await writer.WriteAsync(command);
+
+                    lock (_controlQueueLock)
+                    {
+                        if (_pendingControlCommands.Count > 0 && ReferenceEquals(_pendingControlCommands.Peek(), command))
+                            _pendingControlCommands.Dequeue();
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is ChannelClosedException or InvalidOperationException)
+            {
+                lock (_controlQueueLock)
+                {
+                    _pendingControlCommands.Clear();
+                    _controlQueueDraining = false;
+                }
+
+                FailControlQueue(ex);
+            }
+        }
+
+        void FailControlQueue(Exception exception)
+        {
+            TaskCompletionSource[] results;
+            lock (_openPacketLock)
+            {
+                if (_disposing || Status == PNetMeshSessionStatus.Disposed)
+                    return;
+
+                Status = PNetMeshSessionStatus.Closed;
+                results = FailOpenPacket();
+            }
+            CompleteOpenPacketResults(results, exception);
         }
 
         Ack GetRemoteAckSnapshot()
@@ -721,6 +1218,31 @@ namespace PNet.Mesh
         {
             lock (_remoteAckLock)
                 return _remoteAck.SeqNumber;
+        }
+
+        bool HasSendWindow()
+        {
+            lock (_retransBufferLock)
+                return _retransBuffer.Count < Volatile.Read(ref _outstanding_max);
+        }
+
+        bool HasOpenPacket()
+        {
+            return _openPacket.Payload.Count > 0 || _openPacket.Relay.Count > 0;
+        }
+
+        bool HasPendingAck()
+        {
+            lock (_receiveStateLock)
+                return _receiveAck < _receiveCounter || _pendingPackets.Count > 0;
+        }
+
+        void EnsurePacketSize(int packetSize, string paramName)
+        {
+            if (packetSize <= Volatile.Read(ref _packetSize_max))
+                return;
+
+            throw new ArgumentOutOfRangeException(paramName, "Packet exceeds negotiated max packet size.");
         }
     }
 }

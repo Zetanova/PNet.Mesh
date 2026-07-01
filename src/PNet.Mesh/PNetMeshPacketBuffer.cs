@@ -13,17 +13,20 @@ namespace PNet.Mesh
             public IMemoryOwner<byte> MemoryOwner { get; init; }
 
             public Memory<byte> Memory { get; set; }
+
+            public bool IsTracked => MemoryOwner is not null;
         }
 
 
         Queue<BufferEntry> _items;
         BufferEntry _current;
+        int _trackedCount;
 
-        public ulong Current => Latest + (ulong)_items.Count - 1;
+        public ulong Current => _items.Count == 0 ? Latest - 1 : Latest + (ulong)_items.Count - 1;
 
         public ulong Latest { get; private set; }
 
-        public int Count => _items.Count;
+        public int Count => _trackedCount;
 
         public PNetMeshPacketBuffer()
         {
@@ -39,6 +42,7 @@ namespace PNet.Mesh
                 Memory = buffer.Memory
             };
             _items.Enqueue(_current);
+            _trackedCount++;
             return buffer.Memory;
         }
 
@@ -50,8 +54,27 @@ namespace PNet.Mesh
 
         public void RemoveUntil(ulong counter)
         {
+            if (counter < Latest)
+                return;
+            if (_items.Count == 0)
+            {
+                Latest = counter + 1;
+                return;
+            }
             if (Current < counter)
-                throw new ArgumentOutOfRangeException(nameof(counter));
+            {
+                while (_items.Count > 0)
+                {
+                    var item = _items.Dequeue();
+                    if (item.IsTracked)
+                    {
+                        item.MemoryOwner.Dispose();
+                        _trackedCount--;
+                    }
+                }
+                Latest = counter + 1;
+                return;
+            }
 
             if (Latest <= counter)
             {
@@ -59,10 +82,73 @@ namespace PNet.Mesh
                 for (var i = Latest; i <= counter; i++)
                 {
                     entry = _items.Dequeue();
-                    entry.MemoryOwner.Dispose();
+                    if (entry.IsTracked)
+                    {
+                        entry.MemoryOwner.Dispose();
+                        _trackedCount--;
+                    }
                 }
                 Latest = counter + 1;
             }
+        }
+
+        public void DiscardCurrent()
+        {
+            if (_current is null || _items.Count == 0)
+                return;
+
+            var items = _items.ToArray();
+            if (!ReferenceEquals(items[^1], _current))
+                throw new InvalidOperationException("Current packet is not the newest buffered packet.");
+
+            _items.Clear();
+            for (var i = 0; i < items.Length - 1; i++)
+                _items.Enqueue(items[i]);
+
+            if (_current.IsTracked)
+            {
+                _current.MemoryOwner.Dispose();
+                _trackedCount--;
+            }
+
+            _current = null;
+        }
+
+        public void AddUntracked(ulong counter)
+        {
+            if (_trackedCount == 0)
+            {
+                while (_items.Count > 0)
+                    _items.Dequeue();
+                Latest = counter + 1;
+                return;
+            }
+
+            var next = Latest + (ulong)_items.Count;
+            if (counter < next)
+                return;
+
+            while (next <= counter)
+            {
+                _items.Enqueue(new BufferEntry
+                {
+                    Memory = Memory<byte>.Empty
+                });
+                next++;
+            }
+        }
+
+        public int CountOutstanding(ulong ackSeqNumber)
+        {
+            var count = 0;
+            var counter = Latest;
+            foreach (var entry in _items)
+            {
+                if (entry.IsTracked && counter >= ackSeqNumber)
+                    count++;
+                counter++;
+            }
+            return count;
         }
 
         public IEnumerable<Memory<byte>> GetSequence(byte[] bitmap)
@@ -70,7 +156,7 @@ namespace PNet.Mesh
             //todo refactor to loop and take readonlyspan as arg
             var bits = new BitArray(bitmap);
             return _items
-                .Take(bits.Length).Where((n, i) => bits[i])
+                .Take(bits.Length).Where((n, i) => n.IsTracked && bits[i])
                 //.Where((n, i) => i >= bits.Length || bits[i])
                 .Select(n => n.Memory);
         }
@@ -80,13 +166,13 @@ namespace PNet.Mesh
             var bits = new BitArray(receivedBitmap);
             return _items
                 .Take(bits.Length)
-                .Where((n, i) => !bits[i])
+                .Where((n, i) => n.IsTracked && !bits[i])
                 .Select(n => n.Memory);
         }
 
         public IEnumerable<Memory<byte>> GetSequence()
         {
-            return _items.Select(n => n.Memory);
+            return _items.Where(n => n.IsTracked).Select(n => n.Memory);
         }
     }
 }
