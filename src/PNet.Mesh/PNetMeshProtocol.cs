@@ -98,6 +98,8 @@ namespace PNet.Mesh
 
         readonly PNetMeshHandshakeReplayTracker _handshakeReplayTracker = new PNetMeshHandshakeReplayTracker();
 
+        readonly PNetMeshWireGuardPeerTable _wireGuardPeers = new PNetMeshWireGuardPeerTable();
+
         readonly byte[] _localStaticPrivKey;
         readonly byte[] _localStaticPubKey;
 
@@ -120,6 +122,8 @@ namespace PNet.Mesh
         public int HandshakeInitiationMessageSize => _profile.HandshakeInitiationMessageSize;
 
         public int HandshakeResponseMessageSize => PNetMeshHandshake.ResponseMessageSize;
+
+        public PNetMeshWireGuardPeerTable WireGuardPeers => _wireGuardPeers;
 
         internal int HandshakeInitiationTimestampSize => _profile.HandshakeInitiationTimestampSize;
 
@@ -300,6 +304,24 @@ namespace PNet.Mesh
         {
             return _profile.Mode != PNetMeshTransportMode.WireGuard
                 || _handshakeReplayTracker.TryAdd(peerPublicKey, timestamp);
+        }
+
+        internal void RegisterWireGuardKeypair(
+            ReadOnlySpan<byte> remotePublicKey,
+            PNetMeshTransport2 transport,
+            PNetMeshWireGuardKeypairRole role)
+        {
+            if (_profile.Mode != PNetMeshTransportMode.WireGuard)
+                return;
+
+            var keypair = _wireGuardPeers.SetCurrentKeypair(
+                remotePublicKey,
+                new PNetMeshWireGuardKeypair(
+                    transport.SenderIndex,
+                    transport.ReceiverIndex,
+                    role,
+                    DateTimeOffset.UtcNow));
+            transport.SetWireGuardKeypair(keypair);
         }
 
         byte[] CreateMac1Key(ReadOnlySpan<byte> publicKey)
@@ -700,6 +722,7 @@ namespace PNet.Mesh
             bytesWritten = ResponseMessageSize;
 
             RemotePublicKey = _handshake.RemoteStaticPublicKey.ToArray();
+            _protocol.RegisterWireGuardKeypair(RemotePublicKey, transport, PNetMeshWireGuardKeypairRole.Responder);
 
             return true;
         }
@@ -751,6 +774,7 @@ namespace PNet.Mesh
             transport = new PNetMeshTransport2(_senderIndex, _receiverIndex, t);
 
             RemotePublicKey = _handshake.RemoteStaticPublicKey.ToArray();
+            _protocol.RegisterWireGuardKeypair(RemotePublicKey, transport, PNetMeshWireGuardKeypairRole.Initiator);
 
             return true;
         }
@@ -797,6 +821,8 @@ namespace PNet.Mesh
 
         readonly Action<ulong> _setReadNonce;
 
+        PNetMeshWireGuardKeypair _wireGuardKeypair;
+
         ulong _sendCounter;
 
         public uint SenderIndex => _senderIndex;
@@ -805,6 +831,8 @@ namespace PNet.Mesh
 
         public PNetMeshPacketTracker Tracker => _tracker;
 
+        public PNetMeshWireGuardKeypair WireGuardKeypair => _wireGuardKeypair;
+
         public PNetMeshTransport2(uint senderIndex, uint receiverIndex, Transport transport)
         {
             _senderIndex = senderIndex;
@@ -812,6 +840,11 @@ namespace PNet.Mesh
             _transport = transport;
             _tracker = new PNetMeshPacketTracker();
             (_setWriteNonce, _setReadNonce) = CreateNonceSetters(transport);
+        }
+
+        internal void SetWireGuardKeypair(PNetMeshWireGuardKeypair keypair)
+        {
+            _wireGuardKeypair = keypair;
         }
 
         public void WriteMessage(ReadOnlySpan<byte> payload, Span<byte> buffer, out int bytesWritten, out ulong counter)
@@ -858,6 +891,7 @@ namespace PNet.Mesh
                 counter = _sendCounter;
                 _setWriteNonce(counter);
                 bytesWritten += _transport.WriteMessage(padded_payload.Slice(0, paddedSize), buffer[16..]);
+                RecordWireGuardSent(counter);
                 _sendCounter++;
 
                 if (rented_padded_payload != null)
@@ -871,6 +905,7 @@ namespace PNet.Mesh
                 counter = _sendCounter;
                 _setWriteNonce(counter);
                 bytesWritten += _transport.WriteMessage(payload, buffer[16..]);
+                RecordWireGuardSent(counter);
                 _sendCounter++;
             }
 
@@ -915,6 +950,8 @@ namespace PNet.Mesh
                 return false;
             }
 
+            RecordWireGuardReceived(counter);
+
             if (bytesWritten > 1)
             {
                 //padding length
@@ -933,6 +970,18 @@ namespace PNet.Mesh
         {
             _transport.Dispose();
             _tracker.Dispose();
+        }
+
+        void RecordWireGuardSent(ulong counter)
+        {
+            _wireGuardKeypair?.RecordSentCounter(counter);
+            _wireGuardKeypair?.RecordTransportActivity(DateTimeOffset.UtcNow);
+        }
+
+        void RecordWireGuardReceived(ulong counter)
+        {
+            _wireGuardKeypair?.RecordReceivedCounter(counter);
+            _wireGuardKeypair?.RecordTransportActivity(DateTimeOffset.UtcNow);
         }
 
         static (Action<ulong> write, Action<ulong> read) CreateNonceSetters(Transport transport)
