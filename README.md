@@ -26,10 +26,10 @@ http://noiseprotocol.org/noise.pdf
 Interactive Connectivity Establishment (ICE) candidate model; full ICE checks, STUN, and TURN are not implemented
 https://tools.ietf.org/html/rfc8445
 
-Explicit Congestion Notification (ECN) for RTP over UDP
+Explicit Congestion Notification (ECN) field model; runtime ECN marking, reporting, and congestion behavior are not implemented
 https://tools.ietf.org/html/rfc6679
 
-Low Extra Delay Background Transport (LEDBAT)
+Low Extra Delay Background Transport (LEDBAT) timestamp/delay field model; runtime delay-based congestion control is not implemented
 https://tools.ietf.org/html/rfc6817
 
 ## Maintenance
