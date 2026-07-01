@@ -234,16 +234,14 @@ namespace PNet.Mesh
 
                                             if (sessions.TryGetValue(receiverIndex, out session))
                                             {
-                                                if (session.LocalEndPoint != cmd.LocalEndPoint)
-                                                    session.LocalEndPoint = cmd.LocalEndPoint;
-                                                if (session.RemoteEndPoint != cmd.RemoteEndPoint)
+                                                if (!session.SupportsDirectEndpointDiscovery)
+                                                    ApplyLegacyEndpointUpdate(session, cmd);
+
+                                                if (session.TryReadMessage(cmd.MemoryBuffer.Span)
+                                                    && session.SupportsDirectEndpointDiscovery)
                                                 {
-                                                    session.RemoteEndPoint = cmd.RemoteEndPoint;
-
-                                                    _router.SetEntry(session.RemoteAddress, session.RemoteEndPoint);
+                                                    ApplyAuthenticatedEndpointUpdate(session, cmd);
                                                 }
-
-                                                session.ReadMessage(cmd.MemoryBuffer.Span);
                                             }
                                             else
                                             {
@@ -257,11 +255,22 @@ namespace PNet.Mesh
                                             session = new PNetMeshSession(_protocol, _outboundChannel.Writer)
                                             {
                                                 LocalEndPoint = cmd.LocalEndPoint,
-                                                RemoteEndPoint = cmd.RemoteEndPoint
+                                                RemoteEndPoint = cmd.RelayCandidateEndPoint is null ? cmd.RemoteEndPoint : null
                                             };
 
-                                            session.ReadInitialize(++senderIndex, cmd.MemoryBuffer.Span);
+                                            if (!session.TryReadInitialize(++senderIndex, cmd.MemoryBuffer.Span))
+                                            {
+                                                session.Dispose();
+                                                break;
+                                            }
 
+                                            if (cmd.RelayCandidateEndPoint is not null)
+                                            {
+                                                if (session.SupportsDirectEndpointDiscovery)
+                                                    session.TryApplyDirectEndpointHint(cmd.RelayCandidateEndPoint, DateTimeOffset.UtcNow);
+                                                else
+                                                    session.ConfirmRemoteEndpoint(cmd.RelayCandidateEndPoint);
+                                            }
                                             if (!channels.TryGetValue(session.RemoteAddress, out var channel))
                                             {
                                                 channel = _channelFactory();
@@ -280,7 +289,8 @@ namespace PNet.Mesh
                                                 session.WriteResponse();
                                                 Debug.Assert(session.Status == PNetMeshSessionStatus.Opening);
 
-                                                _router.SetEntry(session.RemoteAddress, session.RemoteEndPoint);
+                                                if (session.RemoteEndPoint is not null)
+                                                    _router.SetEntry(session.RemoteAddress, session.RemoteEndPoint);
                                             }
                                             else
                                             {
@@ -296,15 +306,16 @@ namespace PNet.Mesh
 
                                             if (sessions.TryGetValue(receiverIndex, out session))
                                             {
-                                                session.LocalEndPoint = cmd.LocalEndPoint;
-                                                session.RemoteEndPoint = cmd.RemoteEndPoint;
+                                                if (!session.SupportsDirectEndpointDiscovery)
+                                                    ApplyLegacyEndpointUpdate(session, cmd);
 
-                                                session.ReadResponse(cmd.MemoryBuffer.Span);
-                                                Debug.Assert(session.Status == PNetMeshSessionStatus.Open);
+                                                if (!session.TryReadResponse(cmd.MemoryBuffer.Span))
+                                                    break;
 
                                                 if (channels.TryGetValue(session.RemoteAddress, out var channel))
                                                 {
-                                                    _router.SetEntry(session.RemoteAddress, session.RemoteEndPoint);
+                                                    if (session.SupportsDirectEndpointDiscovery)
+                                                        ApplyAuthenticatedEndpointUpdate(session, cmd);
 
                                                     localAddresses.Add(session.LocalAddress);
                                                 }
@@ -443,7 +454,8 @@ namespace PNet.Mesh
                                     {
                                         MemoryOwner = cmd.MemoryOwner,
                                         LocalEndPoint = null,
-                                        RemoteEndPoint = remoteEndPoint,
+                                        RemoteEndPoint = null,
+                                        RelayCandidateEndPoint = remoteEndPoint,
                                         MemoryBuffer = packet.Payload
                                     };
 
@@ -706,6 +718,60 @@ namespace PNet.Mesh
             sendChannel.Writer.Complete();
 
             _logger.LogDebug("outbound process completed");
+        }
+
+        void ApplyAuthenticatedEndpointUpdate(PNetMeshSession session, PNetMeshControlCommands.Receive cmd)
+        {
+            if (cmd.LocalEndPoint is not null && !cmd.LocalEndPoint.Equals(session.LocalEndPoint))
+                session.LocalEndPoint = cmd.LocalEndPoint;
+
+            if (cmd.RelayCandidateEndPoint is not null)
+            {
+                if (session.TryApplyDirectEndpointHint(cmd.RelayCandidateEndPoint, DateTimeOffset.UtcNow))
+                {
+                    _logger.LogInformation(
+                        "session[{sessionIndex}] queued direct endpoint candidate {remoteEndPoint}",
+                        session.SenderIndex,
+                        cmd.RelayCandidateEndPoint);
+                }
+                else if (!session.SupportsDirectEndpointDiscovery)
+                {
+                    session.ConfirmRemoteEndpoint(cmd.RelayCandidateEndPoint);
+                    _router.SetEntry(session.RemoteAddress, session.RemoteEndPoint);
+                }
+
+                return;
+            }
+
+            if (cmd.RemoteEndPoint is null)
+                return;
+
+            if (session.TryPromoteDirectEndpoint(cmd.RemoteEndPoint, DateTimeOffset.UtcNow))
+            {
+                _logger.LogInformation(
+                    "session[{sessionIndex}] promoted direct endpoint {remoteEndPoint}",
+                    session.SenderIndex,
+                    cmd.RemoteEndPoint);
+            }
+            else
+            {
+                session.ConfirmRemoteEndpoint(cmd.RemoteEndPoint);
+            }
+
+            _router.SetEntry(session.RemoteAddress, session.RemoteEndPoint);
+        }
+
+        void ApplyLegacyEndpointUpdate(PNetMeshSession session, PNetMeshControlCommands.Receive cmd)
+        {
+            if (cmd.LocalEndPoint is not null && !cmd.LocalEndPoint.Equals(session.LocalEndPoint))
+                session.LocalEndPoint = cmd.LocalEndPoint;
+
+            var remoteEndPoint = cmd.RelayCandidateEndPoint ?? cmd.RemoteEndPoint;
+            if (remoteEndPoint is null)
+                return;
+
+            session.ConfirmRemoteEndpoint(remoteEndPoint);
+            _router.SetEntry(session.RemoteAddress, session.RemoteEndPoint);
         }
 
         internal static bool TryAcceptRelayPacket(PNetMeshRouter router, PNetMeshRelayPacket packet)
@@ -1008,6 +1074,8 @@ namespace PNet.Mesh
             public IMemoryOwner<byte> MemoryOwner { get; set; }
 
             public EndPoint RemoteEndPoint { get; set; }
+
+            public EndPoint RelayCandidateEndPoint { get; set; }
 
             public EndPoint LocalEndPoint { get; set; }
 

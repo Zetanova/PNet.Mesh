@@ -394,6 +394,91 @@ public sealed class PNetMeshTestNodeHarnessTests
     }
 
     [Fact]
+    public async Task relay_assisted_endpoint_discovery_promotes_direct_after_authenticated_probe()
+    {
+        const string networkName = "wireguard-relay-promote";
+
+        await using var harness = new PNetMeshTestNodeHarness();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromMinutes(5));
+
+        await harness.InitializeAsync(timeout.Token);
+
+        var peer = PNetMeshTestNodeSpec.WireGuardPeerContainerPeer(publishUdpPort: true, networkName);
+        var relay = PNetMeshTestNodeSpec.WireGuardRelayContainerNode(peer, networkName);
+        var peerContainer = await harness.StartNodeAsync(peer, timeout.Token);
+        var relayContainer = await harness.StartNodeAsync(relay, timeout.Token);
+        var directEndpoint = await GetMappedUdpEndpointAsync(peerContainer, $"{peer.Port}/udp", timeout.Token);
+        var relayEndpoint = await GetMappedUdpEndpointAsync(relayContainer, $"{relay.Port}/udp", timeout.Token);
+
+        var psk = Convert.FromBase64String(peer.Psk);
+        using var localStatic = KeyPair.Generate();
+        var protocol = new PNetMeshProtocol(
+            localStatic.PrivateKey,
+            localStatic.PublicKey,
+            psk,
+            PNetMeshTransportMode.WireGuard);
+        using var handshake = protocol.CreateInitiator(0x4701, Convert.FromBase64String(peer.PublicKey));
+        var discovery = new PNetMeshWireGuardEndpointDiscovery(
+            relayEndpoint,
+            TimeSpan.FromSeconds(30),
+            TimeSpan.FromSeconds(10));
+        using var udp = new UdpClient(AddressFamily.InterNetwork);
+
+        var outbound = new byte[4098];
+        var inbound = new byte[4098];
+        handshake.WriteInitiationMessage(outbound, out var bytesWritten);
+        await udp.SendAsync(outbound.AsMemory(0, bytesWritten), relayEndpoint, timeout.Token);
+
+        var response = await udp.ReceiveAsync(timeout.Token);
+        Assert.True(handshake.TryReadResponseMessage(response.Buffer, out var transport));
+        Assert.True(discovery.TryApplyEndpointHint(directEndpoint, DateTimeOffset.UtcNow));
+        Assert.True(discovery.TryBeginDirectProbe(DateTimeOffset.UtcNow, out var probeEndpoint));
+        Assert.Equal(directEndpoint, probeEndpoint);
+        var directProbeEndpoint = Assert.IsType<IPEndPoint>(probeEndpoint);
+        Assert.Equal(relayEndpoint, discovery.CurrentEndpoint);
+
+        using (transport)
+        {
+            var request = Encoding.UTF8.GetBytes("pnet-wireguard-e2e-request");
+            transport.WriteMessage(request, outbound, out bytesWritten, out _);
+            await udp.SendAsync(outbound.AsMemory(0, bytesWritten), directProbeEndpoint, timeout.Token);
+
+            var reply = await udp.ReceiveAsync(timeout.Token);
+            Assert.True(transport.TryReadPlaintext(reply.Buffer, inbound, out var plaintext));
+            Assert.True(discovery.TryPromoteAuthenticatedDirectEndpoint(reply.RemoteEndPoint, DateTimeOffset.UtcNow));
+            Assert.Equal(directEndpoint, discovery.CurrentEndpoint);
+
+            var expectedReply = Encoding.UTF8.GetBytes("pnet-wireguard-e2e-response");
+            Assert.True(inbound.AsSpan(0, expectedReply.Length).SequenceEqual(expectedReply));
+            Assert.All(inbound.AsSpan(expectedReply.Length, plaintext.BytesWritten - expectedReply.Length).ToArray(), b => Assert.Equal((byte)0, b));
+        }
+
+        var peerLogs = await PNetMeshTestNodeHarness.WaitForLogsAsync(
+            peerContainer,
+            new[]
+            {
+                $"WireGuardPeer[{peer.Name}] handshake complete",
+                $"WireGuardPeer[{peer.Name}] received plaintext pnet-wireguard-e2e-request",
+                $"WireGuardPeer[{peer.Name}] sent encrypted response pnet-wireguard-e2e-response"
+            },
+            timeout.Token);
+        var relayLogs = await PNetMeshTestNodeHarness.WaitForLogsAsync(
+            relayContainer,
+            new[]
+            {
+                $"WireGuardRelay[{relay.Name}] routed handshake initiation to {peer.Name}:{peer.Port}",
+                $"WireGuardRelay[{relay.Name}] relayed handshake response to client"
+            },
+            timeout.Token);
+
+        _output.WriteLine("===== peer =====");
+        _output.WriteLine(peerLogs);
+        _output.WriteLine("===== relay =====");
+        _output.WriteLine(relayLogs);
+    }
+
+    [Fact]
     public async Task multi_hop_route_crosses_separated_container_segments()
     {
         await using var harness = new PNetMeshTestNodeHarness();

@@ -33,7 +33,7 @@ namespace PNet.Mesh
 
         internal bool CanRelayDirect => TryGetRelaySession(out _);
 
-        internal bool HasRoutableSession => TryGetRelaySession(out _);
+        internal bool HasRoutableSession => HasRelaySessionCandidate();
 
         public PNetMeshChannel(ILogger<PNetMeshChannel> logger = null)
         {
@@ -148,17 +148,20 @@ namespace PNet.Mesh
                             }
                             break;
                         case PNetMeshChannelCommands.Relay cmd:
-                            //todo open session on demand
-                            if (!TryGetRelaySession(out var relaySession))
-                            {
-                                cmd.MemoryOwner?.Dispose();
-                                cmd.Result?.TrySetException(new InvalidOperationException("No routable session is available."));
-                                break;
-                            }
-
                             try
                             {
+                                var relaySession = await GetRelaySessionForRelayAsync(cmd.CancellationToken);
+                                if (relaySession is null)
+                                {
+                                    cmd.Result?.TrySetException(new InvalidOperationException("No routable session is available."));
+                                    break;
+                                }
+
                                 relaySession.WriteRelay(cmd.Packet, cmd.Result);
+                            }
+                            catch (OperationCanceledException ex)
+                            {
+                                cmd.Result?.TrySetCanceled(ex.CancellationToken);
                             }
                             catch (Exception ex)
                             {
@@ -230,7 +233,8 @@ namespace PNet.Mesh
             {
                 Packet = packet,
                 MemoryOwner = memoryOwner,
-                Result = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
+                Result = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
+                CancellationToken = cancellationToken
             };
 
             //todo if (cancellationToken.IsCancellationRequested)
@@ -239,6 +243,53 @@ namespace PNet.Mesh
             await _controlChannel.Writer.WriteAsync(cmd, cancellationToken);
 
             await cmd.Result.Task;
+        }
+
+        async ValueTask<PNetMeshSession> GetRelaySessionForRelayAsync(CancellationToken cancellationToken)
+        {
+            if (TryGetRelaySession(out var session))
+                return session;
+
+            if (!HasRelaySessionCandidate())
+                return null;
+
+            var candidates = _sessions
+                .Where(IsRelaySessionCandidate)
+                .ToArray();
+            var wait = new TaskCompletionSource<PNetMeshSession>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            void OnStatusChanged(object sender, EventArgs e)
+            {
+                var candidate = (PNetMeshSession)sender;
+                if (IsRelaySession(candidate))
+                    wait.TrySetResult(candidate);
+                else if ((candidate.Status == PNetMeshSessionStatus.Closed
+                          || candidate.Status == PNetMeshSessionStatus.Disposed)
+                         && !HasRelaySessionCandidate())
+                    wait.TrySetResult(null);
+            }
+
+            foreach (var candidate in candidates)
+                candidate.StatusChanged += OnStatusChanged;
+
+            try
+            {
+                if (TryGetRelaySession(out session))
+                    return session;
+
+                if (!HasRelaySessionCandidate())
+                    return null;
+
+                using var cancellation = cancellationToken.Register(
+                    state => ((TaskCompletionSource<PNetMeshSession>)state).TrySetCanceled(cancellationToken),
+                    wait);
+                return await wait.Task;
+            }
+            finally
+            {
+                foreach (var candidate in candidates)
+                    candidate.StatusChanged -= OnStatusChanged;
+            }
         }
 
         bool TryGetRelaySession(out PNetMeshSession session)
@@ -260,9 +311,30 @@ namespace PNet.Mesh
             return false;
         }
 
+        bool HasRelaySessionCandidate()
+        {
+            if (IsRelaySessionCandidate(_currentSession))
+                return true;
+
+            foreach (var candidate in _sessions)
+            {
+                if (IsRelaySessionCandidate(candidate))
+                    return true;
+            }
+
+            return false;
+        }
+
         static bool IsRelaySession(PNetMeshSession session)
         {
             return session?.Status == PNetMeshSessionStatus.Open && session.RemoteEndPoint is not null;
+        }
+
+        static bool IsRelaySessionCandidate(PNetMeshSession session)
+        {
+            return session?.RemoteEndPoint is not null
+                   && (session.Status == PNetMeshSessionStatus.Open
+                       || session.Status == PNetMeshSessionStatus.Opening);
         }
     }
 
@@ -332,6 +404,8 @@ namespace PNet.Mesh
             public IMemoryOwner<byte> MemoryOwner { get; set; }
 
             public TaskCompletionSource Result { get; init; }
+
+            public CancellationToken CancellationToken { get; init; }
         }
     }
 }

@@ -45,6 +45,13 @@ namespace PNet.Mesh
 
         PNetMeshTransport2 _transport;
 
+        // multi-threading: relay hints/promotions arrive on the server receive/control loop while
+        // channel writes and retransmits consume direct-probe state on session send paths.
+        readonly object _endpointDiscoveryLock = new object();
+
+        readonly PNetMeshWireGuardEndpointDiscovery _endpointDiscovery =
+            new PNetMeshWireGuardEndpointDiscovery(null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(10));
+
         public EndPoint LocalEndPoint { get; set; }
 
         public EndPoint RemoteEndPoint { get; set; }
@@ -74,6 +81,63 @@ namespace PNet.Mesh
         public long Timestamp => _handshake.Timestamp;
 
         public uint SenderIndex => _handshake.SenderIndex;
+
+        internal EndPoint PendingDirectEndpoint => _endpointDiscovery.CandidateEndpoint;
+
+        internal bool SupportsDirectEndpointDiscovery => _protocol.Mode == PNetMeshTransportMode.WireGuard;
+
+        internal bool TryApplyDirectEndpointHint(EndPoint endpoint, DateTimeOffset now)
+        {
+            if (!SupportsDirectEndpointDiscovery)
+                return false;
+
+            lock (_endpointDiscoveryLock)
+                return _endpointDiscovery.DirectEndpoint is null
+                       && _endpointDiscovery.TryApplyEndpointHint(endpoint, now);
+        }
+
+        internal bool TryPromoteDirectEndpoint(EndPoint endpoint, DateTimeOffset now)
+        {
+            if (!SupportsDirectEndpointDiscovery)
+                return false;
+
+            lock (_endpointDiscoveryLock)
+            {
+                if (!_endpointDiscovery.TryPromoteAuthenticatedDirectEndpoint(endpoint, now))
+                    return false;
+
+                RemoteEndPoint = endpoint;
+                return true;
+            }
+        }
+
+        internal void ConfirmRemoteEndpoint(EndPoint endpoint)
+        {
+            if (endpoint is null)
+                return;
+
+            lock (_endpointDiscoveryLock)
+            {
+                RemoteEndPoint = endpoint;
+                _endpointDiscovery.FallbackToRelay();
+            }
+        }
+
+        internal bool TryGetDirectProbeEndpoint(DateTimeOffset now, out EndPoint endpoint)
+        {
+            if (!SupportsDirectEndpointDiscovery)
+            {
+                endpoint = null;
+                return false;
+            }
+
+            lock (_endpointDiscoveryLock)
+            {
+                endpoint = null;
+                return _endpointDiscovery.DirectEndpoint is null
+                       && _endpointDiscovery.TryBeginDirectProbe(now, out endpoint);
+            }
+        }
 
 
         public event EventHandler StatusChanged;
@@ -230,6 +294,11 @@ namespace PNet.Mesh
 
         public void ReadInitialize(uint senderIndex, ReadOnlySpan<byte> payload)
         {
+            TryReadInitialize(senderIndex, payload);
+        }
+
+        public bool TryReadInitialize(uint senderIndex, ReadOnlySpan<byte> payload)
+        {
             _handshake = _protocol.CreateResponder(senderIndex);
 
             var localAddress = new byte[10]; //todo set local address external
@@ -240,12 +309,13 @@ namespace PNet.Mesh
             {
                 //invalid handshake
                 Status = PNetMeshSessionStatus.Closed;
-                return;
+                return false;
             }
 
             var remoteAddress = new byte[10];
             PNetMeshUtils.GetAddressFromPublicKey(RemotePublicKey, remoteAddress);
             RemoteAddress = remoteAddress;
+            return true;
         }
 
         public void WriteResponse()
@@ -287,11 +357,16 @@ namespace PNet.Mesh
 
         public void ReadResponse(ReadOnlySpan<byte> payload)
         {
+            TryReadResponse(payload);
+        }
+
+        public bool TryReadResponse(ReadOnlySpan<byte> payload)
+        {
             if (!_handshake.TryReadResponseMessage(payload, out _transport))
             {
                 //invalid session
                 Status = PNetMeshSessionStatus.Closed;
-                return;
+                return false;
             }
 
             lock (_openPacketLock)
@@ -299,12 +374,14 @@ namespace PNet.Mesh
                 if (_disposing || Status == PNetMeshSessionStatus.Disposed || Status == PNetMeshSessionStatus.Closed)
                 {
                     _transport?.Dispose();
-                    return;
+                    return false;
                 }
 
                 _openPacket = new Protos.Packet();
                 Status = PNetMeshSessionStatus.Open;
             }
+
+            return true;
         }
 
         public void WritePayload(ReadOnlySpan<byte> payload)
@@ -562,6 +639,7 @@ namespace PNet.Mesh
                 throw new InvalidOperationException("session not open");
 
             var packetSize = PreparePacketForWrite(packet, sizeParamName);
+            TryGetDirectProbeEndpoint(DateTimeOffset.UtcNow, out var directProbeEndPoint);
 
             using var packetBuffer = MemoryPool<byte>.Shared.Rent(packetSize);
 
@@ -590,6 +668,8 @@ namespace PNet.Mesh
                             RemoteEndPoint = RemoteEndPoint,
                             RemoteAddress = RemoteAddress
                         };
+
+                        TryWriteDirectProbe(item.MemoryBuffer, directProbeEndPoint);
 
                         if (!_outboundWriter.TryWrite(item))
                         {
@@ -626,6 +706,8 @@ namespace PNet.Mesh
                         RemoteAddress = RemoteAddress
                     };
 
+                    TryWriteDirectProbe(item.MemoryBuffer, directProbeEndPoint);
+
                     if (!_outboundWriter.TryWrite(item))
                     {
                         //todo log error
@@ -652,6 +734,27 @@ namespace PNet.Mesh
                 return CompleteOpenPacket();
 
             return null;
+        }
+
+        void TryWriteDirectProbe(Memory<byte> packet, EndPoint directProbeEndPoint)
+        {
+            if (directProbeEndPoint is null)
+                return;
+
+            var bufferOwner = MemoryPool<byte>.Shared.Rent(packet.Length);
+            packet.CopyTo(bufferOwner.Memory);
+            var item = new PNetMeshOutboundMessages.Packet
+            {
+                MemoryOwner = bufferOwner,
+                MemoryBuffer = bufferOwner.Memory.Slice(0, packet.Length),
+                LocalEndPoint = LocalEndPoint,
+                LocalAddress = LocalAddress,
+                RemoteEndPoint = directProbeEndPoint,
+                RemoteAddress = RemoteAddress
+            };
+
+            if (!_outboundWriter.TryWrite(item))
+                bufferOwner.Dispose();
         }
 
         void WriteOpenPacketOrFail(
@@ -805,6 +908,11 @@ namespace PNet.Mesh
 
         public void ReadMessage(ReadOnlySpan<byte> payload)
         {
+            TryReadMessage(payload);
+        }
+
+        public bool TryReadMessage(ReadOnlySpan<byte> payload)
+        {
             using var buffer = MemoryPool<byte>.Shared.Rent(payload.Length);
 
             if (Status == PNetMeshSessionStatus.Opening)
@@ -812,19 +920,18 @@ namespace PNet.Mesh
                 lock (_openPacketLock)
                 {
                     if (_disposing || Status == PNetMeshSessionStatus.Disposed || Status == PNetMeshSessionStatus.Closed)
-                        return;
+                        return false;
 
                     lock (_receiveStateLock)
-                        ReadMessage(payload, buffer.Memory, openResponderSession: true);
+                        return ReadMessage(payload, buffer.Memory, openResponderSession: true);
                 }
-                return;
             }
 
             lock (_receiveStateLock)
-                ReadMessage(payload, buffer.Memory, openResponderSession: false);
+                return ReadMessage(payload, buffer.Memory, openResponderSession: false);
         }
 
-        void ReadMessage(
+        bool ReadMessage(
             ReadOnlySpan<byte> payload,
             Memory<byte> buffer,
             bool openResponderSession)
@@ -843,13 +950,13 @@ namespace PNet.Mesh
                     //todo log
                 }
 
-                return;
+                return false;
             }
 
             if (openResponderSession && Status == PNetMeshSessionStatus.Opening)
             {
                 if (_disposing || Status == PNetMeshSessionStatus.Disposed || Status == PNetMeshSessionStatus.Closed)
-                    return;
+                    return false;
 
                 _openPacket = new Protos.Packet();
                 Status = PNetMeshSessionStatus.Open;
@@ -861,18 +968,18 @@ namespace PNet.Mesh
             ProcessAck(packet);
 
             if (Status != PNetMeshSessionStatus.Open)
-                return;
+                return false;
 
             if (counter > _receiveCounter)
             {
                 _pendingPackets[counter] = packet;
                 _outOfOrder_count = _pendingPackets.Count;
                 UpdateAckTimer(packet);
-                return;
+                return true;
             }
 
             if (counter < _receiveCounter)
-                return;
+                return false;
 
             ProcessPacket(packet);
             _receiveCounter++;
@@ -886,6 +993,7 @@ namespace PNet.Mesh
 
             _outOfOrder_count = _pendingPackets.Count;
             UpdateAckTimer(packet);
+            return true;
         }
 
         void UpdateAckTimer(Protos.Packet packet)
