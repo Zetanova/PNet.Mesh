@@ -3,13 +3,15 @@ issue: 038
 date: 2026-07-01
 source: wireguard/transport
 priority: high
-status: ready
+status: completed
 research-status: complete
 research-date: 2026-07-01
-terminal-state: ready
+terminal-state: completed
 split-status: child
 parent-issue: 035
 assumptions-date: 2026-07-01
+completion-date: 2026-07-01
+commits: [6a37478e0ec727c9ac7bd63949f828223b2a8f6e]
 brief: "description+playbook"
 views:
   enrich: "description+playbook+parent-tracking+scope+acceptance-criteria+assumptions"
@@ -56,3 +58,17 @@ WireGuard docs and `wireguard-go` show current/previous/next keypair rotation, r
 |---|---|---|---|---|---|
 | 1 | F | Peer table, receiver-index lookup, and keypair lifecycle belong together in one state slice. | verified | source | The user grouped those concerns into one child issue. |
 | 2 | F | Keepalive, rekey, reject timers, and replay-window counters are transport state, not packet parsing. | verified | source | The user named those timers and counters in the lifecycle slice. |
+
+## Completion Report
+
+Completed in `6a37478e0ec727c9ac7bd63949f828223b2a8f6e`.
+
+- Added WireGuard peer table state with public-key lookup, local receiver-index lookup, and current/previous/next keypair rotation.
+- Added lifecycle constants, keepalive/rekey/reject timer checks, replay-window tracking, and send/receive counter bookkeeping.
+- Registered completed WireGuard handshakes into the peer table and linked established transports to their keypair state.
+- Added regression coverage for receiver-index lookup, keypair rotation, lifecycle counters/timers, replay rejection, and handshake registration.
+- Verification passed: initial focused test failed on missing #038 types, focused #038 tests passed, `PNetMeshProtocolTest` passed, Release build passed, scoped whitespace passed, and `git diff --check` passed. Full unit verification still hits known gated issue #052 only.
+
+## Resolving Commits
+
+- `6a37478e0ec727c9ac7bd63949f828223b2a8f6e` - add WireGuard peer lifecycle state

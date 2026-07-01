@@ -3,10 +3,10 @@ issue: 040
 date: 2026-07-01
 source: wireguard/transport
 priority: high
-status: gated
+status: ready
 research-status: complete
 research-date: 2026-07-01
-terminal-state: gated
+terminal-state: ready
 split-status: child
 parent-issue: 035
 gate: "Wait for the WireGuard crypto/profile, packet framing, and peer lifecycle slices."
@@ -16,7 +16,7 @@ gate-depends:
   - 038
 gate-reason: "Raw plaintext exposure depends on the transport crypto, framing, and peer-state foundations; include #039 only if the selected receive path also gates on cookies."
 gate-last-checked: 2026-07-01
-gate-status: blocked
+gate-status: cleared
 assumptions-date: 2026-07-01
 brief: "description+playbook"
 views:
@@ -71,9 +71,10 @@ The current source still decrypts into a protobuf packet and strips a trailing P
 
 | Date | Gate | Method | Result | Evidence |
 |------|------|--------|--------|----------|
-| 2026-07-01 | `gate-depends: [036, 037, 038]` | source | blocked | #036 and #037 are completed, but #038 remains open, so the issue stays gated. |
+| 2026-07-01 | `gate-depends: [036, 037, 038]` | source | ready | #036, #037, and #038 are completed, so #040 is implementation-ready. |
 
 ## Validation History
 
 - 2026-07-01: dependency gate cleared by #036; remaining dependency gates #037 and #038 keep #040 gated.
 - 2026-07-01: dependency gate cleared by #037; remaining dependency gate #038 keeps #040 gated.
+- 2026-07-01: dependency gate cleared by #038; #040 is now ready.

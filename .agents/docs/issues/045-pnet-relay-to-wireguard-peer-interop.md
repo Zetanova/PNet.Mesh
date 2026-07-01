@@ -80,9 +80,10 @@ Primary `wireguard-go` receive/send flow shows that a normal UDP relay makes nod
 
 | Date | Gate | Method | Result | Evidence |
 |------|------|--------|--------|----------|
-| 2026-07-01 | `gate-depends: [036, 037, 038, 039, 040, 041, 042]` | source | blocked | #036 and #037 are completed, but #038, #039, #040, #041, and #042 remain open, so the issue stays gated. |
+| 2026-07-01 | `gate-depends: [036, 037, 038, 039, 040, 041, 042]` | source | blocked | #036, #037, and #038 are completed, but #039, #040, #041, and #042 remain open, so the issue stays gated. |
 
 ## Validation History
 
 - 2026-07-01: dependency gate cleared by #036; remaining dependency gates #037, #038, #039, #040, #041, and #042 keep #045 gated.
 - 2026-07-01: dependency gate cleared by #037; remaining dependency gates #038, #039, #040, #041, and #042 keep #045 gated.
+- 2026-07-01: dependency gate cleared by #038; remaining dependency gates #039, #040, #041, and #042 keep #045 gated.
