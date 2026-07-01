@@ -3,14 +3,11 @@ issue: 009
 date: 2026-06-30
 source: e2e/coverage
 priority: high
-status: gated
+status: completed
+terminal-state: completed
+completion-date: 2026-06-30
+commits: [61af492, 56a70ff, 84bb53b, 6a02e9d, 7c09bd6]
 split-status: parent
-terminal-state: gated
-gate: "Close only after child issue 025 is completed or explicitly superseded. Child issues 021, 022, 023, and 024 are completed."
-gate-depends:
-  - 025
-gate-reason: "Tracking parent waits for fine-grained child issues"
-ungate-when: "All remaining child issues are completed"
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
@@ -59,7 +56,7 @@ This is a parent tracking issue. Implement child issues, not this parent directl
 | #022 | Bootstrap discovery through a peer | completed | Completed in 56a70ff |
 | #023 | Multi-hop relay route delivery | completed | Completed in 84bb53b |
 | #024 | Restart and rejoin recovery | completed | Completed in 6a02e9d |
-| #025 | Invalid key or route failure | open | Negative path without accepted payloads |
+| #025 | Invalid key or route failure | completed | Completed in 7c09bd6 |
 
 ## Residual Scope
 none
@@ -80,6 +77,7 @@ none
 
 ## Enrichment History
 
+- 2026-06-30: Removed completed child issue #025 from the active gate after 7c09bd6; all child scenario gates are complete and the parent tracker is now completed.
 - 2026-06-30: Removed completed child issue #024 from the active gate after 6a02e9d; parent remains gated on #025.
 - 2026-06-30: Removed completed child issue #023 from the active gate after 84bb53b; parent remains gated on #024 and #025.
 - 2026-06-30: Removed completed child issue #022 from the active gate after 56a70ff; parent remains gated on #023, #024, and #025.
@@ -88,4 +86,16 @@ none
 
 ## Completion Report
 
-Pending.
+Completed in `7c09bd6` after the final child scenario closed.
+
+- Cleared the last active dependency gate by marking child issue #025 completed in the tracking table.
+- Promoted the parent tracker to completed because child issues #021 through #025 are all complete.
+- Preserved the existing child coverage history and recorded the final child commit trail for the parent closeout.
+
+## Resolving Commits
+
+- `61af4927ae94d686a2e1597bb0b6df17be8ad0d5` - add direct peer Testcontainers coverage
+- `56a70ff0c1da20428bd2ccfa41d6267e3c3155b4` - add bootstrap discovery Testcontainers coverage
+- `84bb53b2ecbcd4e9f5f4aaad6518c2f4d66f42be` - add multi-hop route Testcontainers coverage
+- `6a02e9de5d17f18914341a2ddf5fbfb164464fcf` - add restart recovery Testcontainers coverage
+- `7c09bd63376e8929d100cd79497b6ef09d6f3fd5` - add invalid PSK Testcontainers coverage

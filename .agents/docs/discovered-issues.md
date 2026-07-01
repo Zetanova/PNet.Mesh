@@ -2,7 +2,7 @@
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
 last-entry: 2026-06-30
 last-opened: 2026-06-30-033
-open-count: 21
+open-count: 19
 last-completed: 2026-06-30
 ---
 
@@ -15,7 +15,6 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | # | Date | Source | Summary | Priority | Status | File |
 |---|------|--------|---------|----------|--------|------|
 | 006 | 2026-06-30 | e2e/testcontainers | Track Testcontainers migration and coverage expansion child issues through completion. | high | gated | [006-testcontainers-coverage-tracking](issues/006-testcontainers-coverage-tracking.md) |
-| 009 | 2026-06-30 | e2e/coverage | Expand container e2e coverage for direct peers, multi-hop routing, discovery, restarts, and negative paths. | high | gated | [009-expand-container-e2e-coverage](issues/009-expand-container-e2e-coverage.md) |
 | 011 | 2026-06-30 | e2e/cleanup | Remove Docker Compose e2e artifacts after Testcontainers reaches equivalent coverage. | medium | gated | [011-cleanup-compose-after-equivalent-coverage](issues/011-cleanup-compose-after-equivalent-coverage.md) |
 | 012 | 2026-06-30 | coverage/readme | Implement and cover direct P2P communication behavior advertised by the README. | high | ready | [012-readme-p2p-communication-coverage](issues/012-readme-p2p-communication-coverage.md) |
 | 013 | 2026-06-30 | coverage/readme | Verify the no-extended-OS-permission feature claim with documented and executable checks. | medium | ready | [013-no-extended-os-permissions-coverage](issues/013-no-extended-os-permissions-coverage.md) |
@@ -26,7 +25,6 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | 018 | 2026-06-30 | coverage/readme | Implement and test NAT traversal, neighbor detection, and ICE candidate behavior. | high | ready | [018-nat-traversal-neighbor-ice-coverage](issues/018-nat-traversal-neighbor-ice-coverage.md) |
 | 019 | 2026-06-30 | coverage/readme | Implement and test compression negotiation and compressed payload handling. | medium | ready | [019-compression-feature-coverage](issues/019-compression-feature-coverage.md) |
 | 020 | 2026-06-30 | coverage/readme | Implement and test ECN and LEDBAT probe/telemetry behavior referenced by the README. | medium | ready | [020-ecn-ledbat-coverage](issues/020-ecn-ledbat-coverage.md) |
-| 025 | 2026-06-30 | e2e/coverage | Negative-path Testcontainers scenario for invalid keys or routes. | high | ready | [025-negative-path-e2e-coverage](issues/025-negative-path-e2e-coverage.md) |
 | 026 | 2026-06-30 | coverage/readme | Deterministic packet ordering and retransmission regression tests. | high | ready | [026-packet-ordering-retransmission-coverage](issues/026-packet-ordering-retransmission-coverage.md) |
 | 027 | 2026-06-30 | coverage/readme | Flow-control limit and negotiated SYN assertion coverage. | high | ready | [027-flow-control-negotiation-coverage](issues/027-flow-control-negotiation-coverage.md) |
 | 028 | 2026-06-30 | coverage/readme | Noise handshake and authentication happy-path coverage. | high | ready | [028-handshake-authentication-coverage](issues/028-handshake-authentication-coverage.md) |
@@ -62,8 +60,10 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | 005 | 2026-06-30 | 2026-06-30 | Move test projects from `tests/` into the `src/` project layout and update all references. | 3b657cb | [005-tests-projects-under-src](issues/005-tests-projects-under-src.md) |
 | 007 | 2026-06-30 | 2026-06-30 | Add a Testcontainers-based xUnit e2e harness for PNet.Mesh test nodes. | 52cf1f7 | [007-testcontainers-e2e-harness](issues/007-testcontainers-e2e-harness.md) |
 | 008 | 2026-06-30 | 2026-06-30 | Port the existing six-node compose mesh smoke topology to Testcontainers. | 948f553 | [008-port-compose-topology-to-testcontainers](issues/008-port-compose-topology-to-testcontainers.md) |
+| 009 | 2026-06-30 | 2026-06-30 | Expand container e2e coverage parent gate after child scenario completion. | 61af492, 56a70ff, 84bb53b, 6a02e9d, 7c09bd6 | [009-expand-container-e2e-coverage](issues/009-expand-container-e2e-coverage.md) |
 | 010 | 2026-06-30 | 2026-06-30 | Add deterministic routing, relay duplicate, route-loop, and session relay unit coverage. | 49deb32 | [010-unit-test-doubles-for-routing](issues/010-unit-test-doubles-for-routing.md) |
 | 021 | 2026-06-30 | 2026-06-30 | Add direct peer Testcontainers coverage for bidirectional payload exchange. | 61af492 | [021-direct-peer-e2e-coverage](issues/021-direct-peer-e2e-coverage.md) |
 | 022 | 2026-06-30 | 2026-06-30 | Add bootstrap discovery Testcontainers coverage through a connected peer. | 56a70ff | [022-bootstrap-discovery-e2e-coverage](issues/022-bootstrap-discovery-e2e-coverage.md) |
 | 023 | 2026-06-30 | 2026-06-30 | Multi-hop relay Testcontainers scenario across separated segments. | 84bb53b | [023-multi-hop-route-e2e-coverage](issues/023-multi-hop-route-e2e-coverage.md) |
 | 024 | 2026-06-30 | 2026-06-30 | Restart recovery Testcontainers scenario for a rejoining node. | 6a02e9d | [024-restart-recovery-e2e-coverage](issues/024-restart-recovery-e2e-coverage.md) |
+| 025 | 2026-06-30 | 2026-06-30 | Negative-path Testcontainers scenario for invalid PSK delivery rejection. | 7c09bd6 | [025-negative-path-e2e-coverage](issues/025-negative-path-e2e-coverage.md) |

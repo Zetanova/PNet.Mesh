@@ -3,10 +3,12 @@ issue: 025
 date: 2026-06-30
 source: e2e/coverage
 priority: high
-status: ready
+status: completed
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
+completion-date: 2026-06-30
+commits: [7c09bd6]
 split-status: child
 parent-issue: 009
 brief: "description+playbook"
@@ -54,4 +56,13 @@ Parent research treats negative-path delivery failure as a separate concern from
 
 ## Completion Report
 
-Pending.
+Completed in `7c09bd6`.
+
+- Added an invalid-PSK direct-peer Testcontainers scenario that keeps both nodes on static peer endpoints while assigning different valid 32-byte PSKs.
+- Waits for startup and `0 pongs` on each node, then asserts the logs never contain accepted `ping from` or `pong from` delivery payloads.
+- Verified the build, PSK decoding sanity, targeted invalid-PSK E2E, unit rerun, full E2E, scoped whitespace format, `git diff --check`, and Docker cleanup evidence already recorded for the implementation change.
+- Parent issue #009 can now clear its final active child gate.
+
+## Resolving Commits
+
+- `7c09bd63376e8929d100cd79497b6ef09d6f3fd5` - add invalid PSK Testcontainers coverage
