@@ -3,12 +3,15 @@ issue: 032
 date: 2026-06-30
 source: coverage/readme
 priority: high
-status: ready
+status: completed
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
+completion-date: 2026-07-01
+commits: [b9c4cba25467b3b3385d3c24a3468f9d8a226c68]
 split-status: child
 parent-issue: 017
+terminal-state: completed
 brief: "description+playbook"
 views:
   enrich: "description+playbook+research+assumptions"
@@ -54,4 +57,13 @@ Parent research says the server relay logic already covers local delivery, known
 
 ## Completion Report
 
-Pending.
+Completed in `b9c4cba25467b3b3385d3c24a3468f9d8a226c68`.
+
+- Added deterministic mesh address derivation coverage for the first ten SHA-1 bytes of a 32-byte public key and length validation.
+- Added session handshake coverage proving local and remote mesh addresses are derived from each peer public key on both sides of the handshake.
+- Existing tests continue to cover duplicate relay suppression, known/unknown route selection, direct/discovered routes, and multi-hop routing; verification reran those supporting suites.
+- Verification passed formatting, Release build, targeted address tests `2/2`, `PNetMeshRoutingUnitTests` `40/40`, `PNetMeshServerTests` `2/2`, and `multi_hop_route_crosses_separated_container_segments` `1/1`.
+
+## Resolving Commits
+
+- `b9c4cba25467b3b3385d3c24a3468f9d8a226c68` - add deterministic route address derivation coverage

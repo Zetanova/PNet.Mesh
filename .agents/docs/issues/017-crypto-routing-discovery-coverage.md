@@ -54,7 +54,7 @@ This is a parent tracking issue. Implement child issues, not this parent directl
 
 | Child | Scope | Status | Notes |
 |-------|-------|--------|-------|
-| #032 | Routing and discovery behavior coverage | open | Direct and discovered peer routes |
+| #032 | Routing and discovery behavior coverage | completed | Direct/discovered routes plus deterministic address coverage |
 | #033 | Route-path observability and diagnostics | open | Assert the actual route, not only the final payload |
 
 ## Residual Scope
@@ -77,6 +77,16 @@ Three-server localhost integration tests include comments for discovering over a
 ## Enrichment History
 
 - 2026-06-30: Marked ready after confirming relay/discovery behavior and route assertions already exist in source and localhost tests. Evidence: `PNetMeshServer.cs`, `PNetMeshServerTests.cs`.
+
+## Gate Validation
+
+| Date | Gate | Method | Result | Evidence |
+|------|------|--------|--------|----------|
+| 2026-07-01 | `gate-depends: [032, 033]` | source | blocked | #032 is completed, but #033 remains open, so the parent stays gated. |
+
+## Validation History
+
+- 2026-07-01: dependency gate cleared by #032; remaining dependency gate #033 keeps #017 gated.
 
 ## Completion Report
 

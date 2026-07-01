@@ -2,7 +2,7 @@
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
 last-entry: 2026-07-01
 last-opened: 2026-06-30-033
-open-count: 5
+open-count: 4
 last-completed: 2026-07-01
 ---
 
@@ -17,7 +17,6 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | 011 | 2026-06-30 | e2e/cleanup | Remove Docker Compose e2e artifacts after Testcontainers reaches equivalent coverage. | medium | gated | [011-cleanup-compose-after-equivalent-coverage](issues/011-cleanup-compose-after-equivalent-coverage.md) |
 | 014 | 2026-06-30 | coverage/readme | Implement or test UDP fragment transport and the 18-byte datagram-overhead claim. | high | clarify | [014-udp-fragments-and-overhead-coverage](issues/014-udp-fragments-and-overhead-coverage.md) |
 | 017 | 2026-06-30 | coverage/readme | Implement and test crypto routing and crypto discovery behavior. | high | gated | [017-crypto-routing-discovery-coverage](issues/017-crypto-routing-discovery-coverage.md) |
-| 032 | 2026-06-30 | coverage/readme | Crypto routing and discovery behavior regression coverage. | high | ready | [032-crypto-routing-discovery-behavior-coverage](issues/032-crypto-routing-discovery-behavior-coverage.md) |
 | 033 | 2026-06-30 | coverage/readme | Route-path observability and diagnostics coverage. | high | ready | [033-route-path-observability-diagnostics](issues/033-route-path-observability-diagnostics.md) |
 
 ## Outgoing MRs
@@ -39,6 +38,7 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 
 | # | Date | Completed | Summary | Commits | File |
 |---|------|-----------|---------|---------|------|
+| 032 | 2026-06-30 | 2026-07-01 | Crypto routing and discovery behavior regression coverage. | b9c4cba | [032-crypto-routing-discovery-behavior-coverage](issues/032-crypto-routing-discovery-behavior-coverage.md) |
 | 031 | 2026-06-30 | 2026-07-01 | README security-claim wording cleanup and narrowing. | 172e333 | [031-readme-security-claim-hygiene](issues/031-readme-security-claim-hygiene.md) |
 | 016 | 2026-06-30 | 2026-07-01 | Implement and test WireGuard/Noise security invariants behind the README security claim. | b36bd7f, 7c66b95, 0320083, 172e333 | [016-wireguard-noise-security-coverage](issues/016-wireguard-noise-security-coverage.md) |
 | 030 | 2026-06-30 | 2026-07-01 | Replay and cookie-guard regression coverage. | 0320083 | [030-replay-cookie-guard-coverage](issues/030-replay-cookie-guard-coverage.md) |
