@@ -18,6 +18,52 @@ namespace PNet.Actor.UnitTests.Mesh
     public sealed class PNetMeshRoutingUnitTests
     {
         [Fact]
+        public void address_derivation_uses_first_ten_sha1_bytes_and_validates_lengths()
+        {
+            var publicKey = Enumerable.Range(0, 32).Select(i => (byte)i).ToArray();
+            var address = new byte[10];
+
+            PNetMeshUtils.GetAddressFromPublicKey(publicKey, address);
+
+            Assert.Equal(new byte[] { 0xae, 0x5b, 0xd8, 0xef, 0xea, 0x53, 0x22, 0xc4, 0xd9, 0x98 }, address);
+            Assert.Throws<ArgumentOutOfRangeException>(() => PNetMeshUtils.GetAddressFromPublicKey(publicKey.AsSpan(0, 31), address));
+            Assert.Throws<ArgumentOutOfRangeException>(() => PNetMeshUtils.GetAddressFromPublicKey(publicKey, new byte[9]));
+        }
+
+        [Fact]
+        public void session_handshake_derives_local_and_remote_addresses_from_public_keys()
+        {
+            using var senderKey = KeyPair.Generate();
+            using var receiverKey = KeyPair.Generate();
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            var senderProtocol = new PNetMeshProtocol(senderKey.PrivateKey, senderKey.PublicKey, psk);
+            var receiverProtocol = new PNetMeshProtocol(receiverKey.PrivateKey, receiverKey.PublicKey, psk);
+
+            var senderOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+            var receiverOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+
+            using var sender = new PNetMeshSession(senderProtocol, senderOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 20001),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 20002)
+            };
+            using var receiver = new PNetMeshSession(receiverProtocol, receiverOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 20002),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 20001)
+            };
+
+            OpenSessionPair(sender, receiver, senderOutbound, receiverOutbound, receiverKey.PublicKey);
+
+            Assert.Equal(DeriveAddress(senderKey.PublicKey), sender.LocalAddress);
+            Assert.Equal(DeriveAddress(receiverKey.PublicKey), sender.RemoteAddress);
+            Assert.Equal(DeriveAddress(receiverKey.PublicKey), receiver.LocalAddress);
+            Assert.Equal(DeriveAddress(senderKey.PublicKey), receiver.RemoteAddress);
+        }
+
+        [Fact]
         public void router_insert_update_lookup_and_rejects_invalid_addresses()
         {
             var router = new PNetMeshRouter();
@@ -2289,6 +2335,13 @@ namespace PNet.Actor.UnitTests.Mesh
         static byte[] Address(byte value)
         {
             return Enumerable.Repeat(value, 10).ToArray();
+        }
+
+        static byte[] DeriveAddress(byte[] publicKey)
+        {
+            var address = new byte[10];
+            PNetMeshUtils.GetAddressFromPublicKey(publicKey, address);
+            return address;
         }
 
         static void AssertDnsEndPoint(string host, int port, EndPoint endPoint)
