@@ -17,6 +17,68 @@ namespace PNet.Actor.UnitTests.Mesh
         const int PacketDataBaseOverheadBytes = PacketDataHeaderBytes + AeadTagBytes;
 
         [Fact]
+        public void wireguard_transport_mode_uses_wireguard_noise_profile_and_blake2s_mac1()
+        {
+            var localPrivateKey = Enumerable.Range(0, 32).Select(i => (byte)(0x20 + i)).ToArray();
+            var localPublicKey = Enumerable.Range(0, 32).Select(i => (byte)(0x40 + i)).ToArray();
+            var remotePublicKey = Enumerable.Range(0, 32).Select(i => (byte)i).ToArray();
+            var payload = Enumerable.Range(0, 64).Select(i => (byte)(0x80 + i)).ToArray();
+            var expectedMac = Convert.FromHexString("6e57ae06dcb0d3239a1342c754f185ba");
+            Span<byte> mac = stackalloc byte[16];
+
+            var protocol = new PNetMeshProtocol(
+                localPrivateKey,
+                localPublicKey,
+                mode: PNetMeshTransportMode.WireGuard);
+
+            Assert.Equal("Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s", protocol.ProtocolName);
+            Assert.Equal("WireGuard v1 zx2c4 Jason@zx2c4.com", Encoding.ASCII.GetString(protocol.Prologue));
+
+            protocol.GetPacketMac(remotePublicKey, payload, mac);
+
+            Assert.Equal(expectedMac, mac.ToArray());
+        }
+
+        [Fact]
+        public void wireguard_transport_mode_completes_blake2s_noise_handshake_and_transport_exchange()
+        {
+            Span<byte> buffer1 = new byte[4098];
+            Span<byte> buffer2 = new byte[4098];
+
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            using var initiator_static = KeyPair.Generate();
+            using var responder_static = KeyPair.Generate();
+
+            var initiator_protocol = new PNetMeshProtocol(
+                initiator_static.PrivateKey,
+                initiator_static.PublicKey,
+                psk,
+                PNetMeshTransportMode.WireGuard);
+            var responder_protocol = new PNetMeshProtocol(
+                responder_static.PrivateKey,
+                responder_static.PublicKey,
+                psk,
+                PNetMeshTransportMode.WireGuard);
+
+            using var initiator = initiator_protocol.CreateInitiator(1, responder_static.PublicKey);
+            using var responder = responder_protocol.CreateResponder(2);
+
+            initiator.WriteInitiationMessage(buffer1, out var bytesWritten);
+            Assert.True(responder.TryReadInitiationMessage(buffer1.Slice(0, bytesWritten)));
+            Assert.True(responder.TryWriteResponseMessage(buffer2, out bytesWritten, out var responder_transport));
+            Assert.True(initiator.TryReadResponseMessage(buffer2.Slice(0, bytesWritten), out var initiator_transport));
+
+            var payload = Encoding.UTF8.GetBytes("wireguard profile payload");
+            initiator_transport.WriteMessage(payload, buffer1, out bytesWritten, out _);
+
+            Assert.True(responder_transport.TryReadMessage(buffer1.Slice(0, bytesWritten), buffer2, out bytesWritten, out _));
+            Assert.Equal(payload.Length, bytesWritten);
+            Assert.True(payload.AsSpan().SequenceEqual(buffer2.Slice(0, bytesWritten)));
+        }
+
+        [Fact]
         public void valid_peers_complete_noise_ikpsk2_handshake_and_exchange_payloads_over_derived_transports_regression()
         {
             var initiator_sender_index = 1u;
