@@ -150,7 +150,7 @@ namespace PNet.Actor.UnitTests.Mesh
         }
 
         [Fact]
-        public async Task bind_two_server_to_localhost_and_exchange()
+        public async Task direct_peers_exchange_payloads_in_both_directions_over_public_api()
         {
             using var key1 = KeyPair.Generate();
             using var key2 = KeyPair.Generate();
