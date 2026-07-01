@@ -6,9 +6,8 @@ priority: high
 status: gated
 split-status: parent
 terminal-state: gated
-gate: "Close only after child issues 024 and 025 are completed or explicitly superseded. Child issues 021, 022, and 023 are completed."
+gate: "Close only after child issue 025 is completed or explicitly superseded. Child issues 021, 022, 023, and 024 are completed."
 gate-depends:
-  - 024
   - 025
 gate-reason: "Tracking parent waits for fine-grained child issues"
 ungate-when: "All remaining child issues are completed"
@@ -59,7 +58,7 @@ This is a parent tracking issue. Implement child issues, not this parent directl
 | #021 | Direct peer payload exchange | completed | Completed in 61af492 |
 | #022 | Bootstrap discovery through a peer | completed | Completed in 56a70ff |
 | #023 | Multi-hop relay route delivery | completed | Completed in 84bb53b |
-| #024 | Restart and rejoin recovery | open | Non-bootstrap node restarts safely |
+| #024 | Restart and rejoin recovery | completed | Completed in 6a02e9d |
 | #025 | Invalid key or route failure | open | Negative path without accepted payloads |
 
 ## Residual Scope
@@ -81,6 +80,7 @@ none
 
 ## Enrichment History
 
+- 2026-06-30: Removed completed child issue #024 from the active gate after 6a02e9d; parent remains gated on #025.
 - 2026-06-30: Removed completed child issue #023 from the active gate after 84bb53b; parent remains gated on #024 and #025.
 - 2026-06-30: Removed completed child issue #022 from the active gate after 56a70ff; parent remains gated on #023, #024, and #025.
 - 2026-06-30: Removed completed child issue #021 from the active gate after 61af492; parent remains gated on #022, #023, #024, and #025.

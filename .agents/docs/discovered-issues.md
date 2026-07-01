@@ -2,7 +2,7 @@
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
 last-entry: 2026-06-30
 last-opened: 2026-06-30-033
-open-count: 22
+open-count: 21
 last-completed: 2026-06-30
 ---
 
@@ -26,7 +26,6 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | 018 | 2026-06-30 | coverage/readme | Implement and test NAT traversal, neighbor detection, and ICE candidate behavior. | high | ready | [018-nat-traversal-neighbor-ice-coverage](issues/018-nat-traversal-neighbor-ice-coverage.md) |
 | 019 | 2026-06-30 | coverage/readme | Implement and test compression negotiation and compressed payload handling. | medium | ready | [019-compression-feature-coverage](issues/019-compression-feature-coverage.md) |
 | 020 | 2026-06-30 | coverage/readme | Implement and test ECN and LEDBAT probe/telemetry behavior referenced by the README. | medium | ready | [020-ecn-ledbat-coverage](issues/020-ecn-ledbat-coverage.md) |
-| 024 | 2026-06-30 | e2e/coverage | Restart recovery Testcontainers scenario for a rejoining node. | high | ready | [024-restart-recovery-e2e-coverage](issues/024-restart-recovery-e2e-coverage.md) |
 | 025 | 2026-06-30 | e2e/coverage | Negative-path Testcontainers scenario for invalid keys or routes. | high | ready | [025-negative-path-e2e-coverage](issues/025-negative-path-e2e-coverage.md) |
 | 026 | 2026-06-30 | coverage/readme | Deterministic packet ordering and retransmission regression tests. | high | ready | [026-packet-ordering-retransmission-coverage](issues/026-packet-ordering-retransmission-coverage.md) |
 | 027 | 2026-06-30 | coverage/readme | Flow-control limit and negotiated SYN assertion coverage. | high | ready | [027-flow-control-negotiation-coverage](issues/027-flow-control-negotiation-coverage.md) |
@@ -67,3 +66,4 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | 021 | 2026-06-30 | 2026-06-30 | Add direct peer Testcontainers coverage for bidirectional payload exchange. | 61af492 | [021-direct-peer-e2e-coverage](issues/021-direct-peer-e2e-coverage.md) |
 | 022 | 2026-06-30 | 2026-06-30 | Add bootstrap discovery Testcontainers coverage through a connected peer. | 56a70ff | [022-bootstrap-discovery-e2e-coverage](issues/022-bootstrap-discovery-e2e-coverage.md) |
 | 023 | 2026-06-30 | 2026-06-30 | Multi-hop relay Testcontainers scenario across separated segments. | 84bb53b | [023-multi-hop-route-e2e-coverage](issues/023-multi-hop-route-e2e-coverage.md) |
+| 024 | 2026-06-30 | 2026-06-30 | Restart recovery Testcontainers scenario for a rejoining node. | 6a02e9d | [024-restart-recovery-e2e-coverage](issues/024-restart-recovery-e2e-coverage.md) |
