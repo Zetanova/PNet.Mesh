@@ -3,10 +3,13 @@ issue: 019
 date: 2026-06-30
 source: coverage/readme
 priority: medium
-status: ready
+status: completed
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
+completion-date: 2026-06-30
+terminal-state: completed
+commits: [073dee5]
 brief: "description+playbook"
 views:
   enrich: "description+playbook+research+assumptions"
@@ -42,7 +45,7 @@ Implement and test the README compression feature claim, or narrow the README if
 
 ### Current State
 
-The proto defines compressed payload forms and compression metadata. `PNetMeshSession` iterates `packet.Compression` without implemented behavior.
+The proto defines compressed payload forms and compression metadata. `PNetMeshSession` iterates `packet.Compression` without implemented behavior, `WritePayload` emits raw payload data, and compressed incoming payload variants are unsupported. README now narrows compression to reserved protocol fields and states runtime compression negotiation and compressed payload handling are not implemented.
 
 ## Assumptions
 
@@ -58,4 +61,13 @@ The proto defines compressed payload forms and compression metadata. `PNetMeshSe
 
 ## Completion Report
 
-Pending.
+Completed on 2026-06-30 in `073dee5`.
+
+- Narrowed the README feature claim from generic compression to reserved protocol fields.
+- Documented that runtime compression negotiation and compressed payload handling are not implemented.
+- Left runtime code unchanged because the current session path emits raw payloads and treats compressed payload variants as unsupported.
+
+Verification:
+
+- `timeout 10s git diff --check`
+- Source evidence: `MeshProtocol.proto` defines compression metadata and compressed payload fields; `PNetMeshSession.WritePayload` emits `Raw`; inbound compressed variants fall through to the unsupported default branch.
