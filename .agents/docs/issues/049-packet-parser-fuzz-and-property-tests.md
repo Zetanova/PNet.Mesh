@@ -72,9 +72,10 @@ Parser and boundary surfaces are not ready yet: this issue depends on framing, r
 
 | Date | Gate | Method | Result | Evidence |
 |------|------|--------|--------|----------|
-| 2026-07-01 | `gate-depends: [037, 043, 044, 046]` | source | blocked | #037 and #043 are completed, but #044 and #046 remain open, so the issue stays gated. |
+| 2026-07-01 | `gate-depends: [037, 043, 044, 046]` | source | blocked | #037, #043, and #044 are completed, but #046 remains open, so the issue stays gated. |
 
 ## Validation History
 
 - 2026-07-01: dependency gate cleared by #037; remaining dependency gates #043, #044, and #046 keep #049 gated.
 - 2026-07-01: dependency gate cleared by #043; remaining dependency gates #044 and #046 keep #049 gated.
+- 2026-07-01: dependency gate cleared by #044; remaining dependency gate #046 keeps #049 gated.

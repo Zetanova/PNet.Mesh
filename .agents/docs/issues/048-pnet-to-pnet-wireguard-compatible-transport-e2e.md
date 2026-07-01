@@ -3,10 +3,10 @@ issue: 048
 date: 2026-07-01
 source: wireguard/tests
 priority: high
-status: gated
+status: ready
 research-status: complete
 research-date: 2026-07-01
-terminal-state: gated
+terminal-state: ready
 gate: "Wait for the WireGuard-compatible transport, raw plaintext, and PNet helper slices."
 gate-depends:
   - 036
@@ -17,7 +17,7 @@ gate-depends:
   - 044
 gate-reason: "Native PNet e2e coverage is blocked until the transport and helper surfaces are implementation-ready."
 gate-last-checked: 2026-07-01
-gate-status: blocked
+gate-status: cleared
 assumptions-date: 2026-07-01
 brief: "description+playbook"
 views:
@@ -74,7 +74,7 @@ The existing Testcontainers harness is the right e2e home for native PNet transp
 
 | Date | Gate | Method | Result | Evidence |
 |------|------|--------|--------|----------|
-| 2026-07-01 | `gate-depends: [036, 037, 038, 040, 043, 044]` | source | blocked | #036, #037, #038, #040, and #043 are completed, but #044 remains open, so the issue stays gated. |
+| 2026-07-01 | `gate-depends: [036, 037, 038, 040, 043, 044]` | source | ready | #036, #037, #038, #040, #043, and #044 are completed, so #048 is implementation-ready. |
 
 ## Validation History
 
@@ -83,3 +83,4 @@ The existing Testcontainers harness is the right e2e home for native PNet transp
 - 2026-07-01: dependency gate cleared by #038; remaining dependency gates #040, #043, and #044 keep #048 gated.
 - 2026-07-01: dependency gate cleared by #040; remaining dependency gates #043 and #044 keep #048 gated.
 - 2026-07-01: dependency gate cleared by #043; remaining dependency gate #044 keeps #048 gated.
+- 2026-07-01: dependency gate cleared by #044; #048 is now ready.

@@ -3,11 +3,13 @@ issue: 044
 date: 2026-07-01
 source: mesh/framing
 priority: high
-status: ready
-terminal-state: ready
+status: completed
+terminal-state: completed
 research-status: complete
 research-date: 2026-07-01
 assumptions-date: 2026-07-01
+completion-date: 2026-07-01
+commits: [3a36b4d6599189765c02a0f8d0d858e0baed15f7]
 brief: "description+playbook"
 views:
   enrich: "description+playbook+related-tracking+scope+acceptance-criteria+research+assumptions"
@@ -64,3 +66,17 @@ Sources:
 | 2 | F | `wireguard-go` receive does not validate trailing padding bytes as zero for IP packets. | verified | source | After decrypt, `wireguard-go` slices IPv4/IPv6 packets by their header length fields and does not inspect trailing bytes. |
 | 3 | F | PNet can impose stricter zero-padding validation for PNet internal frames. | verified | logical | PNet internal frame parsing is not stock WireGuard IP receive behavior; #043 defines a PNet-only raw-helper layer. |
 | 4 | F | The initial PNet frame header should be exactly 1 byte with first-byte bits `X000....`. | verified | source | #043 records the user decision to defer varint behavior and assume a one-byte PNet header. |
+
+## Completion Report
+
+Completed in `3a36b4d6599189765c02a0f8d0d858e0baed15f7`.
+
+- Extended `PNetMeshPayloadFraming` so PNet headers decode low-nibble padding length and trim `Payload` before declared padding bytes.
+- Added strict PNet padding validation: declared padding must fit inside the frame and every declared padding byte must be zero.
+- Added canonical `CreatePNet` behavior that emits a 16-byte-aligned default frame, including `0x0F` for an empty protobuf payload block.
+- Kept IPv4/IPv6 packet trimming separate from PNet strict padding validation.
+- Verification passed: initial focused compile failed on missing #044 padding members/errors, canonical creation compile failed before implementation, focused #044 tests passed 12/12, Release build passed, scoped whitespace passed, and `git diff --check` passed. Full unit command hit known #052 relay timeout twice (`bind_three_server_to_localhost_and_relay_exchange`).
+
+## Resolving Commits
+
+- `3a36b4d6599189765c02a0f8d0d858e0baed15f7` - add PNet payload padding semantics
