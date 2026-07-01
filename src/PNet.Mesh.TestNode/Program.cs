@@ -34,6 +34,8 @@ namespace PNet.Mesh.TestNode
 
                     if (string.Equals(hostContext.Configuration["Mode"], "WireGuardPeer", StringComparison.OrdinalIgnoreCase))
                         services.AddHostedService<WireGuardPeerService>();
+                    else if (string.Equals(hostContext.Configuration["Mode"], "WireGuardRelay", StringComparison.OrdinalIgnoreCase))
+                        services.AddHostedService<WireGuardRelayService>();
                     else
                         services.AddHostedService<NodeService>();
                 });

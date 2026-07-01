@@ -53,9 +53,14 @@ public sealed class PNetMeshTestNodeSpec
 
     public IReadOnlyList<PNetMeshNodeIdentity> Nodes { get; init; } = Array.Empty<PNetMeshNodeIdentity>();
 
-    public string ReadyLogEntry => string.Equals(Mode, "WireGuardPeer", StringComparison.OrdinalIgnoreCase)
-        ? $"WireGuardPeer[{Name}] started"
-        : $"Node[{Name}] started";
+    public string ReadyLogEntry => Mode switch
+    {
+        var mode when string.Equals(mode, "WireGuardPeer", StringComparison.OrdinalIgnoreCase)
+            => $"WireGuardPeer[{Name}] started",
+        var mode when string.Equals(mode, "WireGuardRelay", StringComparison.OrdinalIgnoreCase)
+            => $"WireGuardRelay[{Name}] started",
+        _ => $"Node[{Name}] started"
+    };
 
     public IReadOnlyDictionary<string, string> ToEnvironment()
     {
@@ -103,7 +108,9 @@ public sealed class PNetMeshTestNodeSpec
         };
     }
 
-    public static PNetMeshTestNodeSpec WireGuardPeerContainerPeer()
+    public static PNetMeshTestNodeSpec WireGuardPeerContainerPeer(
+        bool publishUdpPort = true,
+        string networkName = null)
     {
         return new PNetMeshTestNodeSpec
         {
@@ -113,8 +120,29 @@ public sealed class PNetMeshTestNodeSpec
             PrivateKey = "H+wvAlb/Q+pKX2z9l5qJpD+ikXm+6pxJQtrp69ZkyYI=",
             Psk = ComposePsk,
             Port = 12450,
+            PublishUdpPort = publishUdpPort,
+            RunDurationSeconds = 30,
+            NetworkNames = networkName is null ? Array.Empty<string>() : new[] { networkName }
+        };
+    }
+
+    public static PNetMeshTestNodeSpec WireGuardRelayContainerNode(PNetMeshTestNodeSpec peer, string networkName)
+    {
+        return new PNetMeshTestNodeSpec
+        {
+            Name = "wireguard-relay",
+            Mode = "WireGuardRelay",
+            PublicKey = GetComposePublicKey("node01"),
+            PrivateKey = "3VXQslNLrlZMjjo6T+RJ77WKnynH+LT1ZOBs74kISOk=",
+            Psk = ComposePsk,
+            Port = 12460,
             PublishUdpPort = true,
-            RunDurationSeconds = 30
+            RunDurationSeconds = 30,
+            NetworkNames = new[] { networkName },
+            Peers = new[]
+            {
+                PeerEndpoint(peer.PublicKey, $"{peer.Name}:{peer.Port}")
+            }
         };
     }
 
@@ -483,6 +511,15 @@ public sealed class PNetMeshTestNodeSpec
         return new PNetMeshPeerEndpoint
         {
             PublicKey = GetComposePublicKey(nodeName),
+            Endpoints = endpoints
+        };
+    }
+
+    static PNetMeshPeerEndpoint PeerEndpoint(string publicKey, params string[] endpoints)
+    {
+        return new PNetMeshPeerEndpoint
+        {
+            PublicKey = publicKey,
             Endpoints = endpoints
         };
     }

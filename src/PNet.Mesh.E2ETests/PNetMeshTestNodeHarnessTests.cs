@@ -142,6 +142,82 @@ public sealed class PNetMeshTestNodeHarnessTests
     }
 
     [Fact]
+    public async Task wireguard_relay_container_forwards_opaque_exchange_to_peer_container()
+    {
+        const string networkName = "wireguard-relay";
+
+        await using var harness = new PNetMeshTestNodeHarness();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromMinutes(5));
+
+        await harness.InitializeAsync(timeout.Token);
+
+        var peer = PNetMeshTestNodeSpec.WireGuardPeerContainerPeer(publishUdpPort: false, networkName);
+        var relay = PNetMeshTestNodeSpec.WireGuardRelayContainerNode(peer, networkName);
+        var peerContainer = await harness.StartNodeAsync(peer, timeout.Token);
+        var relayContainer = await harness.StartNodeAsync(relay, timeout.Token);
+        var relayEndpoint = await GetMappedUdpEndpointAsync(relayContainer, $"{relay.Port}/udp", timeout.Token);
+
+        var psk = Convert.FromBase64String(peer.Psk);
+        using var localStatic = KeyPair.Generate();
+        var protocol = new PNetMeshProtocol(
+            localStatic.PrivateKey,
+            localStatic.PublicKey,
+            psk,
+            PNetMeshTransportMode.WireGuard);
+        using var handshake = protocol.CreateInitiator(0x3001, Convert.FromBase64String(peer.PublicKey));
+        using var udp = new UdpClient(AddressFamily.InterNetwork);
+        udp.Connect(relayEndpoint);
+
+        var outbound = new byte[4098];
+        var inbound = new byte[4098];
+        handshake.WriteInitiationMessage(outbound, out var bytesWritten);
+        await udp.SendAsync(outbound.AsMemory(0, bytesWritten), timeout.Token);
+
+        var response = await udp.ReceiveAsync(timeout.Token);
+        Assert.True(handshake.TryReadResponseMessage(response.Buffer, out var transport));
+        using (transport)
+        {
+            var request = Encoding.UTF8.GetBytes("pnet-wireguard-e2e-request");
+            transport.WriteMessage(request, outbound, out bytesWritten, out _);
+            await udp.SendAsync(outbound.AsMemory(0, bytesWritten), timeout.Token);
+
+            var reply = await udp.ReceiveAsync(timeout.Token);
+            Assert.True(transport.TryReadPlaintext(reply.Buffer, inbound, out var plaintext));
+
+            var expectedReply = Encoding.UTF8.GetBytes("pnet-wireguard-e2e-response");
+            Assert.True(inbound.AsSpan(0, expectedReply.Length).SequenceEqual(expectedReply));
+            Assert.All(inbound.AsSpan(expectedReply.Length, plaintext.BytesWritten - expectedReply.Length).ToArray(), b => Assert.Equal((byte)0, b));
+        }
+
+        var peerLogs = await PNetMeshTestNodeHarness.WaitForLogsAsync(
+            peerContainer,
+            new[]
+            {
+                $"WireGuardPeer[{peer.Name}] handshake complete",
+                $"WireGuardPeer[{peer.Name}] received plaintext pnet-wireguard-e2e-request",
+                $"WireGuardPeer[{peer.Name}] sent encrypted response pnet-wireguard-e2e-response"
+            },
+            timeout.Token);
+        var relayLogs = await PNetMeshTestNodeHarness.WaitForLogsAsync(
+            relayContainer,
+            new[]
+            {
+                $"WireGuardRelay[{relay.Name}] routed handshake initiation to {peer.Name}:{peer.Port}",
+                $"WireGuardRelay[{relay.Name}] relayed handshake response to client",
+                $"WireGuardRelay[{relay.Name}] relayed packet data to {peer.Name}:{peer.Port}",
+                $"WireGuardRelay[{relay.Name}] relayed packet data to client",
+                $"WireGuardRelay[{relay.Name}] released relay mapping"
+            },
+            timeout.Token);
+
+        _output.WriteLine("===== peer =====");
+        _output.WriteLine(peerLogs);
+        _output.WriteLine("===== relay =====");
+        _output.WriteLine(relayLogs);
+    }
+
+    [Fact]
     public async Task direct_peers_exchange_payloads_in_both_directions()
     {
         await using var harness = new PNetMeshTestNodeHarness();
