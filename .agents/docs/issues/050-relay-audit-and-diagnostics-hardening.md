@@ -71,8 +71,9 @@ The relay diagnostics can stay redacted and still be useful: keep only safe leas
 
 | Date | Gate | Method | Result | Evidence |
 |------|------|--------|--------|----------|
-| 2026-07-01 | `gate-depends: [045, 046, 047]` | source | blocked | #046 is completed, but #045 and #047 remain open, so the issue stays gated. |
+| 2026-07-01 | `gate-depends: [045, 046, 047]` | source | blocked | #045 and #046 are completed, but #047 remains open, so #050 stays gated. |
 
 ## Validation History
 
 - 2026-07-01: dependency gate cleared by #046; remaining dependency gates #045 and #047 keep #050 gated.
+- 2026-07-01: dependency gate cleared by #045; remaining dependency gate #047 keeps #050 gated.

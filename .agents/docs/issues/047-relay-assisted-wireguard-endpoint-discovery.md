@@ -3,10 +3,10 @@ issue: 047
 date: 2026-07-01
 source: wireguard/relay
 priority: high
-status: gated
+status: ready
 research-status: complete
 research-date: 2026-07-01
-terminal-state: gated
+terminal-state: ready
 gate: "Wait for the relay path and authenticated endpoint/keypair state."
 gate-depends:
   - 038
@@ -14,7 +14,7 @@ gate-depends:
   - 046
 gate-reason: "Endpoint discovery depends on the relay path and authenticated peer endpoint state; direct promotion must wait for an authenticated response."
 gate-last-checked: 2026-07-01
-gate-status: blocked
+gate-status: cleared
 assumptions-date: 2026-07-01
 brief: "description+playbook"
 views:
@@ -74,8 +74,9 @@ Relay-assisted endpoint discovery is correctly scoped as a follow-on to the rela
 
 | Date | Gate | Method | Result | Evidence |
 |------|------|--------|--------|----------|
-| 2026-07-01 | `gate-depends: [038, 045, 046]` | source | blocked | #038 and #046 are completed, but #045 remains open, so the issue stays gated. |
+| 2026-07-01 | `gate-depends: [038, 045, 046]` | source | ready | #038, #045, and #046 are completed, so #047 is implementation-ready. |
 
 ## Validation History
 
 - 2026-07-01: dependency gate cleared by #046; remaining dependency gate #045 keeps #047 gated.
+- 2026-07-01: dependency gate cleared by #045; #047 is now ready.

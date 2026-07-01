@@ -3,10 +3,10 @@ issue: 045
 date: 2026-07-01
 source: wireguard/relay
 priority: high
-status: ready
+status: completed
 research-status: complete
 research-date: 2026-07-01
-terminal-state: ready
+terminal-state: completed
 gate: "Wait for the WireGuard-compatible transport, raw plaintext, IP helper, and direct interop child issues."
 gate-depends:
   - 036
@@ -20,6 +20,8 @@ gate-reason: "Relay interop depends on the unfinished WireGuard-compatible trans
 gate-last-checked: 2026-07-01
 gate-status: cleared
 assumptions-date: 2026-07-01
+completion-date: 2026-07-01
+commits: [9bf1fbae3252fff16de15a767d7e28ddb3e42fef]
 brief: "description+playbook"
 views:
   enrich: "description+playbook+related-tracking+scope+acceptance-criteria+assumptions"
@@ -91,3 +93,16 @@ Primary `wireguard-go` receive/send flow shows that a normal UDP relay makes nod
 - 2026-07-01: dependency gate cleared by #040; remaining dependency gates #041 and #042 keep #045 gated.
 - 2026-07-01: dependency gate cleared by #041; remaining dependency gate #042 keeps #045 gated.
 - 2026-07-01: dependency gate cleared by #042; #045 is now ready.
+
+## Completion Report
+
+Completed in `9bf1fbae3252fff16de15a767d7e28ddb3e42fef`.
+
+- Added a `WireGuardRelay` TestNode mode backed by raw UDP forwarding and `PNetMeshWireGuardRelayRegistry` routing.
+- Added a focused Testcontainers e2e topology with a relay container, a WireGuard peer container, and a host-side `PNetMeshProtocol` node sending opaque WireGuard packets through the relay.
+- Verified handshake initiation routing, handshake response relay, transport packet forwarding in both directions, and relay mapping release without decrypting relay traffic on node2.
+- Verification passed: Release build, scoped whitespace check, `git diff --check`, focused #045 relay e2e, and the direct #042 peer interop e2e. The full unit command still fails on known baseline issue #052.
+
+## Resolving Commits
+
+- `9bf1fbae3252fff16de15a767d7e28ddb3e42fef` - add WireGuard relay container interop
