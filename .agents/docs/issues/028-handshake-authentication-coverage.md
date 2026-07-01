@@ -3,12 +3,15 @@ issue: 028
 date: 2026-06-30
 source: coverage/readme
 priority: high
-status: ready
+status: completed
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
+completion-date: 2026-07-01
+commits: [b36bd7fd8d7f82308624bbaf428daf660aaf096b]
 split-status: child
 parent-issue: 016
+terminal-state: completed
 brief: "description+playbook"
 views:
   enrich: "description+playbook+research+assumptions"
@@ -54,4 +57,11 @@ Parent research already confirmed successful handshakes and cookie handshakes ex
 
 ## Completion Report
 
-Pending.
+Completed in `b36bd7fd8d7f82308624bbaf428daf660aaf096b`.
+
+- Added named regression coverage proving valid peers complete the Noise IKpsk2 handshake, derive non-null transports, and exchange payloads in both directions.
+- Tracker row completion is now recorded in the issue index.
+
+## Resolving Commits
+
+- `b36bd7fd8d7f82308624bbaf428daf660aaf096b` - add handshake/authentication regression coverage

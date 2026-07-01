@@ -14,6 +14,8 @@ gate-depends:
   - 031
 gate-reason: "Tracking parent waits for fine-grained child issues"
 ungate-when: "All child issues are completed"
+gate-last-checked: 2026-07-01
+gate-status: blocked
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
@@ -81,6 +83,16 @@ none
 ## Enrichment History
 
 - 2026-06-30: Marked ready after confirming the current coverage is happy-path handshake plus replay checks, not the broader negative matrix implied by the README. Evidence: `PNetMeshProtocolTest.cs`, `PNetMeshServerTests.cs`, `PNetMeshProtocol.cs`.
+
+## Gate Validation
+
+| Date | Gate | Method | Result | Evidence |
+|------|------|--------|--------|----------|
+| 2026-07-01 | `gate-depends: [028, 029, 030, 031]` | source | blocked | #028 is completed, but #029, #030, and #031 remain open, so the parent stays gated. |
+
+## Validation History
+
+- 2026-07-01: dependency gate cleared by #028; remaining dependency gates #029, #030, and #031 keep #016 gated.
 
 ## Completion Report
 
