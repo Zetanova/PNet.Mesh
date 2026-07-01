@@ -74,5 +74,19 @@ namespace PNet.Mesh
                 //.Where((n, i) => i >= bits.Length || bits[i])
                 .Select(n => n.Memory);
         }
+
+        public IEnumerable<Memory<byte>> GetMissingSequence(byte[] receivedBitmap)
+        {
+            var bits = new BitArray(receivedBitmap);
+            return _items
+                .Take(bits.Length)
+                .Where((n, i) => !bits[i])
+                .Select(n => n.Memory);
+        }
+
+        public IEnumerable<Memory<byte>> GetSequence()
+        {
+            return _items.Select(n => n.Memory);
+        }
     }
 }

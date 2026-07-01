@@ -1,6 +1,7 @@
 ﻿using Google.Protobuf;
 using System;
 using System.Buffers;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Linq;
@@ -81,10 +82,15 @@ namespace PNet.Mesh
 
         Protos.Packet _openPacket;
 
+        // multi-threading: server receive handling updates remote ACKs while the channel control/timer loop reads them for payload gating and retransmission.
+        readonly object _remoteAckLock = new object();
         Ack _remoteAck = new Ack { SeqNumber = 0, OutOfOrder = Array.Empty<byte>() };
 
+        // multi-threading: server receive handling mutates receive counters/pending packets while the channel control/timer loop calls WritePacket to emit ACKs.
+        readonly object _receiveStateLock = new object();
         ulong _receiveCounter = 0;
         ulong _receiveAck = 0;
+        readonly SortedDictionary<ulong, Protos.Packet> _pendingPackets = new SortedDictionary<ulong, Protos.Packet>();
         int _cumAck_max = 2;
         //int _cumAck_count = 0;
         int _cumAck_timeout = 100;
@@ -266,7 +272,7 @@ namespace PNet.Mesh
 
             var packetSize = _openPacket.CalculateSize();
 
-            if (packetSize > PayloadSizeToTarget || (_retransBuffer.Current - _outstanding_max > _remoteAck.SeqNumber))
+            if (packetSize > PayloadSizeToTarget || (_retransBuffer.Current - _outstanding_max > GetRemoteAckSeqNumber()))
             {
                 WritePacket();
             }
@@ -328,7 +334,7 @@ namespace PNet.Mesh
 
             var packetSize = _openPacket.CalculateSize();
 
-            if (packetSize > PayloadSizeToTarget || (_retransBuffer.Current - _outstanding_max > _remoteAck.SeqNumber))
+            if (packetSize > PayloadSizeToTarget || (_retransBuffer.Current - _outstanding_max > GetRemoteAckSeqNumber()))
             {
                 WritePacket();
             }
@@ -348,24 +354,27 @@ namespace PNet.Mesh
             var packet = _openPacket;
             _openPacket = new Protos.Packet();
 
-            if (_receiveAck < _receiveCounter)
+            lock (_receiveStateLock)
             {
-                _receiveAck = _receiveCounter;
-
-                _cumAckTimer.Change(Timeout.Infinite, Timeout.Infinite);
-
-                Span<byte> bitmap = stackalloc byte[16];
-                _transport.Tracker.GetBitmap(_receiveAck, bitmap, out var bytesWritten);
-                bitmap = bitmap.Slice(0, bytesWritten);
-
-                _receiveAck += PNetMeshPacketTracker.RightShift(bitmap, out bytesWritten);
-                bitmap = bitmap.Slice(0, bytesWritten);
-
-                packet.Ack = new Protos.Ack
+                if (_receiveAck < _receiveCounter || _pendingPackets.Count > 0)
                 {
-                    AckSeqNumber = _receiveAck,
-                    OutOfSeqPackets = ByteString.CopyFrom(bitmap)
-                };
+                    _receiveAck = _receiveCounter;
+
+                    _cumAckTimer.Change(Timeout.Infinite, Timeout.Infinite);
+
+                    Span<byte> bitmap = stackalloc byte[16];
+                    _transport.Tracker.GetBitmap(_receiveAck, bitmap, out var bytesWritten);
+                    bitmap = bitmap.Slice(0, bytesWritten);
+
+                    _receiveAck += PNetMeshPacketTracker.RightShift(bitmap, out bytesWritten);
+                    bitmap = bitmap.Slice(0, bytesWritten);
+
+                    packet.Ack = new Protos.Ack
+                    {
+                        AckSeqNumber = _receiveAck,
+                        OutOfSeqPackets = ByteString.CopyFrom(bitmap)
+                    };
+                }
             }
 
             packet.DoNotAck = packet.Payload.Count == 0 && packet.Relay.Count == 0;
@@ -404,9 +413,13 @@ namespace PNet.Mesh
 
         void RetransmitPackets()
         {
-            var ack = _remoteAck;
+            var ack = GetRemoteAckSnapshot();
             if (ack.SeqNumber > 0) _retransBuffer.RemoveUntil(ack.SeqNumber - 1);
-            foreach (var packet in _retransBuffer.GetSequence(ack.OutOfOrder))
+            var packets = ack.OutOfOrder.Length > 0
+                ? _retransBuffer.GetMissingSequence(ack.OutOfOrder)
+                : _retransBuffer.GetSequence();
+
+            foreach (var packet in packets)
             {
                 var item = new PNetMeshOutboundMessages.Packet
                 {
@@ -430,43 +443,79 @@ namespace PNet.Mesh
         {
             using var buffer = MemoryPool<byte>.Shared.Rent(payload.Length);
 
-            if (!_transport.TryReadMessage(payload, buffer.Memory.Span, out var bytesWritten, out var counter))
+            lock (_receiveStateLock)
             {
-                //buffer.Dispose();
-
-                if (counter > 0)
+                if (!_transport.TryReadMessage(payload, buffer.Memory.Span, out var bytesWritten, out var counter))
                 {
-                    //duplicate message
+                    //buffer.Dispose();
+
+                    if (counter > 0)
+                    {
+                        //duplicate message
+                    }
+                    else
+                    {
+                        //invalid message
+                        //todo log
+                    }
+
+                    return;
                 }
-                else
+
+                if (Status == PNetMeshSessionStatus.Opening)
                 {
-                    //invalid message
-                    //todo log
+                    //open responder session
+                    _openPacket = new Protos.Packet();
+                    Status = PNetMeshSessionStatus.Open;
                 }
 
-                return;
+                var bufferSeq = new ReadOnlySequence<byte>(buffer.Memory.Slice(0, bytesWritten));
+
+                var packet = Protos.Packet.Parser.ParseFrom(bufferSeq);
+                ProcessAck(packet);
+
+                if (counter > _receiveCounter)
+                {
+                    _pendingPackets[counter] = packet;
+                    _outOfOrder_count = _pendingPackets.Count;
+                    UpdateAckTimer(packet);
+                    return;
+                }
+
+                if (counter < _receiveCounter)
+                    return;
+
+                ProcessPacket(packet);
+                _receiveCounter++;
+
+                while (_pendingPackets.TryGetValue(_receiveCounter, out var pendingPacket))
+                {
+                    _pendingPackets.Remove(_receiveCounter);
+                    ProcessPacket(pendingPacket);
+                    _receiveCounter++;
+                }
+
+                _outOfOrder_count = _pendingPackets.Count;
+                UpdateAckTimer(packet);
             }
+        }
 
-            //sequence counter
-            if (counter == _receiveCounter + 1)
-            {
-                _receiveCounter = counter;
-                _outOfOrder_count = Math.Max(_outOfOrder_count - 1, 0);
-            }
-            else
-                _outOfOrder_count++;
+        void UpdateAckTimer(Protos.Packet packet)
+        {
+            var ackTimeout = _cumAck_timeout;
+            //todo use donotack field
+            if (packet.DoNotAck && _receiveCounter - _receiveAck <= 1 && _pendingPackets.Count == 0)
+                ackTimeout = Timeout.Infinite;
+            if ((int)(_receiveCounter - _receiveAck) >= _cumAck_max)
+                ackTimeout = 0;
+            if (_outOfOrder_count >= _outOfOrder_max || _pendingPackets.Count > 0)
+                ackTimeout = 0;
 
-            if (Status == PNetMeshSessionStatus.Opening)
-            {
-                //open responder session
-                _openPacket = new Protos.Packet();
-                Status = PNetMeshSessionStatus.Open;
-            }
+            _cumAckTimer.Change(ackTimeout, Timeout.Infinite);
+        }
 
-            var bufferSeq = new ReadOnlySequence<byte>(buffer.Memory.Slice(0, bytesWritten));
-
-            var packet = Protos.Packet.Parser.ParseFrom(bufferSeq);
-
+        void ProcessPacket(Protos.Packet packet)
+        {
             if (packet.Syn is not null)
             {
                 var syn = packet.Syn;
@@ -481,47 +530,6 @@ namespace PNet.Mesh
                 if (syn.CumulativeAckTimeout > 0)
                     _cumAck_timeout = Math.Max(syn.CumulativeAckTimeout, 100);
             }
-
-            if (packet.Ack is not null)
-            {
-                var ack = packet.Ack;
-
-                if (_remoteAck.SeqNumber < ack.AckSeqNumber)
-                {
-                    _remoteAck = new Ack
-                    {
-                        SeqNumber = ack.AckSeqNumber,
-                        OutOfOrder = !ack.OutOfSeqPackets.IsEmpty
-                            ? ack.OutOfSeqPackets.ToByteArray()
-                            : Array.Empty<byte>()
-                    };
-
-                    //if _ackOutOfSeqPackets not empty then queue retrans
-                    var retransTimeout = _retrans_timeout;
-                    if (_remoteAck.OutOfOrder.Length > 0)
-                        retransTimeout = 0;
-
-                    //todo start retransTimer on send and disable when no unconfirmed packets
-                    _retransTimer.Change(retransTimeout, Timeout.Infinite);
-
-                    if (_remoteAck.SeqNumber == _retransBuffer.Current)
-                        _controlWriter.TryWrite(new PNetMeshChannelCommands.Invoke
-                        {
-                            Handler = FlushPayload
-                        });
-                }
-            }
-
-            var ackTimeout = _cumAck_timeout;
-            //todo use donotack field
-            if (packet.DoNotAck && _receiveCounter - _receiveAck <= 1)
-                ackTimeout = Timeout.Infinite;
-            if ((int)(_receiveCounter - _receiveAck) >= _cumAck_max)
-                ackTimeout = 0;
-            if (_outOfOrder_count >= _outOfOrder_max)
-                ackTimeout = 0;
-
-            _cumAckTimer.Change(ackTimeout, Timeout.Infinite);
 
             if (packet.Probe is not null)
             {
@@ -653,6 +661,66 @@ namespace PNet.Mesh
                         break;
                 }
             }
+        }
+
+        void ProcessAck(Protos.Packet packet)
+        {
+            if (packet.Ack is null)
+                return;
+
+            var ack = packet.Ack;
+            var outOfOrder = !ack.OutOfSeqPackets.IsEmpty
+                ? ack.OutOfSeqPackets.ToByteArray()
+                : Array.Empty<byte>();
+            Ack remoteAck;
+
+            lock (_remoteAckLock)
+            {
+                var ackAdvanced = _remoteAck.SeqNumber < ack.AckSeqNumber;
+                var outOfOrderChanged = _remoteAck.SeqNumber == ack.AckSeqNumber
+                    && !_remoteAck.OutOfOrder.SequenceEqual(outOfOrder);
+
+                if (!ackAdvanced && !outOfOrderChanged)
+                    return;
+
+                _remoteAck = new Ack
+                {
+                    SeqNumber = ack.AckSeqNumber,
+                    OutOfOrder = outOfOrder
+                };
+                remoteAck = _remoteAck;
+            }
+
+            var retransTimeout = _retrans_timeout;
+            if (remoteAck.OutOfOrder.Length > 0)
+            {
+                _controlWriter.TryWrite(new PNetMeshChannelCommands.Invoke
+                {
+                    Handler = RetransmitPackets
+                });
+            }
+
+            //todo start retransTimer on send and disable when no unconfirmed packets
+            _retransTimer.Change(retransTimeout, Timeout.Infinite);
+
+            // AckSeqNumber is the peer's next expected counter, so it is one past Current when all buffered packets are acknowledged.
+            if (remoteAck.SeqNumber > _retransBuffer.Current)
+                _controlWriter.TryWrite(new PNetMeshChannelCommands.Invoke
+                {
+                    Handler = FlushPayload
+                });
+        }
+
+        Ack GetRemoteAckSnapshot()
+        {
+            lock (_remoteAckLock)
+                return _remoteAck;
+        }
+
+        ulong GetRemoteAckSeqNumber()
+        {
+            lock (_remoteAckLock)
+                return _remoteAck.SeqNumber;
         }
     }
 }

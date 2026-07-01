@@ -1,11 +1,14 @@
-﻿using Noise;
+﻿using Google.Protobuf;
+using Noise;
 using PNet.Mesh;
 using System;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Net;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 using Xunit;
@@ -164,7 +167,7 @@ namespace PNet.Actor.UnitTests.Mesh
             };
 
             AttachSession(sender);
-            AttachSession(receiver);
+            var receiverChannels = AttachSession(receiver);
             OpenSessionPair(sender, receiver, senderOutbound, receiverOutbound, receiverKey.PublicKey);
 
             var originalRoute = ImmutableArray.Create(Address(30), Address(31));
@@ -245,6 +248,252 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.Equal(54321u, nullBaseCandidate.Priority);
             Assert.Equal(PNetMeshProtocolType.UDP, nullBaseCandidate.Protocol);
             Assert.Equal(PNetMeshCandidateType.ServerReflexive, nullBaseCandidate.Type);
+        }
+
+        [Fact]
+        public void session_buffers_reordered_payload_until_missing_packet_arrives()
+        {
+            using var senderKey = KeyPair.Generate();
+            using var receiverKey = KeyPair.Generate();
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            var senderProtocol = new PNetMeshProtocol(senderKey.PrivateKey, senderKey.PublicKey, psk);
+            var receiverProtocol = new PNetMeshProtocol(receiverKey.PrivateKey, receiverKey.PublicKey, psk);
+
+            var senderOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+            var receiverOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+
+            using var sender = new PNetMeshSession(senderProtocol, senderOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 20301),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 20302)
+            };
+            using var receiver = new PNetMeshSession(receiverProtocol, receiverOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 20302),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 20301)
+            };
+
+            AttachSession(sender);
+            var receiverChannels = AttachSession(receiver);
+            OpenSessionPair(sender, receiver, senderOutbound, receiverOutbound, receiverKey.PublicKey);
+
+            var first = WritePayloadPacket(sender, senderOutbound, "first");
+            var second = WritePayloadPacket(sender, senderOutbound, "second");
+
+            receiver.ReadMessage(second.MemoryBuffer.Span);
+
+            Assert.False(receiverChannels.Inbound.Reader.TryRead(out _));
+
+            receiver.ReadMessage(first.MemoryBuffer.Span);
+
+            AssertPayload(receiverChannels.Inbound, "first");
+            AssertPayload(receiverChannels.Inbound, "second");
+            Assert.False(receiverChannels.Inbound.Reader.TryRead(out _));
+        }
+
+        [Fact]
+        public void session_retransmits_missing_packet_from_out_of_sequence_ack()
+        {
+            using var senderKey = KeyPair.Generate();
+            using var receiverKey = KeyPair.Generate();
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            var senderProtocol = new PNetMeshProtocol(senderKey.PrivateKey, senderKey.PublicKey, psk);
+            var receiverProtocol = new PNetMeshProtocol(receiverKey.PrivateKey, receiverKey.PublicKey, psk);
+
+            var senderOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+            var receiverOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+
+            using var sender = new PNetMeshSession(senderProtocol, senderOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 20401),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 20402)
+            };
+            using var receiver = new PNetMeshSession(receiverProtocol, receiverOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 20402),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 20401)
+            };
+
+            var senderChannels = AttachSession(sender);
+            var receiverChannels = AttachSession(receiver);
+            OpenSessionPair(sender, receiver, senderOutbound, receiverOutbound, receiverKey.PublicKey);
+
+            var first = WritePayloadPacket(sender, senderOutbound, "first");
+            var second = WritePayloadPacket(sender, senderOutbound, "second");
+
+            receiver.ReadMessage(second.MemoryBuffer.Span);
+            receiver.WritePacket();
+
+            var ack = ReadPacket(receiverOutbound);
+            sender.ReadMessage(ack.MemoryBuffer.Span);
+
+            var retransmit = Assert.IsType<PNetMeshChannelCommands.Invoke>(ReadControl(senderChannels));
+            retransmit.Handler();
+
+            var retransmittedFirst = ReadPacket(senderOutbound);
+            Assert.False(senderOutbound.Reader.TryRead(out _));
+            receiver.ReadMessage(retransmittedFirst.MemoryBuffer.Span);
+
+            AssertPayload(receiverChannels.Inbound, "first");
+            AssertPayload(receiverChannels.Inbound, "second");
+            Assert.False(receiverChannels.Inbound.Reader.TryRead(out _));
+        }
+
+        [Fact]
+        public void session_clears_stale_out_of_sequence_bitmap_on_same_cumulative_ack()
+        {
+            using var senderKey = KeyPair.Generate();
+            using var receiverKey = KeyPair.Generate();
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            var senderProtocol = new PNetMeshProtocol(senderKey.PrivateKey, senderKey.PublicKey, psk);
+            var receiverProtocol = new PNetMeshProtocol(receiverKey.PrivateKey, receiverKey.PublicKey, psk);
+
+            var senderOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+            var receiverOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+
+            using var sender = new PNetMeshSession(senderProtocol, senderOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 20501),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 20502)
+            };
+            using var receiver = new PNetMeshSession(receiverProtocol, receiverOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 20502),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 20501)
+            };
+
+            var senderChannels = AttachSession(sender);
+            var receiverChannels = AttachSession(receiver);
+            OpenSessionPair(sender, receiver, senderOutbound, receiverOutbound, receiverKey.PublicKey);
+
+            WritePayloadPacket(sender, senderOutbound, "first");
+            WritePayloadPacket(sender, senderOutbound, "second");
+
+            var outOfSequenceAck = WriteAckPacket(receiver, ackSeqNumber: 0, outOfSeqPackets: new byte[] { 0x02 });
+            sender.ReadMessage(outOfSequenceAck.Span);
+            var retransmit = Assert.IsType<PNetMeshChannelCommands.Invoke>(ReadControl(senderChannels));
+            Assert.Equal(new byte[] { 0x02 }, GetRemoteAckOutOfOrder(sender));
+
+            var emptySameSequenceAck = WriteAckPacket(receiver, ackSeqNumber: 0, outOfSeqPackets: Array.Empty<byte>());
+            sender.ReadMessage(emptySameSequenceAck.Span);
+
+            Assert.Empty(GetRemoteAckOutOfOrder(sender));
+            retransmit.Handler();
+
+            Assert.True(senderOutbound.Reader.TryRead(out _));
+        }
+
+        [Fact]
+        public async Task session_handles_concurrent_ack_generation_and_reordered_reads()
+        {
+            using var senderKey = KeyPair.Generate();
+            using var receiverKey = KeyPair.Generate();
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            var senderProtocol = new PNetMeshProtocol(senderKey.PrivateKey, senderKey.PublicKey, psk);
+            var receiverProtocol = new PNetMeshProtocol(receiverKey.PrivateKey, receiverKey.PublicKey, psk);
+
+            var senderOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+            var receiverOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+
+            using var sender = new PNetMeshSession(senderProtocol, senderOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 20701),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 20702)
+            };
+            using var receiver = new PNetMeshSession(receiverProtocol, receiverOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 20702),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 20701)
+            };
+
+            AttachSession(sender);
+            var receiverChannels = AttachSession(receiver);
+            OpenSessionPair(sender, receiver, senderOutbound, receiverOutbound, receiverKey.PublicKey);
+
+            const int packetCount = 16;
+            var packets = new PNetMeshOutboundMessages.Packet[packetCount];
+            for (var i = 0; i < packetCount; i++)
+                packets[i] = WritePayloadPacket(sender, senderOutbound, $"msg-{i}");
+
+            receiver.ReadMessage(packets[0].MemoryBuffer.Span);
+
+            var readReady = new ManualResetEventSlim(false);
+            var readTask = Task.Run(() =>
+            {
+                readReady.Set();
+                for (var i = packetCount - 1; i > 0; i--)
+                    receiver.ReadMessage(packets[i].MemoryBuffer.Span);
+            }, TestContext.Current.CancellationToken);
+
+            await Task.Run(() =>
+            {
+                readReady.Wait(TestContext.Current.CancellationToken);
+                for (var i = 0; i < packetCount; i++)
+                    receiver.WritePacket();
+            }, TestContext.Current.CancellationToken);
+
+            await readTask.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+
+            for (var i = 0; i < packetCount; i++)
+                AssertPayload(receiverChannels.Inbound, $"msg-{i}");
+            Assert.False(receiverChannels.Inbound.Reader.TryRead(out _));
+
+            receiver.WritePacket();
+            for (var i = 0; i <= packetCount && GetRemoteAckSeqNumber(sender) < (ulong)packetCount; i++)
+                sender.ReadMessage(ReadPacket(receiverOutbound).MemoryBuffer.Span);
+
+            Assert.Equal((ulong)packetCount, GetRemoteAckSeqNumber(sender));
+        }
+
+        [Fact]
+        public void session_processes_out_of_order_ack_before_missing_packet_arrives()
+        {
+            using var senderKey = KeyPair.Generate();
+            using var receiverKey = KeyPair.Generate();
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            var senderProtocol = new PNetMeshProtocol(senderKey.PrivateKey, senderKey.PublicKey, psk);
+            var receiverProtocol = new PNetMeshProtocol(receiverKey.PrivateKey, receiverKey.PublicKey, psk);
+
+            var senderOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+            var receiverOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+
+            using var sender = new PNetMeshSession(senderProtocol, senderOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 20601),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 20602)
+            };
+            using var receiver = new PNetMeshSession(receiverProtocol, receiverOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 20602),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 20601)
+            };
+
+            AttachSession(sender);
+            AttachSession(receiver);
+            OpenSessionPair(sender, receiver, senderOutbound, receiverOutbound, receiverKey.PublicKey);
+
+            WritePayloadPacket(sender, senderOutbound, "first");
+
+            var firstAck = WriteAckPacket(receiver, ackSeqNumber: 0, outOfSeqPackets: Array.Empty<byte>());
+            var secondAck = WriteAckPacket(receiver, ackSeqNumber: 1, outOfSeqPackets: Array.Empty<byte>());
+
+            sender.ReadMessage(secondAck.Span);
+
+            Assert.Equal(1ul, GetRemoteAckSeqNumber(sender));
+
+            sender.ReadMessage(firstAck.Span);
+
+            Assert.Equal(1ul, GetRemoteAckSeqNumber(sender));
         }
 
         [Fact]
@@ -336,11 +585,92 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.Equal(PNetMeshSessionStatus.Opening, receiver.Status);
         }
 
-        static void AttachSession(PNetMeshSession session)
+        readonly struct AttachedSession
+        {
+            public Channel<ReadOnlyMemory<byte>> Inbound { get; init; }
+
+            public Channel<PNetMeshChannelCommands.Command> Control { get; init; }
+        }
+
+        static AttachedSession AttachSession(PNetMeshSession session)
         {
             var inbound = Channel.CreateUnbounded<ReadOnlyMemory<byte>>();
             var control = Channel.CreateUnbounded<PNetMeshChannelCommands.Command>();
             session.AttachTo(inbound.Writer, control.Writer);
+            return new AttachedSession
+            {
+                Inbound = inbound,
+                Control = control
+            };
+        }
+
+        static PNetMeshOutboundMessages.Packet WritePayloadPacket(
+            PNetMeshSession session,
+            Channel<PNetMeshOutboundMessages.Message> outbound,
+            string payload)
+        {
+            session.WritePayload(Encoding.UTF8.GetBytes(payload));
+            if (!outbound.Reader.TryRead(out var message))
+            {
+                session.WritePacket();
+                Assert.True(outbound.Reader.TryRead(out message));
+            }
+
+            return Assert.IsType<PNetMeshOutboundMessages.Packet>(message);
+        }
+
+        static void AssertPayload(Channel<ReadOnlyMemory<byte>> channel, string expected)
+        {
+            Assert.True(channel.Reader.TryRead(out var payload));
+            Assert.Equal(expected, Encoding.UTF8.GetString(payload.Span));
+        }
+
+        static PNetMeshChannelCommands.Command ReadControl(AttachedSession session)
+        {
+            Assert.True(session.Control.Reader.TryRead(out var command));
+            return command;
+        }
+
+        static ReadOnlyMemory<byte> WriteAckPacket(
+            PNetMeshSession session,
+            ulong ackSeqNumber,
+            byte[] outOfSeqPackets)
+        {
+            var packet = new PNet.Actor.Mesh.Protos.Packet
+            {
+                Ack = new PNet.Actor.Mesh.Protos.Ack
+                {
+                    AckSeqNumber = ackSeqNumber,
+                    OutOfSeqPackets = ByteString.CopyFrom(outOfSeqPackets)
+                }
+            };
+            var payload = packet.ToByteArray();
+            var buffer = new byte[payload.Length + 64];
+            var transport = GetTransport(session);
+            transport.WriteMessage(payload, buffer, out var bytesWritten, out _);
+            return buffer.AsMemory(0, bytesWritten);
+        }
+
+        static PNetMeshTransport2 GetTransport(PNetMeshSession session)
+        {
+            var field = typeof(PNetMeshSession).GetField("_transport", BindingFlags.Instance | BindingFlags.NonPublic);
+            return Assert.IsType<PNetMeshTransport2>(field.GetValue(session));
+        }
+
+        static ulong GetRemoteAckSeqNumber(PNetMeshSession session)
+        {
+            var field = typeof(PNetMeshSession).GetField("_remoteAck", BindingFlags.Instance | BindingFlags.NonPublic);
+            var ack = field.GetValue(session);
+            var seqNumber = ack.GetType().GetProperty("SeqNumber");
+            return (ulong)seqNumber.GetValue(ack);
+        }
+
+        static byte[] GetRemoteAckOutOfOrder(PNetMeshSession session)
+        {
+            var field = typeof(PNetMeshSession).GetField("_remoteAck", BindingFlags.Instance | BindingFlags.NonPublic);
+            var ack = field.GetValue(session);
+            var outOfOrder = ack.GetType().GetProperty("OutOfOrder");
+            return (byte[])outOfOrder.GetValue(ack);
         }
 
         static PNetMeshOutboundMessages.Packet ReadPacket(Channel<PNetMeshOutboundMessages.Message> channel)
