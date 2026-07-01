@@ -71,7 +71,7 @@ This is a parent tracking issue. Implement child issues, not this parent directl
 | #041 | IPv4/IPv6 packet read/create helpers on plaintext bytes | completed | Layer above raw plaintext, with packet validation. |
 | #042 | wireguard-go/Testcontainers interoperability test | ready | Peer handshake and encrypted exchange harness. |
 | #045 | PNet relay to wireguard-go peer interoperability test | gated | Node1 session owner relays through node2 to node3 and back. |
-| #046 | Shared-port WireGuard relay registration and demux | ready | Lease registration, MAC1 handshake demux, and receiver-index fast path. |
+| #046 | Shared-port WireGuard relay registration and demux | completed | Lease registration, MAC1 handshake demux, and receiver-index fast path. |
 | #047 | Relay-assisted WireGuard endpoint discovery | gated | Learn relayed endpoint candidate, probe direct, promote only after authenticated response. |
 | #048 | PNet-to-PNet WireGuard-compatible transport e2e | completed | Exchange PNet internal `X000PPPP` protobuf frames between two PNet peers. |
 

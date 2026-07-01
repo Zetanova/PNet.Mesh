@@ -13,6 +13,8 @@ gate-depends:
   - 046
   - 047
 gate-reason: "Concrete diagnostic field names depend on the relay runtime surfaces created by the relay issues."
+gate-last-checked: 2026-07-01
+gate-status: blocked
 assumptions-date: 2026-07-01
 brief: "description+playbook"
 views:
@@ -64,3 +66,13 @@ The relay diagnostics can stay redacted and still be useful: keep only safe leas
 | 3 | F | Safe counters and redacted events are sufficient for initial operator diagnostics. | verified | logical | Existing route-path diagnostics and the relay opaque-boundary requirements are enough to support safe redacted events and counters. |
 | 4 | F | Relay diagnostics can include redacted lease, demux, and promotion metadata without exposing secrets or payloads. | verified | logical | Derived from the planned relay surfaces and the existing safe diagnostics pattern; field names remain to be bound to implemented types. |
 | 5 | F | Relay diagnostics must exclude private keys, shared secrets, cookies, decrypted plaintext, packet bytes, full public keys, protobuf payloads, and raw endpoint lists. | verified | logical | The relay is intentionally opaque, so diagnostics cannot expose the data it must not inspect. |
+
+## Gate Validation
+
+| Date | Gate | Method | Result | Evidence |
+|------|------|--------|--------|----------|
+| 2026-07-01 | `gate-depends: [045, 046, 047]` | source | blocked | #046 is completed, but #045 and #047 remain open, so the issue stays gated. |
+
+## Validation History
+
+- 2026-07-01: dependency gate cleared by #046; remaining dependency gates #045 and #047 keep #050 gated.

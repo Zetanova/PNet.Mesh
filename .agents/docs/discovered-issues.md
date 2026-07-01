@@ -2,7 +2,7 @@
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
 last-entry: 2026-07-01
 last-opened: 2026-07-01-052
-open-count: 9
+open-count: 8
 last-completed: 2026-07-01
 ---
 
@@ -17,9 +17,8 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | 035 | 2026-07-01 | wireguard/transport | Track WireGuard-compatible transport mode through crypto, raw payloads, IP/PNet e2e, and relay interop. | high | gated | [035-wireguard-compatible-transport-mode](issues/035-wireguard-compatible-transport-mode.md) |
 | 042 | 2026-07-01 | wireguard/tests | Add wireguard-go/Testcontainers interoperability test for WireGuard peer to PNet.Mesh. | high | ready | [042-wireguard-go-testcontainers-interoperability-test-for-wireguard-peer-to-pnet-mesh](issues/042-wireguard-go-testcontainers-interoperability-test-for-wireguard-peer-to-pnet-mesh.md) |
 | 045 | 2026-07-01 | wireguard/relay | Implement and test PNet relay from node1 through node2 to wireguard-go node3. | high | gated | [045-pnet-relay-to-wireguard-peer-interop](issues/045-pnet-relay-to-wireguard-peer-interop.md) |
-| 046 | 2026-07-01 | wireguard/relay | Implement shared-port WireGuard relay registration, MAC1 demux, and receiver-index fast path. | high | ready | [046-shared-port-wireguard-relay-registration-and-demux](issues/046-shared-port-wireguard-relay-registration-and-demux.md) |
 | 047 | 2026-07-01 | wireguard/relay | Implement relay-assisted WireGuard endpoint discovery and direct-path promotion. | high | gated | [047-relay-assisted-wireguard-endpoint-discovery](issues/047-relay-assisted-wireguard-endpoint-discovery.md) |
-| 049 | 2026-07-01 | protocol/tests | Add fuzz and property tests for WireGuard/PNet packet parser boundaries. | medium | gated | [049-packet-parser-fuzz-and-property-tests](issues/049-packet-parser-fuzz-and-property-tests.md) |
+| 049 | 2026-07-01 | protocol/tests | Add fuzz and property tests for WireGuard/PNet packet parser boundaries. | medium | ready | [049-packet-parser-fuzz-and-property-tests](issues/049-packet-parser-fuzz-and-property-tests.md) |
 | 050 | 2026-07-01 | wireguard/relay | Add redacted relay audit events and diagnostics for leases, demux, promotion, and fallback. | medium | gated | [050-relay-audit-and-diagnostics-hardening](issues/050-relay-audit-and-diagnostics-hardening.md) |
 | 051 | 2026-07-01 | nuget/audit | Review transitive NuGet package updates reported by the dependency audit. | medium | gated | [051-review-transitive-nuget-package-updates](issues/051-review-transitive-nuget-package-updates.md) |
 | 052 | 2026-07-01 | testing/unit | Investigate baseline failure in the three-server localhost relay exchange test. | medium | gated | [052-baseline-three-server-relay-test-failure](issues/052-baseline-three-server-relay-test-failure.md) |
@@ -43,6 +42,7 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 
 | # | Date | Completed | Summary | Commits | File |
 |---|------|-----------|---------|---------|------|
+| 046 | 2026-07-01 | 2026-07-01 | Implement shared-port WireGuard relay registration, MAC1 demux, and receiver-index fast path. | c9efeba | [046-shared-port-wireguard-relay-registration-and-demux](issues/046-shared-port-wireguard-relay-registration-and-demux.md) |
 | 048 | 2026-07-01 | 2026-07-01 | Add PNet-to-PNet WireGuard-compatible transport e2e coverage for internal protobuf frames. | a52fce1 | [048-pnet-to-pnet-wireguard-compatible-transport-e2e](issues/048-pnet-to-pnet-wireguard-compatible-transport-e2e.md) |
 | 044 | 2026-07-01 | 2026-07-01 | Define PNet frame padding-count header and document WireGuard zero-padding behavior. | 3a36b4d | [044-pnet-frame-padding-and-default-protobuf-header](issues/044-pnet-frame-padding-and-default-protobuf-header.md) |
 | 043 | 2026-07-01 | 2026-07-01 | Keep mesh channel raw bytes and add helpers to parse/craft PNet, IPv4, and IPv6 payloads. | 7165d94 | [043-mesh-channel-typed-messages](issues/043-mesh-channel-typed-messages.md) |

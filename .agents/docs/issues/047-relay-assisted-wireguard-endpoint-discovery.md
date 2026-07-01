@@ -13,6 +13,8 @@ gate-depends:
   - 045
   - 046
 gate-reason: "Endpoint discovery depends on the relay path and authenticated peer endpoint state; direct promotion must wait for an authenticated response."
+gate-last-checked: 2026-07-01
+gate-status: blocked
 assumptions-date: 2026-07-01
 brief: "description+playbook"
 views:
@@ -67,3 +69,13 @@ Relay-assisted endpoint discovery is correctly scoped as a follow-on to the rela
 | 3 | F | Direct-path promotion must require authenticated WireGuard traffic from node3. | verified | source | `wireguard-go` updates endpoint state only after authenticated handshake processing or successfully decrypted, replay-validated transport packets. |
 | 4 | F | The endpoint observed by node2 may not be reachable from node1. | verified | source | The learned endpoint is routing metadata, not proof of reachability; the relay path must stay active until direct connectivity is confirmed. |
 | 5 | F | The relay path should remain active until direct connectivity is confirmed. | verified | logical | This follows from #045 relay fallback behavior and the fact that the learned endpoint is only routing metadata until direct connectivity is confirmed. |
+
+## Gate Validation
+
+| Date | Gate | Method | Result | Evidence |
+|------|------|--------|--------|----------|
+| 2026-07-01 | `gate-depends: [038, 045, 046]` | source | blocked | #038 and #046 are completed, but #045 remains open, so the issue stays gated. |
+
+## Validation History
+
+- 2026-07-01: dependency gate cleared by #046; remaining dependency gate #045 keeps #047 gated.

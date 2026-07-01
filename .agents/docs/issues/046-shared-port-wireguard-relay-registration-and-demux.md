@@ -3,10 +3,10 @@ issue: 046
 date: 2026-07-01
 source: wireguard/relay
 priority: high
-status: ready
+status: completed
 research-status: complete
 research-date: 2026-07-01
-terminal-state: ready
+terminal-state: completed
 gate: "Wait for the WireGuard MAC/framing, receiver-index, and cookie/DoS foundations."
 gate-depends:
   - 036
@@ -17,6 +17,8 @@ gate-reason: "Shared-port registration and demux depend on BLAKE2s MAC helpers, 
 gate-last-checked: 2026-07-01
 gate-status: cleared
 assumptions-date: 2026-07-01
+completion-date: 2026-07-01
+commits: [c9efebaa5ad7bbb82fde4270dd0d3e8a5873e0b0]
 brief: "description+playbook"
 views:
   enrich: "description+playbook+related-tracking+scope+acceptance-criteria+assumptions"
@@ -87,3 +89,17 @@ WireGuard protocol docs and `wireguard-go` show the relay needs BLAKE2s MAC help
 - 2026-07-01: dependency gate cleared by #037; remaining dependency gates #038 and #039 keep #046 gated.
 - 2026-07-01: dependency gate cleared by #038; remaining dependency gate #039 keeps #046 gated.
 - 2026-07-01: dependency gate cleared by #039; #046 is now ready.
+
+## Completion Report
+
+Completed in `c9efebaa5ad7bbb82fde4270dd0d3e8a5873e0b0`.
+
+- Added `PNetMeshWireGuardRelayRegistry` with relay lease registration, renewal, release, expiry, and max-lease cap.
+- Added MAC1 handshake demux against registered public keys with explicit zero-match, ambiguous-match, endpoint-filter, malformed-packet, and rate-limit results.
+- Added learned `remote_endpoint + receiver_index` fast-path routing for later transport packets without MAC1 scanning.
+- Kept relay routing opaque: the registry uses packet metadata and MAC1 only, never decrypts WireGuard payloads.
+- Verification passed: initial focused compile failed on missing #046 registry types, focused #046 tests passed 6/6, Release build passed, scoped whitespace passed, `git diff --check` passed, and the full unit command passed 132/132.
+
+## Resolving Commits
+
+- `c9efebaa5ad7bbb82fde4270dd0d3e8a5873e0b0` - add WireGuard shared relay registry

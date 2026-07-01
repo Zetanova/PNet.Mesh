@@ -3,10 +3,10 @@ issue: 049
 date: 2026-07-01
 source: protocol/tests
 priority: medium
-status: gated
+status: ready
 research-status: complete
 research-date: 2026-07-01
-terminal-state: gated
+terminal-state: ready
 gate: "Wait for the parser and demux surfaces."
 gate-depends:
   - 037
@@ -15,7 +15,7 @@ gate-depends:
   - 046
 gate-reason: "Parser/property coverage depends on the framing, raw helper, padding, and shared-port demux surfaces; keep deterministic xUnit corpus coverage first."
 gate-last-checked: 2026-07-01
-gate-status: blocked
+gate-status: cleared
 assumptions-date: 2026-07-01
 brief: "description+playbook"
 views:
@@ -72,10 +72,11 @@ Parser and boundary surfaces are not ready yet: this issue depends on framing, r
 
 | Date | Gate | Method | Result | Evidence |
 |------|------|--------|--------|----------|
-| 2026-07-01 | `gate-depends: [037, 043, 044, 046]` | source | blocked | #037, #043, and #044 are completed, but #046 remains open, so the issue stays gated. |
+| 2026-07-01 | `gate-depends: [037, 043, 044, 046]` | source | ready | #037, #043, #044, and #046 are completed, so #049 is implementation-ready. |
 
 ## Validation History
 
 - 2026-07-01: dependency gate cleared by #037; remaining dependency gates #043, #044, and #046 keep #049 gated.
 - 2026-07-01: dependency gate cleared by #043; remaining dependency gates #044 and #046 keep #049 gated.
 - 2026-07-01: dependency gate cleared by #044; remaining dependency gate #046 keeps #049 gated.
+- 2026-07-01: dependency gate cleared by #046; #049 is now ready.
