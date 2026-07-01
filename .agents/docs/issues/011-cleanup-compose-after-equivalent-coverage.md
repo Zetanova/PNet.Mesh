@@ -3,12 +3,16 @@ issue: 011
 date: 2026-06-30
 source: e2e/cleanup
 priority: medium
-status: gated
-terminal-state: gated
+status: completed
+terminal-state: completed
 gate: "Wait until README/CI no longer depend on compose."
+gate-last-checked: 2026-07-01
+gate-status: cleared
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
+completion-date: 2026-07-01
+commits: [b517a273f58f8180b7feb9d839ef16e066c9fc49]
 brief: "description+playbook"
 views:
   enrich: "description+playbook+research+assumptions"
@@ -58,6 +62,25 @@ The repo now has Testcontainers e2e coverage, but the current README still docum
 - 2026-06-30: Removed completed dependency gates #007, #008, and #009 after #009 completed; parent remains gated on README/CI compose cleanup and stale assumptions were revalidated against the new Testcontainers suite.
 - 2026-06-30: Kept compose cleanup gated because the README, solution, and runner still depend on compose artifacts. Evidence: `README.md`, `PNet.Mesh.sln`, `scripts/e2e-mesh-topology.sh`, `docker-compose.yml`, `docker-compose.e2e.yml`.
 
+## Gate Validation
+
+| Date | Gate | Method | Result | Evidence |
+|------|------|--------|--------|----------|
+| 2026-07-01 | `Wait until README/CI no longer depend on compose.` | source | passed | `README.md` now labels `scripts/e2e-mesh-topology.sh` as a legacy compose smoke artifact, and `.agents/docs/e2e-test-stories.md` plus `.agents/rules/best-practices.md` point supported guidance at Testcontainers. |
+
+## Validation History
+
+- 2026-07-01: dependency gate cleared by #034; the remaining compose references are intentional legacy artifacts, so #011 is ready.
+- 2026-07-01: issue completed after the dependency gate stayed cleared and the compose cleanup commit landed.
+
 ## Completion Report
 
-Pending.
+Completed in `b517a273f58f8180b7feb9d839ef16e066c9fc49`.
+
+- Removed the legacy Docker Compose e2e artifacts.
+- Dropped the compose project from the solution.
+- Updated supported mesh e2e guidance to the Testcontainers path.
+
+## Resolving Commits
+
+- `b517a273f58f8180b7feb9d839ef16e066c9fc49` - remove legacy compose e2e artifacts and redirect guidance

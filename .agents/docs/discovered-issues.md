@@ -1,8 +1,8 @@
 ---
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
 last-entry: 2026-07-01
-last-opened: 2026-06-30-033
-open-count: 2
+last-opened: 2026-07-01-050
+open-count: 16
 last-completed: 2026-07-01
 ---
 
@@ -14,8 +14,22 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 
 | # | Date | Source | Summary | Priority | Status | File |
 |---|------|--------|---------|----------|--------|------|
-| 011 | 2026-06-30 | e2e/cleanup | Remove Docker Compose e2e artifacts after Testcontainers reaches equivalent coverage. | medium | gated | [011-cleanup-compose-after-equivalent-coverage](issues/011-cleanup-compose-after-equivalent-coverage.md) |
-| 014 | 2026-06-30 | coverage/readme | Implement or test UDP fragment transport and the 32-byte encapsulation claim. | high | ready | [014-udp-fragments-and-overhead-coverage](issues/014-udp-fragments-and-overhead-coverage.md) |
+| 035 | 2026-07-01 | wireguard/transport | Track WireGuard-compatible transport mode through crypto, raw payloads, IP/PNet e2e, and relay interop. | high | gated | [035-wireguard-compatible-transport-mode](issues/035-wireguard-compatible-transport-mode.md) |
+| 036 | 2026-07-01 | wireguard/transport | Implement WireGuard Noise profile and BLAKE2s MAC/KDF paths. | high | ready | [036-wireguard-noise-profile-and-blake2s-mac-kdf-paths](issues/036-wireguard-noise-profile-and-blake2s-mac-kdf-paths.md) |
+| 037 | 2026-07-01 | wireguard/transport | Implement WireGuard packet framing and TAI64N handshake replay tracking. | high | ready | [037-wireguard-packet-framing-and-tai64n-handshake-replay-tracking](issues/037-wireguard-packet-framing-and-tai64n-handshake-replay-tracking.md) |
+| 038 | 2026-07-01 | wireguard/transport | Implement WireGuard peer, receiver-index, keypair, and rekey lifecycle state. | high | ready | [038-wireguard-peer-receiver-index-keypair-and-rekey-lifecycle-state](issues/038-wireguard-peer-receiver-index-keypair-and-rekey-lifecycle-state.md) |
+| 039 | 2026-07-01 | wireguard/transport | Implement WireGuard cookie reply and DoS gate behavior. | high | ready | [039-wireguard-cookie-reply-and-dos-gate-behavior](issues/039-wireguard-cookie-reply-and-dos-gate-behavior.md) |
+| 040 | 2026-07-01 | wireguard/transport | Expose decrypted WireGuard transport plaintext as raw payload bytes. | high | gated | [040-expose-decrypted-wireguard-transport-plaintext-as-raw-payload-bytes](issues/040-expose-decrypted-wireguard-transport-plaintext-as-raw-payload-bytes.md) |
+| 041 | 2026-07-01 | wireguard/transport | Read and create IPv4/IPv6 packets from WireGuard plaintext payloads. | medium | gated | [041-read-and-create-ipv4-ipv6-packets-from-wireguard-plaintext-payloads](issues/041-read-and-create-ipv4-ipv6-packets-from-wireguard-plaintext-payloads.md) |
+| 042 | 2026-07-01 | wireguard/tests | Add wireguard-go/Testcontainers interoperability test for WireGuard peer to PNet.Mesh. | high | gated | [042-wireguard-go-testcontainers-interoperability-test-for-wireguard-peer-to-pnet-mesh](issues/042-wireguard-go-testcontainers-interoperability-test-for-wireguard-peer-to-pnet-mesh.md) |
+| 043 | 2026-07-01 | mesh/channel | Keep mesh channel raw bytes and add helpers to parse/craft PNet, IPv4, and IPv6 payloads. | high | ready | [043-mesh-channel-typed-messages](issues/043-mesh-channel-typed-messages.md) |
+| 044 | 2026-07-01 | mesh/framing | Define PNet frame padding-count header and document WireGuard zero-padding behavior. | high | ready | [044-pnet-frame-padding-and-default-protobuf-header](issues/044-pnet-frame-padding-and-default-protobuf-header.md) |
+| 045 | 2026-07-01 | wireguard/relay | Implement and test PNet relay from node1 through node2 to wireguard-go node3. | high | gated | [045-pnet-relay-to-wireguard-peer-interop](issues/045-pnet-relay-to-wireguard-peer-interop.md) |
+| 046 | 2026-07-01 | wireguard/relay | Implement shared-port WireGuard relay registration, MAC1 demux, and receiver-index fast path. | high | gated | [046-shared-port-wireguard-relay-registration-and-demux](issues/046-shared-port-wireguard-relay-registration-and-demux.md) |
+| 047 | 2026-07-01 | wireguard/relay | Implement relay-assisted WireGuard endpoint discovery and direct-path promotion. | high | gated | [047-relay-assisted-wireguard-endpoint-discovery](issues/047-relay-assisted-wireguard-endpoint-discovery.md) |
+| 048 | 2026-07-01 | wireguard/tests | Add PNet-to-PNet WireGuard-compatible transport e2e coverage for internal protobuf frames. | high | gated | [048-pnet-to-pnet-wireguard-compatible-transport-e2e](issues/048-pnet-to-pnet-wireguard-compatible-transport-e2e.md) |
+| 049 | 2026-07-01 | protocol/tests | Add fuzz and property tests for WireGuard/PNet packet parser boundaries. | medium | gated | [049-packet-parser-fuzz-and-property-tests](issues/049-packet-parser-fuzz-and-property-tests.md) |
+| 050 | 2026-07-01 | wireguard/relay | Add redacted relay audit events and diagnostics for leases, demux, promotion, and fallback. | medium | gated | [050-relay-audit-and-diagnostics-hardening](issues/050-relay-audit-and-diagnostics-hardening.md) |
 
 ## Outgoing MRs
 
@@ -36,6 +50,8 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 
 | # | Date | Completed | Summary | Commits | File |
 |---|------|-----------|---------|---------|------|
+| 034 | 2026-07-01 | 2026-07-01 | Clear README/docs/workflow compose smoke dependencies so #011 can remove compose artifacts. | 4cb2ae3019cc4d15a2d4baadf8a53fac08db9844 | [034-clear-readme-docs-workflow-compose-smoke-deps](issues/034-clear-readme-docs-workflow-compose-smoke-deps.md) |
+| 014 | 2026-06-30 | 2026-07-01 | Implement or test UDP fragment transport and the 32-byte encapsulation claim. | 672f48e489f8c3253df29ac02f9cf407a190b4ad | [014-udp-fragments-and-overhead-coverage](issues/014-udp-fragments-and-overhead-coverage.md) |
 | 017 | 2026-06-30 | 2026-07-01 | Implement and test crypto routing and crypto discovery behavior. | b9c4cba, 0ae5bc3 | [017-crypto-routing-discovery-coverage](issues/017-crypto-routing-discovery-coverage.md) |
 | 033 | 2026-06-30 | 2026-07-01 | Route-path observability and diagnostics coverage. | 0ae5bc3 | [033-route-path-observability-diagnostics](issues/033-route-path-observability-diagnostics.md) |
 | 032 | 2026-06-30 | 2026-07-01 | Crypto routing and discovery behavior regression coverage. | b9c4cba | [032-crypto-routing-discovery-behavior-coverage](issues/032-crypto-routing-discovery-behavior-coverage.md) |
@@ -46,6 +62,7 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | 028 | 2026-06-30 | 2026-07-01 | Noise handshake and authentication happy-path coverage. | b36bd7f | [028-handshake-authentication-coverage](issues/028-handshake-authentication-coverage.md) |
 | 027 | 2026-06-30 | 2026-07-01 | Flow-control limit and negotiated SYN assertion coverage. | c8648e6 | [027-flow-control-negotiation-coverage](issues/027-flow-control-negotiation-coverage.md) |
 | 015 | 2026-06-30 | 2026-07-01 | Expand packet ordering, retransmission, and flow-control implementation coverage. | c77659b, c8648e6 | [015-packet-ordering-flow-control-coverage](issues/015-packet-ordering-flow-control-coverage.md) |
+| 011 | 2026-06-30 | 2026-07-01 | Remove Docker Compose e2e artifacts after Testcontainers reaches equivalent coverage. | b517a273f58f8180b7feb9d839ef16e066c9fc49 | [011-cleanup-compose-after-equivalent-coverage](issues/011-cleanup-compose-after-equivalent-coverage.md) |
 | 001 | 2026-06-30 | 2026-06-30 | Migrate project, packages, tests, and test-node container from `net5.0` to .NET 10. | 30ea5f8 | [001-dotnet-5-eol-migration.md](issues/001-dotnet-5-eol-migration.md) |
 | 002 | 2026-06-30 | 2026-06-30 | Replace unavailable `Noise` package with `Noise.NET` and restore/build/audit successfully. | 30ea5f8 | [002-noise-package-restore-blocker.md](issues/002-noise-package-restore-blocker.md) |
 | 003 | 2026-06-30 | 2026-06-30 | Add compose e2e story and runnable mesh topology smoke flow. | 30ea5f8 | [003-mesh-topology-e2e-story.md](issues/003-mesh-topology-e2e-story.md) |

@@ -3,11 +3,13 @@ issue: 014
 date: 2026-06-30
 source: coverage/readme
 priority: high
-status: ready
-terminal-state: ready
+status: completed
+terminal-state: completed
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
+completion-date: 2026-07-01
+commits: [672f48e489f8c3253df29ac02f9cf407a190b4ad]
 brief: "description+playbook"
 views:
   enrich: "description+playbook+research+assumptions"
@@ -69,4 +71,12 @@ Implement or verify the README claims for communication over UDP data fragments 
 
 ## Completion Report
 
-Pending.
+Completed in `672f48e489f8c3253df29ac02f9cf407a190b4ad`.
+
+- Added packet-sizing coverage for `PacketData` so the protocol tests now verify the fixed encrypted payload encapsulation overhead and boundary behavior.
+- Fixed reserved `PacketData` header-byte clearing in the protocol write path.
+- Added Testcontainers direct-peer coverage for a 1400-byte payload so the e2e path exercises a non-trivial UDP size.
+
+## Resolving Commits
+
+- `672f48e489f8c3253df29ac02f9cf407a190b4ad` - packet-data sizing and boundary coverage
