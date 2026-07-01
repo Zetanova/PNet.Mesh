@@ -2,7 +2,7 @@
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
 last-entry: 2026-06-30
 last-opened: 2026-06-30-033
-open-count: 17
+open-count: 16
 last-completed: 2026-06-30
 ---
 
@@ -15,7 +15,6 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | # | Date | Source | Summary | Priority | Status | File |
 |---|------|--------|---------|----------|--------|------|
 | 011 | 2026-06-30 | e2e/cleanup | Remove Docker Compose e2e artifacts after Testcontainers reaches equivalent coverage. | medium | gated | [011-cleanup-compose-after-equivalent-coverage](issues/011-cleanup-compose-after-equivalent-coverage.md) |
-| 013 | 2026-06-30 | coverage/readme | Verify the no-extended-OS-permission feature claim with documented and executable checks. | medium | ready | [013-no-extended-os-permissions-coverage](issues/013-no-extended-os-permissions-coverage.md) |
 | 014 | 2026-06-30 | coverage/readme | Implement or test UDP fragment transport and the 18-byte datagram-overhead claim. | high | clarify | [014-udp-fragments-and-overhead-coverage](issues/014-udp-fragments-and-overhead-coverage.md) |
 | 015 | 2026-06-30 | coverage/readme | Expand packet ordering, retransmission, and flow-control implementation coverage. | high | gated | [015-packet-ordering-flow-control-coverage](issues/015-packet-ordering-flow-control-coverage.md) |
 | 016 | 2026-06-30 | coverage/readme | Implement and test WireGuard/Noise security invariants behind the README security claim. | high | gated | [016-wireguard-noise-security-coverage](issues/016-wireguard-noise-security-coverage.md) |
@@ -62,6 +61,7 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | 009 | 2026-06-30 | 2026-06-30 | Expand container e2e coverage parent gate after child scenario completion. | 61af492, 56a70ff, 84bb53b, 6a02e9d, 7c09bd6 | [009-expand-container-e2e-coverage](issues/009-expand-container-e2e-coverage.md) |
 | 010 | 2026-06-30 | 2026-06-30 | Add deterministic routing, relay duplicate, route-loop, and session relay unit coverage. | 49deb32 | [010-unit-test-doubles-for-routing](issues/010-unit-test-doubles-for-routing.md) |
 | 012 | 2026-06-30 | 2026-06-30 | Implement and cover direct P2P communication behavior advertised by the README. | 96c3efc | [012-readme-p2p-communication-coverage.md](issues/012-readme-p2p-communication-coverage.md) |
+| 013 | 2026-06-30 | 2026-06-30 | Verify the no-extended-OS-permission feature claim with documented and executable checks. | 5c4d336 | [013-no-extended-os-permissions-coverage.md](issues/013-no-extended-os-permissions-coverage.md) |
 | 021 | 2026-06-30 | 2026-06-30 | Add direct peer Testcontainers coverage for bidirectional payload exchange. | 61af492 | [021-direct-peer-e2e-coverage](issues/021-direct-peer-e2e-coverage.md) |
 | 022 | 2026-06-30 | 2026-06-30 | Add bootstrap discovery Testcontainers coverage through a connected peer. | 56a70ff | [022-bootstrap-discovery-e2e-coverage](issues/022-bootstrap-discovery-e2e-coverage.md) |
 | 023 | 2026-06-30 | 2026-06-30 | Multi-hop relay Testcontainers scenario across separated segments. | 84bb53b | [023-multi-hop-route-e2e-coverage](issues/023-multi-hop-route-e2e-coverage.md) |
