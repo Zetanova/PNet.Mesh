@@ -3,9 +3,9 @@ issue: 016
 date: 2026-06-30
 source: coverage/readme
 priority: high
-status: gated
+status: completed
 split-status: parent
-terminal-state: gated
+terminal-state: completed
 gate: "Close only after child issues 028, 029, 030, and 031 are completed or explicitly superseded."
 gate-depends:
   - 028
@@ -15,10 +15,12 @@ gate-depends:
 gate-reason: "Tracking parent waits for fine-grained child issues"
 ungate-when: "All child issues are completed"
 gate-last-checked: 2026-07-01
-gate-status: blocked
+gate-status: cleared
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
+completion-date: 2026-07-01
+commits: [b36bd7fd8d7f82308624bbaf428daf660aaf096b, 7c66b9589b6e3e8c660b2fd55ed063823f3312a0, 032008382cb8bbf8e8efee67b33542fb83981e85, 172e333b80860435c09b265dbdbab7805783d4fe]
 brief: "description+playbook"
 views:
   enrich: "description+playbook+research+assumptions"
@@ -61,7 +63,7 @@ This is a parent tracking issue. Implement child issues, not this parent directl
 | #028 | Handshake and authentication happy path | completed | Valid peers complete Noise IKpsk2 handshake |
 | #029 | Tamper rejection | completed | Wrong key/PSK, corrupted packet, unknown receiver, and tampered counter rejection |
 | #030 | Replay and cookie guard | completed | Replay windows, cookie MACs, and packet tracker guards |
-| #031 | README security claim hygiene | open | Narrow claim wording to implemented guarantees |
+| #031 | README security claim hygiene | completed | Narrow claim wording to implemented guarantees |
 
 ## Residual Scope
 none
@@ -91,13 +93,27 @@ none
 | 2026-07-01 | `gate-depends: [028, 029, 030, 031]` | source | blocked | #028 is completed, but #029, #030, and #031 remain open, so the parent stays gated. |
 | 2026-07-01 | `gate-depends: [028, 029, 030, 031]` | source | blocked | #028 and #029 are completed, but #030 and #031 remain open, so the parent stays gated. |
 | 2026-07-01 | `gate-depends: [028, 029, 030, 031]` | source | blocked | #028, #029, and #030 are completed, but #031 remains open, so the parent stays gated. |
+| 2026-07-01 | `gate-depends: [028, 029, 030, 031]` | source | passed | #028, #029, #030, and #031 are completed, so the parent gate is cleared. |
 
 ## Validation History
 
 - 2026-07-01: dependency gate cleared by #028; remaining dependency gates #029, #030, and #031 keep #016 gated.
 - 2026-07-01: dependency gate cleared by #029; remaining dependency gates #030 and #031 keep #016 gated.
 - 2026-07-01: dependency gate cleared by #030; remaining dependency gate #031 keeps #016 gated.
+- 2026-07-01: dependency gate cleared by #031; all child issues are completed, so #016 is completed.
 
 ## Completion Report
 
-Pending.
+Completed through child issues #028, #029, #030, and #031.
+
+- #028 added named happy-path coverage for Noise IKpsk2 handshakes, derived transports, and bidirectional payload exchange.
+- #029 added tamper rejection coverage for wrong keys/PSKs, corrupted handshake MACs, tampered payloads, unknown receiver indexes, and tampered-packet replay-state poisoning.
+- #030 added replay, cookie MAC, and packet tracker guard coverage.
+- #031 narrowed README security wording to the implemented/tested guarantees and removed full WireGuard-equivalence language.
+
+## Resolving Commits
+
+- `b36bd7fd8d7f82308624bbaf428daf660aaf096b` - handshake and authentication happy-path coverage
+- `7c66b9589b6e3e8c660b2fd55ed063823f3312a0` - tamper rejection coverage and authentication-failure handling
+- `032008382cb8bbf8e8efee67b33542fb83981e85` - replay, cookie, and packet-tracker guard coverage
+- `172e333b80860435c09b265dbdbab7805783d4fe` - README security claim hygiene
