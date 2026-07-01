@@ -522,7 +522,7 @@ namespace PNet.Mesh
             */
 
             buffer[0] = (byte)PNetMeshMessageType.PacketData;
-            buffer[1..3].Clear();
+            buffer[1..4].Clear();
             BinaryPrimitives.WriteUInt32LittleEndian(buffer[4..8], _receiverIndex);
             //placeholder BinaryPrimitives.WriteUInt64LittleEndian(buffer[8..16], counter);            
             bytesWritten = 16;

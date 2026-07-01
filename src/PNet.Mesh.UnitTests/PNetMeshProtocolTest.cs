@@ -1,6 +1,7 @@
 ﻿using Noise;
 using PNet.Mesh;
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
 using System.Security.Cryptography;
@@ -11,6 +12,10 @@ namespace PNet.Actor.UnitTests.Mesh
 {
     public sealed class PNetMeshProtocolTest
     {
+        const int PacketDataHeaderBytes = 16;
+        const int AeadTagBytes = 16;
+        const int PacketDataBaseOverheadBytes = PacketDataHeaderBytes + AeadTagBytes;
+
         [Fact]
         public void valid_peers_complete_noise_ikpsk2_handshake_and_exchange_payloads_over_derived_transports_regression()
         {
@@ -63,6 +68,58 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.True(r);
             Assert.Equal(responderPayload.Length, bytesWritten);
             Assert.Equal("responder payload", Encoding.UTF8.GetString(buffer2.Slice(0, bytesWritten)));
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1)]
+        [InlineData(15)]
+        [InlineData(16)]
+        [InlineData(17)]
+        [InlineData(1455)]
+        [InlineData(1456)]
+        public void packet_data_size_includes_32_byte_base_overhead_excluding_padding(int payloadLength)
+        {
+            using var transports = CreateEstablishedTransports();
+            var payload = CreatePayload(payloadLength);
+            var expectedPadding = CalculatePacketDataPadding(payloadLength);
+            var expectedPacketLength = payloadLength + expectedPadding + PacketDataBaseOverheadBytes;
+            var packet = new byte[expectedPacketLength];
+            packet.AsSpan().Fill(0xff);
+
+            transports.Initiator.WriteMessage(payload, packet, out var bytesWritten, out var counter);
+
+            Assert.Equal(expectedPacketLength, bytesWritten);
+            Assert.Equal(PacketDataBaseOverheadBytes, bytesWritten - payloadLength - expectedPadding);
+            Assert.Equal(0ul, counter);
+            Assert.Equal((byte)PNetMeshMessageType.PacketData, packet[0]);
+            Assert.Equal(new byte[] { 0, 0, 0 }, packet.AsSpan(1, 3).ToArray());
+            Assert.Equal(transports.Initiator.ReceiverIndex, BinaryPrimitives.ReadUInt32LittleEndian(packet.AsSpan(4, 4)));
+            Assert.Equal(counter, BinaryPrimitives.ReadUInt64LittleEndian(packet.AsSpan(8, 8)));
+
+            var plaintext = new byte[expectedPacketLength];
+            Assert.True(transports.Responder.TryReadMessage(packet, plaintext, out var bytesRead, out var readCounter));
+            Assert.Equal(counter, readCounter);
+            Assert.Equal(payloadLength, bytesRead);
+            Assert.True(payload.AsSpan().SequenceEqual(plaintext.AsSpan(0, bytesRead)));
+        }
+
+        [Fact]
+        public void packet_data_write_requires_buffer_for_payload_padding_header_and_tag_boundary()
+        {
+            using var transports = CreateEstablishedTransports();
+            var payload = CreatePayload(1456);
+            var expectedPadding = CalculatePacketDataPadding(payload.Length);
+            var expectedPacketLength = payload.Length + expectedPadding + PacketDataBaseOverheadBytes;
+
+            var tooSmall = new byte[expectedPacketLength - 1];
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                transports.Initiator.WriteMessage(payload, tooSmall, out _, out _));
+
+            var exact = new byte[expectedPacketLength];
+            transports.Initiator.WriteMessage(payload, exact, out var bytesWritten, out _);
+
+            Assert.Equal(expectedPacketLength, bytesWritten);
         }
 
         [Fact]
@@ -633,6 +690,82 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.True(r);
             Assert.Equal(7, bytesWritten);
             Assert.Equal($"Hallo 4", Encoding.UTF8.GetString(buffer2.Slice(0, bytesWritten)));
+        }
+
+        static EstablishedTransportPair CreateEstablishedTransports()
+        {
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            var initiatorStatic = KeyPair.Generate();
+            var responderStatic = KeyPair.Generate();
+
+            var initiatorProtocol = new PNetMeshProtocol(initiatorStatic.PrivateKey, initiatorStatic.PublicKey, psk);
+            var responderProtocol = new PNetMeshProtocol(responderStatic.PrivateKey, responderStatic.PublicKey, psk);
+
+            var initiator = initiatorProtocol.CreateInitiator(1, responderStatic.PublicKey);
+            var responder = responderProtocol.CreateResponder(2);
+
+            Span<byte> initiationBuffer = new byte[PNetMeshHandshake.InitiationMessageSize];
+            Span<byte> responseBuffer = new byte[PNetMeshHandshake.ResponseMessageSize];
+
+            initiator.WriteInitiationMessage(initiationBuffer, out var bytesWritten);
+            Assert.True(responder.TryReadInitiationMessage(initiationBuffer.Slice(0, bytesWritten)));
+            Assert.True(responder.TryWriteResponseMessage(responseBuffer, out bytesWritten, out var responderTransport));
+            Assert.True(initiator.TryReadResponseMessage(responseBuffer.Slice(0, bytesWritten), out var initiatorTransport));
+
+            return new EstablishedTransportPair(
+                initiatorTransport,
+                responderTransport,
+                initiator,
+                responder,
+                initiatorStatic,
+                responderStatic);
+        }
+
+        static byte[] CreatePayload(int length)
+        {
+            var payload = new byte[length];
+
+            for (var i = 0; i < payload.Length; i++)
+            {
+                payload[i] = (byte)(i % 251);
+            }
+
+            return payload;
+        }
+
+        static int CalculatePacketDataPadding(int payloadLength)
+        {
+            var remainder = payloadLength % 16;
+            return remainder == 0 ? 16 : 16 - remainder;
+        }
+
+        sealed class EstablishedTransportPair : IDisposable
+        {
+            readonly IDisposable[] _disposables;
+
+            public EstablishedTransportPair(
+                PNetMeshTransport2 initiator,
+                PNetMeshTransport2 responder,
+                params IDisposable[] disposables)
+            {
+                Initiator = initiator;
+                Responder = responder;
+                _disposables = new IDisposable[] { initiator, responder }.Concat(disposables).ToArray();
+            }
+
+            public PNetMeshTransport2 Initiator { get; }
+
+            public PNetMeshTransport2 Responder { get; }
+
+            public void Dispose()
+            {
+                foreach (var disposable in _disposables)
+                {
+                    disposable.Dispose();
+                }
+            }
         }
     }
 }

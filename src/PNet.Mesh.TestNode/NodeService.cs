@@ -34,6 +34,8 @@ namespace PNet.Mesh.TestNode
 
         public string[] PingNodes { get; set; } = Array.Empty<string>();
 
+        public int PingPayloadBytes { get; set; } = 4;
+
         public int ConnectDelaySeconds { get; set; } = 3;
 
         public int RunDurationSeconds { get; set; } = 60;
@@ -55,6 +57,9 @@ namespace PNet.Mesh.TestNode
 
     sealed class NodeService : BackgroundService
     {
+        static readonly byte[] PingPayloadPrefix = Encoding.UTF8.GetBytes("ping");
+        static readonly byte[] PongPayload = Encoding.UTF8.GetBytes("pong");
+
         readonly IServiceProvider _services;
 
         readonly IHostApplicationLifetime _lifetime;
@@ -70,6 +75,8 @@ namespace PNet.Mesh.TestNode
         Dictionary<string, PNetMeshPeer> _peers;
 
         HashSet<string> _pingNodes;
+
+        byte[] _pingPayload;
 
         TimeSpan _connectDelay;
 
@@ -94,6 +101,7 @@ namespace PNet.Mesh.TestNode
             _pingNodes = options.PingAllConnectedNodes
                 ? null
                 : new HashSet<string>(options.PingNodes, StringComparer.OrdinalIgnoreCase);
+            _pingPayload = CreatePingPayload(options.PingPayloadBytes);
 
             var settings = new PNetMeshServerSettings
             {
@@ -179,7 +187,7 @@ namespace PNet.Mesh.TestNode
 
                     if (sendsPings)
                     {
-                        r = channel.TryWrite(Encoding.UTF8.GetBytes("ping"));
+                        r = channel.TryWrite(_pingPayload);
                         Debug.Assert(r);
                     }
 
@@ -187,25 +195,23 @@ namespace PNet.Mesh.TestNode
                     {
                         while (channel.TryRead(out payload))
                         {
-                            var msg = Encoding.UTF8.GetString(payload.Span);
-                            switch (msg)
+                            if (IsPingPayload(payload))
                             {
-                                case "ping":
-                                    _logger.LogInformation("ping from {remoteName} to {nodeName}", entry.Name, _name);
-                                    r = channel.TryWrite(Encoding.UTF8.GetBytes("pong"));
+                                _logger.LogInformation("ping from {remoteName} to {nodeName}", entry.Name, _name);
+                                if (payload.Length != PingPayloadPrefix.Length)
+                                    _logger.LogInformation("ping payload {payloadBytes} bytes from {remoteName} to {nodeName}", payload.Length, entry.Name, _name);
+                                r = channel.TryWrite(PongPayload);
+                                Debug.Assert(r);
+                            }
+                            else if (IsPongPayload(payload))
+                            {
+                                _logger.LogInformation("pong from {remoteName} to {nodeName}", entry.Name, _name);
+                                pongs[index] = true;
+                                if (sendsPings)
+                                {
+                                    r = channel.TryWrite(_pingPayload);
                                     Debug.Assert(r);
-                                    break;
-                                case "pong":
-                                    _logger.LogInformation("pong from {remoteName} to {nodeName}", entry.Name, _name);
-                                    pongs[index] = true;
-                                    if (sendsPings)
-                                    {
-                                        r = channel.TryWrite(Encoding.UTF8.GetBytes("ping"));
-                                        Debug.Assert(r);
-                                    }
-                                    break;
-                                default:
-                                    break;
+                                }
                             }
                         }
                     }
@@ -223,6 +229,29 @@ namespace PNet.Mesh.TestNode
 
             //stop application
             _lifetime.StopApplication();
+        }
+
+        static byte[] CreatePingPayload(int payloadBytes)
+        {
+            var size = Math.Max(PingPayloadPrefix.Length, payloadBytes);
+            var payload = new byte[size];
+            PingPayloadPrefix.CopyTo(payload, 0);
+            if (size > PingPayloadPrefix.Length)
+                payload.AsSpan(PingPayloadPrefix.Length).Fill((byte)'x');
+
+            return payload;
+        }
+
+        static bool IsPingPayload(ReadOnlyMemory<byte> payload)
+        {
+            var span = payload.Span;
+            return span.Length >= PingPayloadPrefix.Length
+                   && span[..PingPayloadPrefix.Length].SequenceEqual(PingPayloadPrefix);
+        }
+
+        static bool IsPongPayload(ReadOnlyMemory<byte> payload)
+        {
+            return payload.Span.SequenceEqual(PongPayload);
         }
     }
 }

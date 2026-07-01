@@ -41,6 +41,8 @@ public sealed class PNetMeshTestNodeSpec
 
     public IReadOnlyList<string> PingNodes { get; init; } = Array.Empty<string>();
 
+    public int PingPayloadBytes { get; init; } = 4;
+
     public IReadOnlyList<string> NetworkNames { get; init; } = Array.Empty<string>();
 
     public IReadOnlyList<PNetMeshPeerEndpoint> Peers { get; init; } = Array.Empty<PNetMeshPeerEndpoint>();
@@ -59,6 +61,7 @@ public sealed class PNetMeshTestNodeSpec
             ["BindTo__0"] = $"{BindAddress}:{Port}",
             ["ConnectDelaySeconds"] = ConnectDelaySeconds.ToString(CultureInfo.InvariantCulture),
             ["PingAllConnectedNodes"] = PingAllConnectedNodes.ToString().ToLowerInvariant(),
+            ["PingPayloadBytes"] = PingPayloadBytes.ToString(CultureInfo.InvariantCulture),
             ["RunDurationSeconds"] = RunDurationSeconds.ToString(CultureInfo.InvariantCulture)
         };
 
@@ -117,10 +120,10 @@ public sealed class PNetMeshTestNodeSpec
         return new[] { node00, node01, node10, node11, node20, node21 };
     }
 
-    public static IReadOnlyList<PNetMeshTestNodeSpec> DirectPeerTopology()
+    public static IReadOnlyList<PNetMeshTestNodeSpec> DirectPeerTopology(int pingPayloadBytes = 4)
     {
-        var node00 = DirectPeerNode("node00", "H+wvAlb/Q+pKX2z9l5qJpD+ikXm+6pxJQtrp69ZkyYI=", 12401, "node01", 12402);
-        var node01 = DirectPeerNode("node01", "3VXQslNLrlZMjjo6T+RJ77WKnynH+LT1ZOBs74kISOk=", 12402, "node00", 12401);
+        var node00 = DirectPeerNode("node00", "H+wvAlb/Q+pKX2z9l5qJpD+ikXm+6pxJQtrp69ZkyYI=", 12401, "node01", 12402, pingPayloadBytes);
+        var node01 = DirectPeerNode("node01", "3VXQslNLrlZMjjo6T+RJ77WKnynH+LT1ZOBs74kISOk=", 12402, "node00", 12401, pingPayloadBytes);
 
         return new[] { node00, node01 };
     }
@@ -326,7 +329,13 @@ public sealed class PNetMeshTestNodeSpec
         };
     }
 
-    static PNetMeshTestNodeSpec DirectPeerNode(string name, string privateKey, int port, string peerName, int peerPort)
+    static PNetMeshTestNodeSpec DirectPeerNode(
+        string name,
+        string privateKey,
+        int port,
+        string peerName,
+        int peerPort,
+        int pingPayloadBytes = 4)
     {
         return new PNetMeshTestNodeSpec
         {
@@ -339,6 +348,7 @@ public sealed class PNetMeshTestNodeSpec
             RunDurationSeconds = 10,
             ConnectNodes = new[] { peerName },
             PingNodes = new[] { peerName },
+            PingPayloadBytes = pingPayloadBytes,
             Peers = new[] { StaticPeer(peerName, $"{peerName}:{peerPort}") },
             Nodes = new[]
             {
