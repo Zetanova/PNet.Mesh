@@ -58,7 +58,6 @@ public sealed class PNetMeshTestNodeHarness : IAsyncDisposable
             .WithName($"pnet-mesh-{node.Name}-{_runId}")
             .WithCleanUp(true)
             .WithNetworkAliases(node.Name)
-            .WithExposedPort($"{node.Port}/udp")
             .WithEnvironment(node.ToEnvironment())
             .WithCreateParameterModifier(parameters =>
             {
@@ -69,6 +68,10 @@ public sealed class PNetMeshTestNodeHarness : IAsyncDisposable
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
             });
+
+        builder = node.PublishUdpPort
+            ? builder.WithPortBinding($"{node.Port}/udp", true)
+            : builder.WithExposedPort($"{node.Port}/udp");
 
         var networkNames = node.NetworkNames.Count > 0
             ? node.NetworkNames
@@ -87,7 +90,7 @@ public sealed class PNetMeshTestNodeHarness : IAsyncDisposable
         try
         {
             await container.StartAsync(timeout.Token);
-            await WaitForLogsAsync(container, new[] { $"Node[{node.Name}] started" }, timeout.Token);
+            await WaitForLogsAsync(container, new[] { node.ReadyLogEntry }, timeout.Token);
             return container;
         }
         catch (Exception ex)

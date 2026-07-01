@@ -1,7 +1,12 @@
-﻿using System;
+﻿using Noise;
+using PNet.Mesh;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using DotNet.Testcontainers.Containers;
@@ -76,6 +81,64 @@ public sealed class PNetMeshTestNodeHarnessTests
         var capEff = ParseCapEff(result.Stdout);
         Assert.False(HasCapability(capEff, 12), "CAP_NET_ADMIN must not be effective.");
         Assert.False(HasCapability(capEff, 13), "CAP_NET_RAW must not be effective.");
+    }
+
+    [Fact]
+    public async Task wireguard_peer_container_exchanges_encrypted_packets_with_pnet_mesh_protocol()
+    {
+        await using var harness = new PNetMeshTestNodeHarness();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromMinutes(5));
+
+        await harness.InitializeAsync(timeout.Token);
+
+        var peer = PNetMeshTestNodeSpec.WireGuardPeerContainerPeer();
+        var container = await harness.StartNodeAsync(peer, timeout.Token);
+        var peerEndpoint = await GetMappedUdpEndpointAsync(container, $"{peer.Port}/udp", timeout.Token);
+
+        var psk = Convert.FromBase64String(peer.Psk);
+        using var localStatic = KeyPair.Generate();
+        var protocol = new PNetMeshProtocol(
+            localStatic.PrivateKey,
+            localStatic.PublicKey,
+            psk,
+            PNetMeshTransportMode.WireGuard);
+        using var handshake = protocol.CreateInitiator(0x1001, Convert.FromBase64String(peer.PublicKey));
+        using var udp = new UdpClient(AddressFamily.InterNetwork);
+        udp.Connect(peerEndpoint);
+
+        var outbound = new byte[4098];
+        var inbound = new byte[4098];
+        handshake.WriteInitiationMessage(outbound, out var bytesWritten);
+        await udp.SendAsync(outbound.AsMemory(0, bytesWritten), timeout.Token);
+
+        var response = await udp.ReceiveAsync(timeout.Token);
+        Assert.True(handshake.TryReadResponseMessage(response.Buffer, out var transport));
+        using (transport)
+        {
+            var request = Encoding.UTF8.GetBytes("pnet-wireguard-e2e-request");
+            transport.WriteMessage(request, outbound, out bytesWritten, out _);
+            await udp.SendAsync(outbound.AsMemory(0, bytesWritten), timeout.Token);
+
+            var reply = await udp.ReceiveAsync(timeout.Token);
+            Assert.True(transport.TryReadPlaintext(reply.Buffer, inbound, out var plaintext));
+
+            var expectedReply = Encoding.UTF8.GetBytes("pnet-wireguard-e2e-response");
+            Assert.True(inbound.AsSpan(0, expectedReply.Length).SequenceEqual(expectedReply));
+            Assert.All(inbound.AsSpan(expectedReply.Length, plaintext.BytesWritten - expectedReply.Length).ToArray(), b => Assert.Equal((byte)0, b));
+        }
+
+        var logs = await PNetMeshTestNodeHarness.WaitForLogsAsync(
+            container,
+            new[]
+            {
+                $"WireGuardPeer[{peer.Name}] handshake complete",
+                $"WireGuardPeer[{peer.Name}] received plaintext pnet-wireguard-e2e-request",
+                $"WireGuardPeer[{peer.Name}] sent encrypted response pnet-wireguard-e2e-response"
+            },
+            timeout.Token);
+
+        _output.WriteLine(logs);
     }
 
     [Fact]
@@ -516,5 +579,11 @@ public sealed class PNetMeshTestNodeHarnessTests
     static bool HasCapability(ulong capEff, int capability)
     {
         return (capEff & (1UL << capability)) != 0;
+    }
+
+    static async Task<IPEndPoint> GetMappedUdpEndpointAsync(IContainer container, string containerPort, CancellationToken cancellationToken)
+    {
+        var addresses = await Dns.GetHostAddressesAsync(container.Hostname, AddressFamily.InterNetwork, cancellationToken);
+        return new IPEndPoint(addresses[0], container.GetMappedPublicPort(containerPort));
     }
 }

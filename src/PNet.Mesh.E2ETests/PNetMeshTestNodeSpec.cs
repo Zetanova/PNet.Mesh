@@ -27,9 +27,13 @@ public sealed class PNetMeshTestNodeSpec
 
     public required string Psk { get; init; }
 
+    public string Mode { get; init; } = "Mesh";
+
     public int Port { get; init; } = 12401;
 
     public string BindAddress { get; init; } = "0.0.0.0";
+
+    public bool PublishUdpPort { get; init; }
 
     public int ConnectDelaySeconds { get; init; }
 
@@ -49,11 +53,16 @@ public sealed class PNetMeshTestNodeSpec
 
     public IReadOnlyList<PNetMeshNodeIdentity> Nodes { get; init; } = Array.Empty<PNetMeshNodeIdentity>();
 
+    public string ReadyLogEntry => string.Equals(Mode, "WireGuardPeer", StringComparison.OrdinalIgnoreCase)
+        ? $"WireGuardPeer[{Name}] started"
+        : $"Node[{Name}] started";
+
     public IReadOnlyDictionary<string, string> ToEnvironment()
     {
         var environment = new Dictionary<string, string>
         {
             ["DOTNET_ENVIRONMENT"] = "Development",
+            ["Mode"] = Mode,
             ["NodeName"] = Name,
             ["PublicKey"] = PublicKey,
             ["PrivateKey"] = PrivateKey,
@@ -91,6 +100,21 @@ public sealed class PNetMeshTestNodeSpec
             PublicKey = "zE/XdpVKkCnoNElMYntOQ043bXvc5x9K4jeyg+uZbjg=",
             PrivateKey = "H+wvAlb/Q+pKX2z9l5qJpD+ikXm+6pxJQtrp69ZkyYI=",
             Psk = "lBeIat8LnqvYKJ7hZBIysLwkUbxLoTfSYzq+wIDENa4="
+        };
+    }
+
+    public static PNetMeshTestNodeSpec WireGuardPeerContainerPeer()
+    {
+        return new PNetMeshTestNodeSpec
+        {
+            Name = "wireguard-peer",
+            Mode = "WireGuardPeer",
+            PublicKey = GetComposePublicKey("node00"),
+            PrivateKey = "H+wvAlb/Q+pKX2z9l5qJpD+ikXm+6pxJQtrp69ZkyYI=",
+            Psk = ComposePsk,
+            Port = 12450,
+            PublishUdpPort = true,
+            RunDurationSeconds = 30
         };
     }
 

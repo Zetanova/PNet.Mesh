@@ -32,7 +32,10 @@ namespace PNet.Mesh.TestNode
                     services.AddOptions<NodeOptions>()
                         .Bind(hostContext.Configuration);
 
-                    services.AddHostedService<NodeService>();
+                    if (string.Equals(hostContext.Configuration["Mode"], "WireGuardPeer", StringComparison.OrdinalIgnoreCase))
+                        services.AddHostedService<WireGuardPeerService>();
+                    else
+                        services.AddHostedService<NodeService>();
                 });
     }
 }
