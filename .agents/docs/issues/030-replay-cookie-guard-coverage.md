@@ -3,12 +3,15 @@ issue: 030
 date: 2026-06-30
 source: coverage/readme
 priority: high
-status: ready
+status: completed
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
+completion-date: 2026-07-01
+commits: [032008382cb8bbf8e8efee67b33542fb83981e85]
 split-status: child
 parent-issue: 016
+terminal-state: completed
 brief: "description+playbook"
 views:
   enrich: "description+playbook+research+assumptions"
@@ -54,4 +57,13 @@ Parent research already notes the current coverage includes cookie handshakes, b
 
 ## Completion Report
 
-Pending.
+Completed in `032008382cb8bbf8e8efee67b33542fb83981e85`.
+
+- Added replay regression coverage proving an accepted transport packet is rejected when replayed, produces no plaintext, and clears the output buffer on duplicate rejection.
+- Added cookie `mac2` guard regressions for matching-cookie acceptance and missing/wrong-cookie rejection on handshake initiation and response packets.
+- Added packet tracker guard regressions for `GetBitmap` rejecting counters before `Latest` and undersized bitmap buffers.
+- Verification passed formatting, Release build, targeted regressions `6/6`, `PNetMeshProtocolTest` `15/15`, `PNetMeshPacketTrackerTest` `18/18`, and the full unit suite `77/77`.
+
+## Resolving Commits
+
+- `032008382cb8bbf8e8efee67b33542fb83981e85` - add replay, cookie, and packet-tracker guard regressions

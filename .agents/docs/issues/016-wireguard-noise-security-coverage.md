@@ -60,7 +60,7 @@ This is a parent tracking issue. Implement child issues, not this parent directl
 |-------|-------|--------|-------|
 | #028 | Handshake and authentication happy path | completed | Valid peers complete Noise IKpsk2 handshake |
 | #029 | Tamper rejection | completed | Wrong key/PSK, corrupted packet, unknown receiver, and tampered counter rejection |
-| #030 | Replay and cookie guard | open | Replay windows and cookie handshakes |
+| #030 | Replay and cookie guard | completed | Replay windows, cookie MACs, and packet tracker guards |
 | #031 | README security claim hygiene | open | Narrow claim wording to implemented guarantees |
 
 ## Residual Scope
@@ -90,11 +90,13 @@ none
 |------|------|--------|--------|----------|
 | 2026-07-01 | `gate-depends: [028, 029, 030, 031]` | source | blocked | #028 is completed, but #029, #030, and #031 remain open, so the parent stays gated. |
 | 2026-07-01 | `gate-depends: [028, 029, 030, 031]` | source | blocked | #028 and #029 are completed, but #030 and #031 remain open, so the parent stays gated. |
+| 2026-07-01 | `gate-depends: [028, 029, 030, 031]` | source | blocked | #028, #029, and #030 are completed, but #031 remains open, so the parent stays gated. |
 
 ## Validation History
 
 - 2026-07-01: dependency gate cleared by #028; remaining dependency gates #029, #030, and #031 keep #016 gated.
 - 2026-07-01: dependency gate cleared by #029; remaining dependency gates #030 and #031 keep #016 gated.
+- 2026-07-01: dependency gate cleared by #030; remaining dependency gate #031 keeps #016 gated.
 
 ## Completion Report
 
