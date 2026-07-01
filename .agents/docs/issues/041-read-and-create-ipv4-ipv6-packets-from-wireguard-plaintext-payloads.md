@@ -3,16 +3,18 @@ issue: 041
 date: 2026-07-01
 source: wireguard/transport
 priority: medium
-status: gated
+status: ready
 research-status: complete
 research-date: 2026-07-01
-terminal-state: gated
+terminal-state: ready
 split-status: child
 parent-issue: 035
 gate: "Wait for the raw plaintext boundary."
 gate-depends:
   - 040
 gate-reason: "Packet helpers consume the decrypted raw byte boundary; stock WireGuard interop also requires the transport crypto/profile slices."
+gate-last-checked: 2026-07-01
+gate-status: cleared
 assumptions-date: 2026-07-01
 brief: "description+playbook"
 views:
@@ -61,3 +63,13 @@ These helpers sit above the raw plaintext boundary, so they should consume or pr
 |---|---|---|---|---|---|
 | 1 | F | IPv4/IPv6 packet helpers belong above the raw decrypted payload layer. | verified | source | The user requested packet read/create on top of raw decrypted payload bytes. |
 | 2 | F | AllowedIPs integration should remain separate from raw transport decrypt. | verified | source | The user asked to keep future AllowedIPs integration separate from the decrypt boundary. |
+
+## Gate Validation
+
+| Date | Gate | Method | Result | Evidence |
+|------|------|--------|--------|----------|
+| 2026-07-01 | `gate-depends: [040]` | source | ready | #040 is completed, so #041 is implementation-ready. |
+
+## Validation History
+
+- 2026-07-01: dependency gate cleared by #040; #041 is now ready.

@@ -3,10 +3,10 @@ issue: 040
 date: 2026-07-01
 source: wireguard/transport
 priority: high
-status: ready
+status: completed
 research-status: complete
 research-date: 2026-07-01
-terminal-state: ready
+terminal-state: completed
 split-status: child
 parent-issue: 035
 gate: "Wait for the WireGuard crypto/profile, packet framing, and peer lifecycle slices."
@@ -18,6 +18,8 @@ gate-reason: "Raw plaintext exposure depends on the transport crypto, framing, a
 gate-last-checked: 2026-07-01
 gate-status: cleared
 assumptions-date: 2026-07-01
+completion-date: 2026-07-01
+commits: [5cf316b9925023e05bbf7ec9cc648e70add70667]
 brief: "description+playbook"
 views:
   enrich: "description+playbook+parent-tracking+scope+acceptance-criteria+assumptions"
@@ -78,3 +80,17 @@ The current source still decrypts into a protobuf packet and strips a trailing P
 - 2026-07-01: dependency gate cleared by #036; remaining dependency gates #037 and #038 keep #040 gated.
 - 2026-07-01: dependency gate cleared by #037; remaining dependency gate #038 keeps #040 gated.
 - 2026-07-01: dependency gate cleared by #038; #040 is now ready.
+
+## Completion Report
+
+Completed in `5cf316b9925023e05bbf7ec9cc648e70add70667`.
+
+- Added raw transport plaintext metadata exposing decrypted byte count, counter, keypair, and peer metadata.
+- Added `TryReadPlaintext` so WireGuard callers can consume authenticated raw bytes without protobuf or IP parsing.
+- Switched WireGuard packet data writes to zero padding without the legacy PNet padding-length byte while preserving PNet behavior.
+- Added regression coverage for zero-padded raw plaintext, metadata, and exact packet sizing for 16-byte WireGuard payloads.
+- Verification passed: initial focused test failed on missing #040 API, focused #040 tests passed, `PNetMeshProtocolTest` passed, Release build passed, scoped whitespace passed, and `git diff --check` passed. Full unit verification still intermittently hits known issue #052.
+
+## Resolving Commits
+
+- `5cf316b9925023e05bbf7ec9cc648e70add70667` - expose WireGuard raw plaintext
