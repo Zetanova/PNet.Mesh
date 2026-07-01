@@ -63,6 +63,8 @@ namespace PNet.Mesh
 
         public ulong LastReceivedCounter { get; private set; }
 
+        public PNetMeshWireGuardPeer Peer { get; internal set; }
+
         public void RecordTransportActivity(DateTimeOffset at)
         {
             if (at > LastTransportActivity)
@@ -262,7 +264,10 @@ namespace PNet.Mesh
         void Index(PNetMeshWireGuardPeer peer, PNetMeshWireGuardKeypair keypair)
         {
             if (keypair != null)
+            {
+                keypair.Peer = peer;
                 _receiverIndexes[keypair.LocalReceiverIndex] = (peer, keypair);
+            }
         }
 
         void Unindex(PNetMeshWireGuardKeypair keypair)

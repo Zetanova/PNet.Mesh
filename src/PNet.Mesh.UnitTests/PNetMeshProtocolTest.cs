@@ -73,9 +73,92 @@ namespace PNet.Actor.UnitTests.Mesh
             var payload = Encoding.UTF8.GetBytes("wireguard profile payload");
             initiator_transport.WriteMessage(payload, buffer1, out bytesWritten, out _);
 
-            Assert.True(responder_transport.TryReadMessage(buffer1.Slice(0, bytesWritten), buffer2, out bytesWritten, out _));
-            Assert.Equal(payload.Length, bytesWritten);
-            Assert.True(payload.AsSpan().SequenceEqual(buffer2.Slice(0, bytesWritten)));
+            Assert.True(responder_transport.TryReadPlaintext(buffer1.Slice(0, bytesWritten), buffer2, out var plaintext));
+            Assert.Equal(32, plaintext.BytesWritten);
+            Assert.True(payload.AsSpan().SequenceEqual(buffer2.Slice(0, payload.Length)));
+            Assert.All(buffer2.Slice(payload.Length, plaintext.BytesWritten - payload.Length).ToArray(), b => Assert.Equal((byte)0, b));
+        }
+
+        [Fact]
+        public void wireguard_transport_decrypt_exposes_raw_zero_padded_plaintext_with_metadata()
+        {
+            Span<byte> buffer1 = new byte[4098];
+            Span<byte> buffer2 = new byte[4098];
+            var payload = new byte[] { 0x45, 0x00, 0x01 };
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            using var initiator_static = KeyPair.Generate();
+            using var responder_static = KeyPair.Generate();
+
+            var initiator_protocol = new PNetMeshProtocol(
+                initiator_static.PrivateKey,
+                initiator_static.PublicKey,
+                psk,
+                PNetMeshTransportMode.WireGuard);
+            var responder_protocol = new PNetMeshProtocol(
+                responder_static.PrivateKey,
+                responder_static.PublicKey,
+                psk,
+                PNetMeshTransportMode.WireGuard);
+
+            using var initiator = initiator_protocol.CreateInitiator(1, responder_static.PublicKey);
+            using var responder = responder_protocol.CreateResponder(2);
+
+            initiator.WriteInitiationMessage(buffer1, out var bytesWritten);
+            Assert.True(responder.TryReadInitiationMessage(buffer1.Slice(0, bytesWritten)));
+            Assert.True(responder.TryWriteResponseMessage(buffer2, out bytesWritten, out var responderTransport));
+            Assert.True(initiator.TryReadResponseMessage(buffer2.Slice(0, bytesWritten), out var initiatorTransport));
+
+            initiatorTransport.WriteMessage(payload, buffer1, out bytesWritten, out var counter);
+
+            Assert.True(responderTransport.TryReadPlaintext(
+                buffer1.Slice(0, bytesWritten),
+                buffer2,
+                out var plaintext));
+            Assert.Equal(counter, plaintext.Counter);
+            Assert.Same(responderTransport.WireGuardKeypair, plaintext.Keypair);
+            Assert.Same(responderTransport.WireGuardKeypair.Peer, plaintext.Peer);
+            Assert.Equal(16, plaintext.BytesWritten);
+            Assert.True(payload.AsSpan().SequenceEqual(buffer2.Slice(0, payload.Length)));
+            Assert.All(buffer2.Slice(payload.Length, plaintext.BytesWritten - payload.Length).ToArray(), b => Assert.Equal((byte)0, b));
+        }
+
+        [Fact]
+        public void wireguard_transport_write_uses_zero_padding_without_pnet_padding_length_byte()
+        {
+            Span<byte> buffer = new byte[4098];
+            var payload = Enumerable.Range(0, 16).Select(i => (byte)i).ToArray();
+            payload[^1] = 0x05;
+
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            using var initiator_static = KeyPair.Generate();
+            using var responder_static = KeyPair.Generate();
+
+            var initiator_protocol = new PNetMeshProtocol(
+                initiator_static.PrivateKey,
+                initiator_static.PublicKey,
+                psk,
+                PNetMeshTransportMode.WireGuard);
+            var responder_protocol = new PNetMeshProtocol(
+                responder_static.PrivateKey,
+                responder_static.PublicKey,
+                psk,
+                PNetMeshTransportMode.WireGuard);
+
+            using var initiator = initiator_protocol.CreateInitiator(1, responder_static.PublicKey);
+            using var responder = responder_protocol.CreateResponder(2);
+
+            initiator.WriteInitiationMessage(buffer, out var bytesWritten);
+            Assert.True(responder.TryReadInitiationMessage(buffer.Slice(0, bytesWritten)));
+            Assert.True(responder.TryWriteResponseMessage(buffer, out bytesWritten, out _));
+            Assert.True(initiator.TryReadResponseMessage(buffer.Slice(0, bytesWritten), out var initiatorTransport));
+
+            initiatorTransport.WriteMessage(payload, buffer, out bytesWritten, out _);
+
+            Assert.Equal(PNetMeshPacketFraming.PacketDataHeaderSize + AeadTagBytes + payload.Length, bytesWritten);
         }
 
         [Fact]

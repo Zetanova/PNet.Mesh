@@ -871,6 +871,27 @@ namespace PNet.Mesh
         //todo generate cookie from static key rotation and endpoint address
     }
 
+    public readonly struct PNetMeshTransportPlaintext
+    {
+        public PNetMeshTransportPlaintext(
+            int bytesWritten,
+            ulong counter,
+            PNetMeshWireGuardKeypair keypair)
+        {
+            BytesWritten = bytesWritten;
+            Counter = counter;
+            Keypair = keypair;
+        }
+
+        public int BytesWritten { get; }
+
+        public ulong Counter { get; }
+
+        public PNetMeshWireGuardKeypair Keypair { get; }
+
+        public PNetMeshWireGuardPeer Peer => Keypair?.Peer;
+    }
+
     public sealed class PNetMeshTransport2 : IDisposable
     {
         readonly Transport _transport;
@@ -897,6 +918,8 @@ namespace PNet.Mesh
 
         public PNetMeshWireGuardKeypair WireGuardKeypair => _wireGuardKeypair;
 
+        bool IsWireGuard => _wireGuardKeypair != null;
+
         public PNetMeshTransport2(uint senderIndex, uint receiverIndex, Transport transport)
         {
             _senderIndex = senderIndex;
@@ -913,9 +936,11 @@ namespace PNet.Mesh
 
         public void WriteMessage(ReadOnlySpan<byte> payload, Span<byte> buffer, out int bytesWritten, out ulong counter)
         {
-            var padding = 16 - (payload.Length % 16);
+            var padding = IsWireGuard
+                ? (16 - (payload.Length % 16)) % 16
+                : 16 - (payload.Length % 16);
             var paddedSize = payload.Length + padding;
-            if (padding == 0 && !payload.IsEmpty && payload[^1] < 16)
+            if (!IsWireGuard && padding == 0 && !payload.IsEmpty && payload[^1] < 16)
             {
                 //require padding length encoding
                 padding = 16;
@@ -949,8 +974,15 @@ namespace PNet.Mesh
                     : stackalloc byte[paddedSize];
 
                 payload.CopyTo(padded_payload);
-                padded_payload.Slice(payload.Length, padding - 1).Clear();
-                padded_payload[paddedSize - 1] = (byte)(padding - 1); //padding length
+                if (IsWireGuard)
+                {
+                    padded_payload.Slice(payload.Length, padding).Clear();
+                }
+                else
+                {
+                    padded_payload.Slice(payload.Length, padding - 1).Clear();
+                    padded_payload[paddedSize - 1] = (byte)(padding - 1); //padding length
+                }
 
                 counter = _sendCounter;
                 _setWriteNonce(counter);
@@ -977,6 +1009,36 @@ namespace PNet.Mesh
         }
 
         public bool TryReadMessage(ReadOnlySpan<byte> payload, Span<byte> buffer, out int bytesWritten, out ulong counter)
+        {
+            if (!TryReadRawMessage(payload, buffer, out bytesWritten, out counter))
+                return false;
+
+            if (!IsWireGuard && bytesWritten > 1)
+            {
+                //padding length
+                int padding = buffer[bytesWritten - 1];
+
+                if (padding < 16)
+                    bytesWritten -= padding + 1;
+            }
+
+            return true;
+        }
+
+        public bool TryReadPlaintext(
+            ReadOnlySpan<byte> payload,
+            Span<byte> buffer,
+            out PNetMeshTransportPlaintext plaintext)
+        {
+            plaintext = default;
+            if (!TryReadRawMessage(payload, buffer, out var bytesWritten, out var counter))
+                return false;
+
+            plaintext = new PNetMeshTransportPlaintext(bytesWritten, counter, _wireGuardKeypair);
+            return true;
+        }
+
+        bool TryReadRawMessage(ReadOnlySpan<byte> payload, Span<byte> buffer, out int bytesWritten, out ulong counter)
         {
             if (payload.Length < 32)
                 throw new ArgumentOutOfRangeException(nameof(payload));
@@ -1015,17 +1077,6 @@ namespace PNet.Mesh
             }
 
             RecordWireGuardReceived(counter);
-
-            if (bytesWritten > 1)
-            {
-                //padding length
-                int padding = buffer[bytesWritten - 1];
-
-                if (padding < 16)
-                {
-                    bytesWritten -= padding + 1;
-                }
-            }
 
             return true;
         }
