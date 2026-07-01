@@ -14,7 +14,9 @@ namespace PNet.Mesh
         None = 0,
         Empty,
         InvalidIpPacket,
-        ReservedMarker
+        ReservedMarker,
+        InvalidPNetPadding,
+        NonZeroPNetPadding
     }
 
     public readonly ref struct PNetMeshPayloadFrame
@@ -27,6 +29,7 @@ namespace PNet.Mesh
             byte headerByte,
             int headerLength,
             int totalLength,
+            int paddingLength,
             PNetMeshIpPacket ipPacket)
         {
             _frame = frame;
@@ -34,6 +37,7 @@ namespace PNet.Mesh
             HeaderByte = headerByte;
             HeaderLength = headerLength;
             TotalLength = totalLength;
+            PaddingLength = paddingLength;
             IpPacket = ipPacket;
         }
 
@@ -51,13 +55,19 @@ namespace PNet.Mesh
 
         public int TotalLength { get; }
 
-        public int PayloadLength => TotalLength - HeaderLength;
+        public int PaddingLength { get; }
+
+        public int PayloadLength => TotalLength - HeaderLength - PaddingLength;
 
         public PNetMeshIpPacket IpPacket { get; }
 
         public ReadOnlySpan<byte> Frame => _frame.Slice(0, TotalLength);
 
         public ReadOnlySpan<byte> Payload => _frame.Slice(HeaderLength, PayloadLength);
+
+        public ReadOnlySpan<byte> Padding => PaddingLength == 0
+            ? ReadOnlySpan<byte>.Empty
+            : _frame.Slice(TotalLength - PaddingLength, PaddingLength);
     }
 
     public static class PNetMeshPayloadFraming
@@ -101,18 +111,37 @@ namespace PNet.Mesh
                     headerByte,
                     ipPacket.HeaderLength,
                     ipPacket.TotalLength,
+                    0,
                     ipPacket);
                 return true;
             }
 
             if (IsPNetHeader(headerByte))
             {
+                var paddingLength = headerByte & 0x0f;
+                if (payload.Length - 1 < paddingLength)
+                {
+                    error = PNetMeshPayloadFrameError.InvalidPNetPadding;
+                    return false;
+                }
+
+                var padding = payload.Slice(payload.Length - paddingLength, paddingLength);
+                foreach (var b in padding)
+                {
+                    if (b != 0)
+                    {
+                        error = PNetMeshPayloadFrameError.NonZeroPNetPadding;
+                        return false;
+                    }
+                }
+
                 frame = new PNetMeshPayloadFrame(
                     payload,
                     PNetMeshPayloadFrameKind.PNet,
                     headerByte,
                     1,
                     payload.Length,
+                    paddingLength,
                     default);
                 return true;
             }
@@ -126,15 +155,28 @@ namespace PNet.Mesh
             return (headerByte & PNetMarkerMask) == 0;
         }
 
-        public static byte[] CreatePNet(ReadOnlySpan<byte> payload, byte headerByte = 0)
+        public static byte[] CreatePNet(ReadOnlySpan<byte> payload, bool hasExtendedHeaderSignal = false)
+        {
+            var paddingLength = CalculatePNetPaddingLength(payload.Length);
+            var headerByte = (byte)(paddingLength | (hasExtendedHeaderSignal ? 0x80 : 0));
+            return CreatePNet(payload, headerByte);
+        }
+
+        public static byte[] CreatePNet(ReadOnlySpan<byte> payload, byte headerByte)
         {
             if (!IsPNetHeader(headerByte))
                 throw new ArgumentOutOfRangeException(nameof(headerByte));
 
-            var frame = new byte[payload.Length + 1];
+            var paddingLength = headerByte & 0x0f;
+            var frame = new byte[payload.Length + 1 + paddingLength];
             frame[0] = headerByte;
             payload.CopyTo(frame.AsSpan(1));
             return frame;
+        }
+
+        static int CalculatePNetPaddingLength(int payloadLength)
+        {
+            return (16 - ((payloadLength + 1) & 0x0f)) & 0x0f;
         }
 
         public static byte[] CreateIPv4(ReadOnlySpan<byte> packet)

@@ -19,8 +19,8 @@ namespace PNet.Actor.UnitTests.Mesh
         }
 
         [Theory]
-        [InlineData(0x0a, false)]
-        [InlineData(0x8f, true)]
+        [InlineData(0x00, false)]
+        [InlineData(0x80, true)]
         public void pnet_frame_detects_one_byte_marker_header(byte marker, bool hasExtendedHeaderSignal)
         {
             var raw = new byte[] { marker, 0x01, 0x02 };
@@ -31,10 +31,38 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.Equal(PNetMeshPayloadFrameKind.PNet, frame.Kind);
             Assert.Equal(marker, frame.HeaderByte);
             Assert.Equal(marker & 0x0f, frame.PNetMarkerBits);
+            Assert.Equal(0, frame.PaddingLength);
             Assert.Equal(hasExtendedHeaderSignal, frame.HasExtendedHeaderSignal);
             Assert.Equal(1, frame.HeaderLength);
             Assert.Equal(raw.Length, frame.TotalLength);
             Assert.Equal(new byte[] { 0x01, 0x02 }, frame.Payload.ToArray());
+        }
+
+        [Fact]
+        public void pnet_frame_decodes_padding_count_and_slices_default_payload()
+        {
+            var raw = new byte[] { 0x83, 0x01, 0x02, 0x00, 0x00, 0x00 };
+
+            Assert.True(PNetMeshPayloadFraming.TryRead(raw, out var frame, out var error));
+
+            Assert.Equal(PNetMeshPayloadFrameError.None, error);
+            Assert.Equal(PNetMeshPayloadFrameKind.PNet, frame.Kind);
+            Assert.Equal(3, frame.PaddingLength);
+            Assert.Equal(new byte[] { 0x01, 0x02 }, frame.Payload.ToArray());
+            Assert.Equal(new byte[] { 0x00, 0x00, 0x00 }, frame.Padding.ToArray());
+        }
+
+        [Fact]
+        public void pnet_empty_default_payload_uses_fifteen_zero_padding_bytes()
+        {
+            var raw = new byte[16];
+            raw[0] = 0x0f;
+
+            Assert.True(PNetMeshPayloadFraming.TryRead(raw, out var frame));
+
+            Assert.Equal(15, frame.PaddingLength);
+            Assert.True(frame.Payload.IsEmpty);
+            Assert.Equal(15, frame.Padding.Length);
         }
 
         [Fact]
@@ -83,9 +111,9 @@ namespace PNet.Actor.UnitTests.Mesh
         public void create_helpers_copy_pnet_and_valid_ip_frames()
         {
             var pnetPayload = Encoding.ASCII.GetBytes("protobuf");
-            var pnet = PNetMeshPayloadFraming.CreatePNet(pnetPayload, headerByte: 0x8a);
+            var pnet = PNetMeshPayloadFraming.CreatePNet(pnetPayload, headerByte: 0x80);
 
-            Assert.Equal(new byte[] { 0x8a }.Concat(pnetPayload), pnet);
+            Assert.Equal(new byte[] { 0x80 }.Concat(pnetPayload), pnet);
 
             var ipv4 = PNetMeshIpPacket.CreateIPv4(
                 IPAddress.Parse("10.0.0.1"),
@@ -120,6 +148,39 @@ namespace PNet.Actor.UnitTests.Mesh
                 PNetMeshPayloadFraming.CreateIPv4(new byte[] { 0x60 }));
             Assert.Throws<ArgumentException>(() =>
                 PNetMeshPayloadFraming.CreateIPv6(new byte[] { 0x45 }));
+        }
+
+        [Fact]
+        public void pnet_parser_rejects_invalid_or_non_zero_padding()
+        {
+            Assert.False(PNetMeshPayloadFraming.TryRead(new byte[] { 0x03, 0x01, 0x00 }, out _, out var error));
+            Assert.Equal(PNetMeshPayloadFrameError.InvalidPNetPadding, error);
+
+            Assert.False(PNetMeshPayloadFraming.TryRead(new byte[] { 0x02, 0x01, 0x00, 0x01 }, out _, out error));
+            Assert.Equal(PNetMeshPayloadFrameError.NonZeroPNetPadding, error);
+        }
+
+        [Fact]
+        public void create_pnet_appends_declared_zero_padding()
+        {
+            var payload = Encoding.ASCII.GetBytes("protobuf");
+
+            var frame = PNetMeshPayloadFraming.CreatePNet(payload, headerByte: 0x8a);
+
+            Assert.Equal(new byte[] { 0x8a }.Concat(payload).Concat(new byte[10]), frame);
+        }
+
+        [Fact]
+        public void create_pnet_defaults_to_canonical_sixteen_byte_plaintext_frame()
+        {
+            var empty = PNetMeshPayloadFraming.CreatePNet(ReadOnlySpan<byte>.Empty);
+
+            Assert.Equal(new byte[] { 0x0f }.Concat(new byte[15]), empty);
+
+            var payload = Encoding.ASCII.GetBytes("protobuf");
+            var frame = PNetMeshPayloadFraming.CreatePNet(payload, hasExtendedHeaderSignal: true);
+
+            Assert.Equal(new byte[] { 0x87 }.Concat(payload).Concat(new byte[7]), frame);
         }
     }
 }
