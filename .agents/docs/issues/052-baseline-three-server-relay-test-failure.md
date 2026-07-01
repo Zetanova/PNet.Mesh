@@ -3,13 +3,16 @@ issue: 052
 date: 2026-07-01
 source: testing/unit
 priority: medium
-status: gated
+status: completed
 research-status: complete
 research-date: 2026-07-01
-terminal-state: gated
+terminal-state: completed
 gate: "Debug in a dedicated relay-test pass outside the WireGuard packet-framing issue."
 gate-reason: "The failure reproduces on a clean worktree before #037, so fixing it would expand the completed packet-framing slice."
 assumptions-date: 2026-07-01
+completed-date: 2026-07-01
+completed-commits:
+  - fa6cd47
 brief: "description+evidence+assumptions"
 views:
   enrich: "description+evidence+scope+acceptance-criteria+assumptions"
@@ -52,4 +55,10 @@ Investigate the pre-existing unit-test failure in `PNetMeshServerTests.bind_thre
 
 | Date | Gate | Method | Result | Evidence |
 |------|------|--------|--------|----------|
-| 2026-07-01 | dedicated relay-test debug pass | test | blocked | The failure is pre-existing and outside #037, so it is recorded as a follow-up rather than fixed in the packet-framing slice. |
+| 2026-07-01 | dedicated relay-test debug pass | test | completed | `PNetMeshServerTests.bind_three_server_to_localhost_and_relay_exchange` passed after the relay queueing fix in #047, and the full unit suite passed with 149 tests. |
+
+## Completion Report
+
+Completed in `fa6cd47` while implementing #047. The root cause was a relay queueing timing gap: discovery relay packets could be produced while the only usable relay session was still `Opening`, and the channel relay path rejected the queued relay before that session became `Open`.
+
+The fix lets relay work accepted through a routable Opening session wait until an actual Open relay session is available, with cancellation propagation. The existing `PNetMeshServerTests.bind_three_server_to_localhost_and_relay_exchange` now passes and remains the regression test. Full unit verification passed with 149 tests.

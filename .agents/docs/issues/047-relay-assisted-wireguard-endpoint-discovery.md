@@ -3,10 +3,10 @@ issue: 047
 date: 2026-07-01
 source: wireguard/relay
 priority: high
-status: ready
+status: completed
 research-status: complete
 research-date: 2026-07-01
-terminal-state: ready
+terminal-state: completed
 gate: "Wait for the relay path and authenticated endpoint/keypair state."
 gate-depends:
   - 038
@@ -15,6 +15,9 @@ gate-depends:
 gate-reason: "Endpoint discovery depends on the relay path and authenticated peer endpoint state; direct promotion must wait for an authenticated response."
 gate-last-checked: 2026-07-01
 gate-status: cleared
+completed-date: 2026-07-01
+completed-commits:
+  - fa6cd47
 assumptions-date: 2026-07-01
 brief: "description+playbook"
 views:
@@ -80,3 +83,19 @@ Relay-assisted endpoint discovery is correctly scoped as a follow-on to the rela
 
 - 2026-07-01: dependency gate cleared by #046; remaining dependency gate #045 keeps #047 gated.
 - 2026-07-01: dependency gate cleared by #045; #047 is now ready.
+
+## Completion Report
+
+Implemented relay-assisted WireGuard endpoint discovery in `fa6cd47`.
+
+- Added untrusted endpoint hint state, one-shot direct probing, authenticated direct promotion, fallback, and expiry handling.
+- Kept relay traffic active while probing; retransmits stay on the relay/current path and do not spray direct probes.
+- Fixed the relay queueing race where a relay packet could be dropped while a usable relay session was still `Opening`.
+- Added unit coverage for endpoint hint/probe/promotion/fallback/stale behavior, authenticated update failures, relay queueing, and no direct probing on retransmit.
+- Added a focused Testcontainers e2e that routes a WireGuard exchange through a relay, sends an authenticated direct probe, and promotes the endpoint only after a valid direct response.
+
+Verification:
+- `dotnet build PNet.Mesh.sln -c Release --no-restore` passed.
+- `dotnet run --project src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -parallel none` passed: 149 tests.
+- Focused WireGuard relay-assisted endpoint discovery e2e passed: 1 test.
+- Scoped whitespace format and `git diff --check` passed.

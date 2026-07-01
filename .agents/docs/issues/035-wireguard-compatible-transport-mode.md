@@ -3,8 +3,8 @@ issue: 035
 date: 2026-07-01
 source: wireguard/transport
 priority: high
-status: gated
-terminal-state: gated
+status: completed
+terminal-state: completed
 split-status: parent
 gate: "Close only after child issues #036 through #042 and #045 through #048 are completed or explicitly superseded."
 gate-depends:
@@ -21,7 +21,10 @@ gate-depends:
   - 048
 gate-reason: "Tracking parent waits for fine-grained child issues"
 gate-last-checked: 2026-07-01
-gate-status: blocked
+gate-status: cleared
+completed-date: 2026-07-01
+completed-commits:
+  - fa6cd47
 research-status: none
 assumptions-date: 2026-07-01
 brief: "description+playbook+tracking"
@@ -72,7 +75,7 @@ This is a parent tracking issue. Implement child issues, not this parent directl
 | #042 | wireguard-go/Testcontainers interoperability test | completed | Peer handshake and encrypted exchange harness. |
 | #045 | PNet relay to wireguard-go peer interoperability test | completed | Node1 session owner relays through node2 to node3 and back. |
 | #046 | Shared-port WireGuard relay registration and demux | completed | Lease registration, MAC1 handshake demux, and receiver-index fast path. |
-| #047 | Relay-assisted WireGuard endpoint discovery | ready | Learn relayed endpoint candidate, probe direct, promote only after authenticated response. |
+| #047 | Relay-assisted WireGuard endpoint discovery | completed | Learn relayed endpoint candidate, probe direct, promote only after authenticated response. |
 | #048 | PNet-to-PNet WireGuard-compatible transport e2e | completed | Exchange PNet internal `X000PPPP` protobuf frames between two PNet peers. |
 
 ## Assumptions
@@ -91,7 +94,7 @@ This is a parent tracking issue. Implement child issues, not this parent directl
 
 | Date | Gate | Method | Result | Evidence |
 |------|------|--------|--------|----------|
-| 2026-07-01 | `gate-depends: [036, 037, 038, 039, 040, 041, 042, 045, 046, 047, 048]` | source | blocked | #036, #037, #038, #039, #040, #041, #042, #045, #046, and #048 are completed, but #047 remains open, so the parent stays gated. |
+| 2026-07-01 | `gate-depends: [036, 037, 038, 039, 040, 041, 042, 045, 046, 047, 048]` | source | completed | #036 through #042 and #045 through #048 are completed, so the parent tracking issue is complete. |
 
 ## Validation History
 
@@ -103,3 +106,10 @@ This is a parent tracking issue. Implement child issues, not this parent directl
 - 2026-07-01: dependency gate cleared by #041; remaining dependency gates #042, #045, #046, #047, and #048 keep #035 gated.
 - 2026-07-01: dependency gate cleared by #042; remaining dependency gates #045 and #047 keep #035 gated.
 - 2026-07-01: dependency gate cleared by #045; remaining dependency gate #047 keeps #035 gated.
+- 2026-07-01: dependency gate cleared by #047; all child issues are complete, so #035 is completed.
+
+## Completion Report
+
+Completed the WireGuard-compatible transport-mode parent in `fa6cd47` after the final relay-assisted endpoint discovery child (#047) landed.
+
+All child slices #036 through #042 and #045 through #048 are now completed, covering the WireGuard Noise profile, framing, peer/key state, cookie behavior, raw plaintext boundary, IP helpers, external peer interop, PNet relay interop, shared-port relay demux, relay-assisted endpoint promotion, and PNet-to-PNet WireGuard transport e2e.
