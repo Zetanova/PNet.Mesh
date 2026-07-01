@@ -2,7 +2,7 @@
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
 last-entry: 2026-06-30
 last-opened: 2026-06-30-033
-open-count: 16
+open-count: 15
 last-completed: 2026-06-30
 ---
 
@@ -19,7 +19,6 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | 015 | 2026-06-30 | coverage/readme | Expand packet ordering, retransmission, and flow-control implementation coverage. | high | gated | [015-packet-ordering-flow-control-coverage](issues/015-packet-ordering-flow-control-coverage.md) |
 | 016 | 2026-06-30 | coverage/readme | Implement and test WireGuard/Noise security invariants behind the README security claim. | high | gated | [016-wireguard-noise-security-coverage](issues/016-wireguard-noise-security-coverage.md) |
 | 017 | 2026-06-30 | coverage/readme | Implement and test crypto routing and crypto discovery behavior. | high | gated | [017-crypto-routing-discovery-coverage](issues/017-crypto-routing-discovery-coverage.md) |
-| 018 | 2026-06-30 | coverage/readme | Implement and test NAT traversal, neighbor detection, and ICE candidate behavior. | high | ready | [018-nat-traversal-neighbor-ice-coverage](issues/018-nat-traversal-neighbor-ice-coverage.md) |
 | 019 | 2026-06-30 | coverage/readme | Implement and test compression negotiation and compressed payload handling. | medium | ready | [019-compression-feature-coverage](issues/019-compression-feature-coverage.md) |
 | 020 | 2026-06-30 | coverage/readme | Implement and test ECN and LEDBAT probe/telemetry behavior referenced by the README. | medium | ready | [020-ecn-ledbat-coverage](issues/020-ecn-ledbat-coverage.md) |
 | 026 | 2026-06-30 | coverage/readme | Deterministic packet ordering and retransmission regression tests. | high | ready | [026-packet-ordering-retransmission-coverage](issues/026-packet-ordering-retransmission-coverage.md) |
@@ -62,6 +61,7 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | 010 | 2026-06-30 | 2026-06-30 | Add deterministic routing, relay duplicate, route-loop, and session relay unit coverage. | 49deb32 | [010-unit-test-doubles-for-routing](issues/010-unit-test-doubles-for-routing.md) |
 | 012 | 2026-06-30 | 2026-06-30 | Implement and cover direct P2P communication behavior advertised by the README. | 96c3efc | [012-readme-p2p-communication-coverage.md](issues/012-readme-p2p-communication-coverage.md) |
 | 013 | 2026-06-30 | 2026-06-30 | Verify the no-extended-OS-permission feature claim with documented and executable checks. | 5c4d336 | [013-no-extended-os-permissions-coverage.md](issues/013-no-extended-os-permissions-coverage.md) |
+| 018 | 2026-06-30 | 2026-06-30 | Narrow NAT traversal and ICE claims to covered candidate-exchange behavior. | 2f083f4 | [018-nat-traversal-neighbor-ice-coverage](issues/018-nat-traversal-neighbor-ice-coverage.md) |
 | 021 | 2026-06-30 | 2026-06-30 | Add direct peer Testcontainers coverage for bidirectional payload exchange. | 61af492 | [021-direct-peer-e2e-coverage](issues/021-direct-peer-e2e-coverage.md) |
 | 022 | 2026-06-30 | 2026-06-30 | Add bootstrap discovery Testcontainers coverage through a connected peer. | 56a70ff | [022-bootstrap-discovery-e2e-coverage](issues/022-bootstrap-discovery-e2e-coverage.md) |
 | 023 | 2026-06-30 | 2026-06-30 | Multi-hop relay Testcontainers scenario across separated segments. | 84bb53b | [023-multi-hop-route-e2e-coverage](issues/023-multi-hop-route-e2e-coverage.md) |
