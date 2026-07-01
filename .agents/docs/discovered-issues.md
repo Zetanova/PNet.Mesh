@@ -15,7 +15,7 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | # | Date | Source | Summary | Priority | Status | File |
 |---|------|--------|---------|----------|--------|------|
 | 011 | 2026-06-30 | e2e/cleanup | Remove Docker Compose e2e artifacts after Testcontainers reaches equivalent coverage. | medium | gated | [011-cleanup-compose-after-equivalent-coverage](issues/011-cleanup-compose-after-equivalent-coverage.md) |
-| 014 | 2026-06-30 | coverage/readme | Implement or test UDP fragment transport and the 18-byte datagram-overhead claim. | high | clarify | [014-udp-fragments-and-overhead-coverage](issues/014-udp-fragments-and-overhead-coverage.md) |
+| 014 | 2026-06-30 | coverage/readme | Implement or test UDP fragment transport and the 32-byte encapsulation claim. | high | ready | [014-udp-fragments-and-overhead-coverage](issues/014-udp-fragments-and-overhead-coverage.md) |
 
 ## Outgoing MRs
 
