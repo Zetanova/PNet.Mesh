@@ -834,7 +834,7 @@ namespace PNet.Mesh
                 {
                     //read packet
                     var data = args.MemoryBuffer.Span.Slice(args.Offset, args.BytesTransferred);
-                    if (item.Protocol.ValidatePacket(data))
+                    if (ShouldAcceptReceivedPacket(socket, item, args, data))
                     {
                         //try write packet to channel
                         var cmd = new PNetMeshControlCommands.Receive
@@ -882,6 +882,58 @@ namespace PNet.Mesh
                 {
                     break;
                 }
+            }
+        }
+
+        static bool ShouldAcceptReceivedPacket(
+            Socket socket,
+            PNetMeshSocketReceiveWorkItem item,
+            SocketAsyncEventArgs args,
+            ReadOnlySpan<byte> data)
+        {
+            if (item.Protocol.Mode == PNetMeshTransportMode.WireGuard
+                && PNetMeshPacketFraming.TryReadMessageType(data, out var messageType)
+                && (messageType == PNetMeshMessageType.HandshakeInitiation
+                    || messageType == PNetMeshMessageType.HandshakeResponse))
+            {
+                if (args.RemoteEndPoint == null)
+                    return false;
+
+                var result = item.Protocol.CookieGate.EvaluateHandshake(
+                    data,
+                    args.RemoteEndPoint,
+                    DateTimeOffset.UtcNow,
+                    item.Protocol.RequireCookieMac2);
+                if (result == PNetMeshCookieGateResult.CookieRequired)
+                    TrySendCookieReply(socket, item.Protocol, args.RemoteEndPoint, data);
+                return result == PNetMeshCookieGateResult.Accepted;
+            }
+
+            return item.Protocol.ValidatePacket(data);
+        }
+
+        static void TrySendCookieReply(
+            Socket socket,
+            PNetMeshProtocol protocol,
+            EndPoint remoteEndPoint,
+            ReadOnlySpan<byte> triggeringPacket)
+        {
+            if (remoteEndPoint == null)
+                return;
+
+            Span<byte> reply = stackalloc byte[PNetMeshPacketFraming.CookieReplyMessageSize];
+            if (!protocol.CookieGate.TryWriteCookieReply(triggeringPacket, remoteEndPoint, DateTimeOffset.UtcNow, reply, out var bytesWritten))
+                return;
+
+            try
+            {
+                socket.SendTo(reply[..bytesWritten], SocketFlags.None, remoteEndPoint);
+            }
+            catch (SocketException)
+            {
+            }
+            catch (ObjectDisposedException)
+            {
             }
         }
     }

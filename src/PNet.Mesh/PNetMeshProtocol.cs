@@ -100,6 +100,8 @@ namespace PNet.Mesh
 
         readonly PNetMeshWireGuardPeerTable _wireGuardPeers = new PNetMeshWireGuardPeerTable();
 
+        readonly PNetMeshCookieGate _cookieGate;
+
         readonly byte[] _localStaticPrivKey;
         readonly byte[] _localStaticPubKey;
 
@@ -124,6 +126,12 @@ namespace PNet.Mesh
         public int HandshakeResponseMessageSize => PNetMeshHandshake.ResponseMessageSize;
 
         public PNetMeshWireGuardPeerTable WireGuardPeers => _wireGuardPeers;
+
+        public PNetMeshCookieGate CookieGate => _cookieGate;
+
+        public bool RequireCookieMac2 { get; set; }
+
+        internal ReadOnlySpan<byte> LocalStaticPublicKey => _localStaticPubKey;
 
         internal int HandshakeInitiationTimestampSize => _profile.HandshakeInitiationTimestampSize;
 
@@ -178,6 +186,8 @@ namespace PNet.Mesh
 
             if (_profile.MacAlgorithm == PNetMeshMacAlgorithm.Blake2b128)
                 _mac1Key = Key.Import(MacAlgorithm.Blake2b_128, _mac1KeyBytes, KeyBlobFormat.RawSymmetricKey);
+
+            _cookieGate = new PNetMeshCookieGate(this);
         }
 
         public void GetPacketMac(ReadOnlySpan<byte> remotePublicKey, ReadOnlySpan<byte> payload, Span<byte> mac)
@@ -232,6 +242,50 @@ namespace PNet.Mesh
                     //ignore unknown or invalid
                     return false;
             }
+        }
+
+        internal bool TryGetHandshakeMacOffsets(ReadOnlySpan<byte> payload, out int mac1Offset, out int mac2Offset)
+        {
+            mac1Offset = 0;
+            mac2Offset = 0;
+            if (!PNetMeshPacketFraming.TryReadMessageType(payload, out var messageType))
+                return false;
+
+            switch (messageType)
+            {
+                case PNetMeshMessageType.HandshakeInitiation
+                    when payload.Length == _profile.HandshakeInitiationMessageSize:
+                    mac1Offset = HandshakeInitiationMac1Offset;
+                    mac2Offset = HandshakeInitiationMac2Offset;
+                    return true;
+                case PNetMeshMessageType.HandshakeResponse
+                    when payload.Length == PNetMeshHandshake.ResponseMessageSize:
+                    mac1Offset = 60;
+                    mac2Offset = 76;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        internal bool TryValidatePacketMac1(ReadOnlySpan<byte> payload)
+        {
+            if (!TryGetHandshakeMacOffsets(payload, out var mac1Offset, out var mac2Offset))
+                return false;
+
+            Span<byte> mac = stackalloc byte[16];
+            ComputeMac(_mac1Key, _mac1KeyBytes, payload[..mac1Offset], mac);
+            return payload[mac1Offset..mac2Offset].SequenceEqual(mac);
+        }
+
+        internal bool TryValidatePacketMac2(ReadOnlySpan<byte> payload, PNetMeshCookie cookie)
+        {
+            if (!cookie.IsValid || !TryGetHandshakeMacOffsets(payload, out _, out var mac2Offset))
+                return false;
+
+            Span<byte> mac = stackalloc byte[16];
+            ComputeMac(cookie.Value, payload[..mac2Offset], mac);
+            return payload[mac2Offset..(mac2Offset + 16)].SequenceEqual(mac);
         }
 
         public void GetCookieMac(ReadOnlySpan<byte> payload, Span<byte> mac)
@@ -356,6 +410,16 @@ namespace PNet.Mesh
                 default:
                     throw new InvalidOperationException("invalid mac algorithm");
             }
+        }
+
+        internal void ComputeHash(ReadOnlySpan<byte> payload, byte[] hash)
+        {
+            ComputeHash(payload, hash.AsSpan());
+        }
+
+        internal void ComputeKeyedMac(ReadOnlySpan<byte> key, ReadOnlySpan<byte> payload, Span<byte> mac)
+        {
+            ComputeMac(key, payload, mac);
         }
 
         void ComputeMac(ReadOnlySpan<byte> key, ReadOnlySpan<byte> payload, Span<byte> mac)
@@ -793,11 +857,11 @@ namespace PNet.Mesh
 
         public readonly DateTime ValidTo;
 
-        public bool IsValid => Value?.Length == 32 && DateTime.UtcNow < ValidTo;
+        public bool IsValid => (Value?.Length == 16 || Value?.Length == 32) && DateTime.UtcNow < ValidTo;
 
         public PNetMeshCookie(byte[] value, DateTime validTo)
         {
-            if (value != null && value.Length != 0 && value.Length != 32)
+            if (value != null && value.Length != 0 && value.Length != 16 && value.Length != 32)
                 throw new ArgumentException(nameof(value));
 
             Value = value ?? Array.Empty<byte>();
