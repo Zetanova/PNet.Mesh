@@ -6,6 +6,7 @@ using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Reflection;
 using System.Text;
+using CryptographicException = System.Security.Cryptography.CryptographicException;
 
 namespace PNet.Mesh
 {
@@ -321,7 +322,16 @@ namespace PNet.Mesh
 
             //timestamp
             Span<byte> temp = stackalloc byte[8];
-            var (c, _, _) = _handshake.ReadMessage(payload[8..112], temp);
+            int c;
+            try
+            {
+                (c, _, _) = _handshake.ReadMessage(payload[8..112], temp);
+            }
+            catch (CryptographicException)
+            {
+                return false;
+            }
+
             if (c != 8)
                 return false;
 
@@ -408,7 +418,16 @@ namespace PNet.Mesh
                 return false;
 
             //empty payload response
-            var (_, _, t) = _handshake.ReadMessage(payload[12..60], Span<byte>.Empty);
+            Transport t;
+            try
+            {
+                (_, _, t) = _handshake.ReadMessage(payload[12..60], Span<byte>.Empty);
+            }
+            catch (CryptographicException)
+            {
+                return false;
+            }
+
             if (t == null)
                 return false;
 
@@ -560,15 +579,24 @@ namespace PNet.Mesh
 
             counter = BinaryPrimitives.ReadUInt64LittleEndian(payload[8..16]);
 
-            if (!_tracker.TryAdd(counter))
+            _setReadNonce(counter);
+            try
             {
-                //duplicate message
+                bytesWritten = _transport.ReadMessage(payload[16..], buffer);
+            }
+            catch (CryptographicException)
+            {
                 bytesWritten = 0;
                 return false;
             }
 
-            _setReadNonce(counter);
-            bytesWritten = _transport.ReadMessage(payload[16..], buffer);
+            if (!_tracker.TryAdd(counter))
+            {
+                //duplicate message
+                buffer.Slice(0, bytesWritten).Clear();
+                bytesWritten = 0;
+                return false;
+            }
 
             if (bytesWritten > 1)
             {

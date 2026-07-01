@@ -66,6 +66,212 @@ namespace PNet.Actor.UnitTests.Mesh
         }
 
         [Fact]
+        public void validate_packet_rejects_corrupted_handshake_initiation_mac_regression()
+        {
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            using var initiator_static = KeyPair.Generate();
+            using var responder_static = KeyPair.Generate();
+
+            var initiator_protocol = new PNetMeshProtocol(initiator_static.PrivateKey, initiator_static.PublicKey, psk);
+            var responder_protocol = new PNetMeshProtocol(responder_static.PrivateKey, responder_static.PublicKey, psk);
+
+            using var initiator = initiator_protocol.CreateInitiator(1, responder_static.PublicKey);
+
+            Span<byte> buffer = new byte[4098];
+            initiator.WriteInitiationMessage(buffer, out var bytesWritten);
+            var initiation = buffer.Slice(0, bytesWritten).ToArray();
+
+            Assert.True(responder_protocol.ValidatePacket(initiation));
+
+            initiation[PNetMeshHandshake.InitiationMessageSize - 32] ^= 0xff;
+
+            Assert.False(responder_protocol.ValidatePacket(initiation));
+        }
+
+        [Fact]
+        public void validate_packet_rejects_corrupted_handshake_response_mac_regression()
+        {
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            using var initiator_static = KeyPair.Generate();
+            using var responder_static = KeyPair.Generate();
+
+            var initiator_protocol = new PNetMeshProtocol(initiator_static.PrivateKey, initiator_static.PublicKey, psk);
+            var responder_protocol = new PNetMeshProtocol(responder_static.PrivateKey, responder_static.PublicKey, psk);
+
+            using var initiator = initiator_protocol.CreateInitiator(1, responder_static.PublicKey);
+            using var responder = responder_protocol.CreateResponder(2);
+
+            Span<byte> initiationBuffer = new byte[4098];
+            Span<byte> responseBuffer = new byte[4098];
+            initiator.WriteInitiationMessage(initiationBuffer, out var bytesWritten);
+            Assert.True(responder.TryReadInitiationMessage(initiationBuffer.Slice(0, bytesWritten)));
+            Assert.True(responder.TryWriteResponseMessage(responseBuffer, out bytesWritten, out var responder_transport));
+            Assert.NotNull(responder_transport);
+
+            var response = responseBuffer.Slice(0, bytesWritten).ToArray();
+            Assert.True(initiator_protocol.ValidatePacket(response));
+
+            response[PNetMeshHandshake.ResponseMessageSize - 32] ^= 0xff;
+
+            Assert.False(initiator_protocol.ValidatePacket(response));
+        }
+
+        [Fact]
+        public void try_read_response_rejects_wrong_psk_regression()
+        {
+            var initiatorPsk = new byte[32];
+            var responderPsk = new byte[32];
+            RandomNumberGenerator.Fill(initiatorPsk);
+            RandomNumberGenerator.Fill(responderPsk);
+
+            using var initiator_static = KeyPair.Generate();
+            using var responder_static = KeyPair.Generate();
+
+            var initiator_protocol = new PNetMeshProtocol(initiator_static.PrivateKey, initiator_static.PublicKey, initiatorPsk);
+            var responder_protocol = new PNetMeshProtocol(responder_static.PrivateKey, responder_static.PublicKey, responderPsk);
+
+            using var initiator = initiator_protocol.CreateInitiator(1, responder_static.PublicKey);
+            using var responder = responder_protocol.CreateResponder(2);
+
+            Span<byte> buffer = new byte[4098];
+            initiator.WriteInitiationMessage(buffer, out var bytesWritten);
+
+            Assert.True(responder_protocol.ValidatePacket(buffer.Slice(0, bytesWritten)));
+            Assert.True(responder.TryReadInitiationMessage(buffer.Slice(0, bytesWritten)));
+            Assert.True(responder.TryWriteResponseMessage(buffer, out bytesWritten, out var responder_transport));
+            Assert.NotNull(responder_transport);
+            Assert.False(initiator.TryReadResponseMessage(buffer.Slice(0, bytesWritten), out var initiator_transport));
+            Assert.Null(initiator_transport);
+        }
+
+        [Fact]
+        public void validate_packet_rejects_wrong_responder_key_regression()
+        {
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            using var initiator_static = KeyPair.Generate();
+            using var expected_responder_static = KeyPair.Generate();
+            using var wrong_responder_static = KeyPair.Generate();
+
+            var initiator_protocol = new PNetMeshProtocol(initiator_static.PrivateKey, initiator_static.PublicKey, psk);
+            var expected_responder_protocol = new PNetMeshProtocol(expected_responder_static.PrivateKey, expected_responder_static.PublicKey, psk);
+            var wrong_responder_protocol = new PNetMeshProtocol(wrong_responder_static.PrivateKey, wrong_responder_static.PublicKey, psk);
+
+            using var initiator = initiator_protocol.CreateInitiator(1, expected_responder_static.PublicKey);
+
+            Span<byte> buffer = new byte[4098];
+            initiator.WriteInitiationMessage(buffer, out var bytesWritten);
+
+            Assert.True(expected_responder_protocol.ValidatePacket(buffer.Slice(0, bytesWritten)));
+            Assert.False(wrong_responder_protocol.ValidatePacket(buffer.Slice(0, bytesWritten)));
+        }
+
+        [Fact]
+        public void try_read_message_rejects_tampered_payload_without_plaintext_regression()
+        {
+            Span<byte> buffer1 = new byte[4098];
+            Span<byte> buffer2 = new byte[4098];
+
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            using var initiator_static = KeyPair.Generate();
+            using var responder_static = KeyPair.Generate();
+
+            var initiator_protocol = new PNetMeshProtocol(initiator_static.PrivateKey, initiator_static.PublicKey, psk);
+            var responder_protocol = new PNetMeshProtocol(responder_static.PrivateKey, responder_static.PublicKey, psk);
+
+            using var initiator = initiator_protocol.CreateInitiator(1, responder_static.PublicKey);
+            using var responder = responder_protocol.CreateResponder(2);
+
+            initiator.WriteInitiationMessage(buffer1, out var bytesWritten);
+            Assert.True(responder.TryReadInitiationMessage(buffer1.Slice(0, bytesWritten)));
+            Assert.True(responder.TryWriteResponseMessage(buffer2, out bytesWritten, out var responder_transport));
+            Assert.True(initiator.TryReadResponseMessage(buffer2.Slice(0, bytesWritten), out var initiator_transport));
+
+            initiator_transport.WriteMessage(Encoding.UTF8.GetBytes("tamper"), buffer1, out bytesWritten, out _);
+            var packet = buffer1.Slice(0, bytesWritten).ToArray();
+            packet[packet.Length - 1] ^= 0xff;
+
+            Assert.False(responder_transport.TryReadMessage(packet, buffer2, out bytesWritten, out _));
+            Assert.Equal(0, bytesWritten);
+        }
+
+        [Fact]
+        public void try_read_message_does_not_consume_counter_for_tampered_payload_regression()
+        {
+            Span<byte> buffer1 = new byte[4098];
+            Span<byte> buffer2 = new byte[4098];
+
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            using var initiator_static = KeyPair.Generate();
+            using var responder_static = KeyPair.Generate();
+
+            var initiator_protocol = new PNetMeshProtocol(initiator_static.PrivateKey, initiator_static.PublicKey, psk);
+            var responder_protocol = new PNetMeshProtocol(responder_static.PrivateKey, responder_static.PublicKey, psk);
+
+            using var initiator = initiator_protocol.CreateInitiator(1, responder_static.PublicKey);
+            using var responder = responder_protocol.CreateResponder(2);
+
+            initiator.WriteInitiationMessage(buffer1, out var bytesWritten);
+            Assert.True(responder.TryReadInitiationMessage(buffer1.Slice(0, bytesWritten)));
+            Assert.True(responder.TryWriteResponseMessage(buffer2, out bytesWritten, out var responder_transport));
+            Assert.True(initiator.TryReadResponseMessage(buffer2.Slice(0, bytesWritten), out var initiator_transport));
+
+            initiator_transport.WriteMessage(Encoding.UTF8.GetBytes("authentic"), buffer1, out bytesWritten, out _);
+            var authentic = buffer1.Slice(0, bytesWritten).ToArray();
+            var tampered = authentic.ToArray();
+            tampered[tampered.Length - 1] ^= 0xff;
+
+            Assert.False(responder_transport.TryReadMessage(tampered, buffer2, out bytesWritten, out _));
+            Assert.Equal(0, bytesWritten);
+
+            Assert.True(responder_transport.TryReadMessage(authentic, buffer2, out bytesWritten, out _));
+            Assert.Equal("authentic", Encoding.UTF8.GetString(buffer2.Slice(0, bytesWritten)));
+        }
+
+        [Fact]
+        public void try_read_message_rejects_unknown_receiver_index_without_plaintext_regression()
+        {
+            Span<byte> buffer1 = new byte[4098];
+            Span<byte> buffer2 = new byte[4098];
+
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            using var initiator_static = KeyPair.Generate();
+            using var responder_static = KeyPair.Generate();
+
+            var initiator_protocol = new PNetMeshProtocol(initiator_static.PrivateKey, initiator_static.PublicKey, psk);
+            var responder_protocol = new PNetMeshProtocol(responder_static.PrivateKey, responder_static.PublicKey, psk);
+
+            using var initiator = initiator_protocol.CreateInitiator(1, responder_static.PublicKey);
+            using var responder = responder_protocol.CreateResponder(2);
+
+            initiator.WriteInitiationMessage(buffer1, out var bytesWritten);
+            Assert.True(responder.TryReadInitiationMessage(buffer1.Slice(0, bytesWritten)));
+            Assert.True(responder.TryWriteResponseMessage(buffer2, out bytesWritten, out var responder_transport));
+            Assert.True(initiator.TryReadResponseMessage(buffer2.Slice(0, bytesWritten), out var initiator_transport));
+
+            initiator_transport.WriteMessage(Encoding.UTF8.GetBytes("unknown"), buffer1, out bytesWritten, out _);
+            var packet = buffer1.Slice(0, bytesWritten).ToArray();
+            packet[4] = 0xfe;
+            packet[5] = 0xca;
+            packet[6] = 0xad;
+            packet[7] = 0xde;
+
+            Assert.False(responder_transport.TryReadMessage(packet, buffer2, out bytesWritten, out _));
+            Assert.Equal(0, bytesWritten);
+        }
+
+        [Fact]
         public void exchange_handshake_cookieless()
         {
             var initiator_sender_index = 1u;
