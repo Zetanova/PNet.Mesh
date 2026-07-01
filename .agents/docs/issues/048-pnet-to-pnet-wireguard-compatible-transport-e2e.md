@@ -16,6 +16,8 @@ gate-depends:
   - 043
   - 044
 gate-reason: "Native PNet e2e coverage is blocked until the transport and helper surfaces are implementation-ready."
+gate-last-checked: 2026-07-01
+gate-status: blocked
 assumptions-date: 2026-07-01
 brief: "description+playbook"
 views:
@@ -67,3 +69,13 @@ The existing Testcontainers harness is the right e2e home for native PNet transp
 | 1 | F | PNet-to-PNet communication over the WireGuard-compatible transport should support PNet internal protobuf frames, not only IPv4/IPv6 packets. | verified | source | The user separated PNet internal payloads from stock WireGuard peers and designed the `X000PPPP` PNet frame. |
 | 2 | F | Existing open issues do not explicitly provide a PNet-to-PNet e2e test for internal protobuf frames. | verified | source | #042 targets `wireguard-go`, while #045-#047 target relay paths to stock WireGuard peers. |
 | 3 | F | PNet frame parsing should validate marker and padding behavior. | verified | source | #043 defines the marker and #044 defines padding semantics. |
+
+## Gate Validation
+
+| Date | Gate | Method | Result | Evidence |
+|------|------|--------|--------|----------|
+| 2026-07-01 | `gate-depends: [036, 037, 038, 040, 043, 044]` | source | blocked | #036 is completed, but #037, #038, #040, #043, and #044 remain open, so the issue stays gated. |
+
+## Validation History
+
+- 2026-07-01: dependency gate cleared by #036; remaining dependency gates #037, #038, #040, #043, and #044 keep #048 gated.

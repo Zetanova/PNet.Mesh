@@ -17,6 +17,8 @@ gate-depends:
   - 041
   - 042
 gate-reason: "Relay interop depends on the unfinished WireGuard-compatible transport and interop children."
+gate-last-checked: 2026-07-01
+gate-status: blocked
 assumptions-date: 2026-07-01
 brief: "description+playbook"
 views:
@@ -73,3 +75,13 @@ Primary `wireguard-go` receive/send flow shows that a normal UDP relay makes nod
 | 2 | F | In a normal userspace UDP relay, node3 will reply to node2's observed UDP endpoint rather than directly to node1. | verified | source | `wireguard-go` stores the source endpoint from an authenticated handshake initiation before sending its handshake response, so a userspace UDP relay makes node2 the observed source endpoint. |
 | 3 | F | Node2 should forward WireGuard datagrams opaquely and must not terminate the WireGuard session. | verified | source | The user asked for node2 to relay packets for node1 to a third WireGuard peer, not to become the peer itself. |
 | 4 | F | Node1 must craft a valid IPv4 or IPv6 packet plaintext for stock `wireguard-go` node3. | verified | source | The user confirmed stock WireGuard peers require regular IP packet plaintext. |
+
+## Gate Validation
+
+| Date | Gate | Method | Result | Evidence |
+|------|------|--------|--------|----------|
+| 2026-07-01 | `gate-depends: [036, 037, 038, 039, 040, 041, 042]` | source | blocked | #036 is completed, but #037, #038, #039, #040, #041, and #042 remain open, so the issue stays gated. |
+
+## Validation History
+
+- 2026-07-01: dependency gate cleared by #036; remaining dependency gates #037, #038, #039, #040, #041, and #042 keep #045 gated.

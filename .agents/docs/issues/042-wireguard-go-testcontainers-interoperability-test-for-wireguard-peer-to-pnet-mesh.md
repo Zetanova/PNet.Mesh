@@ -17,6 +17,8 @@ gate-depends:
   - 040
   - 041
 gate-reason: "The interop test becomes implementation-ready once the core transport and plaintext helper slices are ready; #039 is recommended before any load/cookie scenario."
+gate-last-checked: 2026-07-01
+gate-status: blocked
 assumptions-date: 2026-07-01
 brief: "description+playbook"
 views:
@@ -65,3 +67,13 @@ The existing Testcontainers harness is the right e2e home for native PNet transp
 |---|---|---|---|---|---|
 | 1 | F | The interoperability harness should prove handshake and encrypted packet exchange. | verified | source | The user asked for peer-to-peer communication verification. |
 | 2 | F | `wireguard-go` or an equivalent Testcontainers setup is the intended external peer harness. | verified | source | The user explicitly named `wireguard-go` or equivalent Testcontainers setup. |
+
+## Gate Validation
+
+| Date | Gate | Method | Result | Evidence |
+|------|------|--------|--------|----------|
+| 2026-07-01 | `gate-depends: [036, 037, 038, 040, 041]` | source | blocked | #036 is completed, but #037, #038, #040, and #041 remain open, so the issue stays gated. |
+
+## Validation History
+
+- 2026-07-01: dependency gate cleared by #036; remaining dependency gates #037, #038, #040, and #041 keep #042 gated.

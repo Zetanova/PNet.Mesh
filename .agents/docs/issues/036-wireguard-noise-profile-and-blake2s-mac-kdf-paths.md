@@ -3,13 +3,15 @@ issue: 036
 date: 2026-07-01
 source: wireguard/transport
 priority: high
-status: ready
+status: completed
 research-status: complete
 research-date: 2026-07-01
-terminal-state: ready
+terminal-state: completed
 split-status: child
 parent-issue: 035
 assumptions-date: 2026-07-01
+completion-date: 2026-07-01
+commits: [ba0de3d43596a4d4ed883f8999df0260df8a57b5]
 brief: "description+playbook"
 views:
   enrich: "description+playbook+parent-tracking+scope+acceptance-criteria+assumptions"
@@ -56,3 +58,16 @@ Primary WireGuard protocol docs define the required `Noise_IKpsk2_25519_ChaChaPo
 |---|---|---|---|---|---|
 | 1 | F | The transport mode should use `Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s`. | verified | source | The user named the exact WireGuard Noise profile. |
 | 2 | F | The WireGuard prologue and BLAKE2s keyed hash paths belong in this slice. | verified | source | The user requested the prologue plus mac1/mac2/cookie BLAKE2s paths. |
+
+## Completion Report
+
+Completed in `ba0de3d43596a4d4ed883f8999df0260df8a57b5`.
+
+- Added explicit `PNetMeshTransportMode.WireGuard` while preserving the default PNet transport mode.
+- WireGuard mode selects `Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s` and the WireGuard prologue, and uses BouncyCastle BLAKE2s for mac1/mac2 helpers while PNet mode keeps BLAKE2b behavior.
+- Added regression coverage for the WireGuard profile/mac1 vector and the BLAKE2s Noise handshake/transport exchange.
+- Verification passed: focused protocol tests, restore, vulnerable/deprecated checks, build, full unit tests, scoped whitespace, and `git diff --check`.
+
+## Resolving Commits
+
+- `ba0de3d43596a4d4ed883f8999df0260df8a57b5` - add WireGuard crypto profile mode

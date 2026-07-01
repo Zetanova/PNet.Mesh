@@ -14,6 +14,8 @@ gate-depends:
   - 038
   - 039
 gate-reason: "Shared-port registration and demux depend on BLAKE2s MAC helpers, packet framing, receiver-index state, and cookie-gate behavior."
+gate-last-checked: 2026-07-01
+gate-status: blocked
 assumptions-date: 2026-07-01
 brief: "description+playbook"
 views:
@@ -72,3 +74,13 @@ WireGuard protocol docs and `wireguard-go` show the relay needs BLAKE2s MAC help
 | 3 | F | WireGuard transport packets do not carry MAC1/MAC2 and therefore require a learned receiver-index fast path. | verified | source | WireGuard transport packet layout is type, receiver index, counter, encrypted payload; `wireguard-go` `MessageTransport` has no MAC fields. |
 | 4 | F | MAC2 should not be the primary routing signal for the shared-port relay. | verified | source | WireGuard uses MAC2 only for cookie/load DoS gating and may send zero MAC2 when no valid cookie exists. |
 | 5 | F | Node2 can remain WireGuard-aware only at packet metadata level and still avoid decrypting or terminating sessions. | verified | logical | #045 requires opaque relay behavior, while this issue routes by clear packet metadata only. |
+
+## Gate Validation
+
+| Date | Gate | Method | Result | Evidence |
+|------|------|--------|--------|----------|
+| 2026-07-01 | `gate-depends: [036, 037, 038, 039]` | source | blocked | #036 is completed, but #037, #038, and #039 remain open, so the issue stays gated. |
+
+## Validation History
+
+- 2026-07-01: dependency gate cleared by #036; remaining dependency gates #037, #038, and #039 keep #046 gated.
