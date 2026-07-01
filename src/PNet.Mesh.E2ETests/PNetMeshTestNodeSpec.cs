@@ -7,6 +7,7 @@ namespace PNet.Actor.E2ETests.Mesh;
 public sealed class PNetMeshTestNodeSpec
 {
     const string ComposePsk = "lBeIat8LnqvYKJ7hZBIysLwkUbxLoTfSYzq+wIDENa4=";
+    const string InvalidComposePsk = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 
     static readonly PNetMeshNodeIdentity[] ComposeNodes =
     {
@@ -120,6 +121,20 @@ public sealed class PNetMeshTestNodeSpec
     {
         var node00 = DirectPeerNode("node00", "H+wvAlb/Q+pKX2z9l5qJpD+ikXm+6pxJQtrp69ZkyYI=", 12401, "node01", 12402);
         var node01 = DirectPeerNode("node01", "3VXQslNLrlZMjjo6T+RJ77WKnynH+LT1ZOBs74kISOk=", 12402, "node00", 12401);
+
+        return new[] { node00, node01 };
+    }
+
+    public static IReadOnlyList<PNetMeshTestNodeSpec> InvalidPskDirectPeerTopology()
+    {
+        var node00 = DirectPeerNode("node00", "H+wvAlb/Q+pKX2z9l5qJpD+ikXm+6pxJQtrp69ZkyYI=", 12401, "node01", 12402);
+        var node01 = DirectPeerNodeWithPsk(
+            "node01",
+            "3VXQslNLrlZMjjo6T+RJ77WKnynH+LT1ZOBs74kISOk=",
+            12402,
+            "node00",
+            12401,
+            InvalidComposePsk);
 
         return new[] { node00, node01 };
     }
@@ -319,6 +334,34 @@ public sealed class PNetMeshTestNodeSpec
             PublicKey = GetComposePublicKey(name),
             PrivateKey = privateKey,
             Psk = ComposePsk,
+            Port = port,
+            ConnectDelaySeconds = 4,
+            RunDurationSeconds = 10,
+            ConnectNodes = new[] { peerName },
+            PingNodes = new[] { peerName },
+            Peers = new[] { StaticPeer(peerName, $"{peerName}:{peerPort}") },
+            Nodes = new[]
+            {
+                new PNetMeshNodeIdentity { Name = name, PublicKey = GetComposePublicKey(name) },
+                new PNetMeshNodeIdentity { Name = peerName, PublicKey = GetComposePublicKey(peerName) }
+            }
+        };
+    }
+
+    static PNetMeshTestNodeSpec DirectPeerNodeWithPsk(
+        string name,
+        string privateKey,
+        int port,
+        string peerName,
+        int peerPort,
+        string psk)
+    {
+        return new PNetMeshTestNodeSpec
+        {
+            Name = name,
+            PublicKey = GetComposePublicKey(name),
+            PrivateKey = privateKey,
+            Psk = psk,
             Port = port,
             ConnectDelaySeconds = 4,
             RunDurationSeconds = 10,

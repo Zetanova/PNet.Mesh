@@ -95,6 +95,47 @@ public sealed class PNetMeshTestNodeHarnessTests
     }
 
     [Fact]
+    public async Task invalid_psk_peers_do_not_deliver_payloads()
+    {
+        await using var harness = new PNetMeshTestNodeHarness();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromMinutes(5));
+
+        await harness.InitializeAsync(timeout.Token);
+
+        var containers = new Dictionary<string, IContainer>(StringComparer.Ordinal);
+        var nodes = PNetMeshTestNodeSpec.InvalidPskDirectPeerTopology();
+        var expectedLogsByNode = new Dictionary<string, string[]>(StringComparer.Ordinal)
+        {
+            ["node00"] = new[]
+            {
+                "Node[node00] started",
+                "node00 got 0 pongs"
+            },
+            ["node01"] = new[]
+            {
+                "Node[node01] started",
+                "node01 got 0 pongs"
+            }
+        };
+
+        foreach (var node in nodes)
+        {
+            containers[node.Name] = await harness.StartNodeAsync(node, timeout.Token);
+        }
+
+        var logsByNode = await WaitForTopologyLogsAsync(containers, expectedLogsByNode, timeout.Token);
+
+        foreach (var entry in logsByNode.OrderBy(n => n.Key, StringComparer.Ordinal))
+        {
+            _output.WriteLine($"===== {entry.Key} =====");
+            _output.WriteLine(entry.Value);
+            Assert.DoesNotContain("ping from", entry.Value);
+            Assert.DoesNotContain("pong from", entry.Value);
+        }
+    }
+
+    [Fact]
     public async Task bootstrap_peer_discovery_exchanges_payloads_between_learned_peers()
     {
         await using var harness = new PNetMeshTestNodeHarness();
