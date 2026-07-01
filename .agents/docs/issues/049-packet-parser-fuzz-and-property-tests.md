@@ -14,6 +14,8 @@ gate-depends:
   - 044
   - 046
 gate-reason: "Parser/property coverage depends on the framing, raw helper, padding, and shared-port demux surfaces; keep deterministic xUnit corpus coverage first."
+gate-last-checked: 2026-07-01
+gate-status: blocked
 assumptions-date: 2026-07-01
 brief: "description+playbook"
 views:
@@ -65,3 +67,13 @@ Parser and boundary surfaces are not ready yet: this issue depends on framing, r
 | 1 | F | Current open issues require focused parser tests but do not explicitly require fuzz or property-style coverage. | verified | source | #037, #043, #044, and #046 mention focused tests for parser behavior, not fuzz/property coverage. |
 | 2 | F | Fuzz/property tests are useful for byte-oriented packet parser boundaries. | unverified | internal | Verify suitable .NET test tooling and deterministic CI behavior during enrichment. |
 | 3 | F | The fuzz/property harness should remain deterministic in normal test runs. | verified | logical | Project tests must be reproducible; seed corpus coverage can provide deterministic regression cases. |
+
+## Gate Validation
+
+| Date | Gate | Method | Result | Evidence |
+|------|------|--------|--------|----------|
+| 2026-07-01 | `gate-depends: [037, 043, 044, 046]` | source | blocked | #037 is completed, but #043, #044, and #046 remain open, so the issue stays gated. |
+
+## Validation History
+
+- 2026-07-01: dependency gate cleared by #037; remaining dependency gates #043, #044, and #046 keep #049 gated.

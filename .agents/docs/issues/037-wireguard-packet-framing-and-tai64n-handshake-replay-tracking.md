@@ -3,13 +3,15 @@ issue: 037
 date: 2026-07-01
 source: wireguard/transport
 priority: high
-status: ready
+status: completed
 research-status: complete
 research-date: 2026-07-01
-terminal-state: ready
+terminal-state: completed
 split-status: child
 parent-issue: 035
 assumptions-date: 2026-07-01
+completion-date: 2026-07-01
+commits: [216f24600b5ec25881bda70ae4b4d754a7c20955]
 brief: "description+playbook"
 views:
   enrich: "description+playbook+parent-tracking+scope+acceptance-criteria+assumptions"
@@ -56,3 +58,17 @@ WireGuard protocol docs define the 148-byte initiation, 92-byte response, 64-byt
 |---|---|---|---|---|---|
 | 1 | F | The requested framing work includes 148-byte initiation, 92-byte response, 64-byte cookie, and 16-byte transport header layouts. | verified | source | The user named those packet shapes explicitly. |
 | 2 | F | TAI64N timestamp handling belongs with handshake replay tracking. | verified | source | The user requested TAI64N timestamp encode/decode and replay tracking together. |
+
+## Completion Report
+
+Completed in `216f24600b5ec25881bda70ae4b4d754a7c20955`.
+
+- Added WireGuard-specific packet framing helpers for 32-bit message types, fixed packet-size validation, receiver-index extraction, and transport headers.
+- Added TAI64N encode/decode helpers and handshake replay tracking, including responder-side rejection of replayed WireGuard initiation timestamps.
+- Updated WireGuard handshake initiation layout to 148 bytes while preserving the PNet default initiation size.
+- Added regression coverage for packet sizes, bad cookie/reserved packet rejection, TAI64N round trips, replay tracking, and protocol-level replay rejection.
+- Verification passed: focused protocol tests, direct server exchange test, Release build, scoped whitespace, and `git diff --check`. Full unit verification is blocked by pre-existing issue #052.
+
+## Resolving Commits
+
+- `216f24600b5ec25881bda70ae4b4d754a7c20955` - add WireGuard packet framing helpers

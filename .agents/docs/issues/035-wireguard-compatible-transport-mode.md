@@ -64,7 +64,7 @@ This is a parent tracking issue. Implement child issues, not this parent directl
 | Child | Scope | Status | Notes |
 |-------|-------|--------|-------|
 | #036 | WireGuard Noise profile and BLAKE2s MAC/KDF paths | completed | Core crypto/profile split. |
-| #037 | Packet framing and TAI64N handshake replay tracking | ready | Message sizes, headers, and replay timestamps. |
+| #037 | Packet framing and TAI64N handshake replay tracking | completed | Message sizes, headers, and replay timestamps. |
 | #038 | Peer, receiver-index, keypair, and rekey lifecycle state | ready | Peer table and key lifecycle management. |
 | #039 | Cookie reply and DoS gate behavior | ready | Load-shedding and endpoint-bound cookies. |
 | #040 | Decrypted transport plaintext as raw payload bytes | gated | Raw authenticated bytes only, no protobuf/IP parsing. |
@@ -91,8 +91,9 @@ This is a parent tracking issue. Implement child issues, not this parent directl
 
 | Date | Gate | Method | Result | Evidence |
 |------|------|--------|--------|----------|
-| 2026-07-01 | `gate-depends: [036, 037, 038, 039, 040, 041, 042, 045, 046, 047, 048]` | source | blocked | #036 is completed, but #037, #038, #039, #040, #041, #042, #045, #046, #047, and #048 remain open, so the parent stays gated. |
+| 2026-07-01 | `gate-depends: [036, 037, 038, 039, 040, 041, 042, 045, 046, 047, 048]` | source | blocked | #036 and #037 are completed, but #038, #039, #040, #041, #042, #045, #046, #047, and #048 remain open, so the parent stays gated. |
 
 ## Validation History
 
 - 2026-07-01: dependency gate cleared by #036; remaining dependency gates #037, #038, #039, #040, #041, #042, #045, #046, #047, and #048 keep #035 gated.
+- 2026-07-01: dependency gate cleared by #037; remaining dependency gates #038, #039, #040, #041, #042, #045, #046, #047, and #048 keep #035 gated.

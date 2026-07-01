@@ -72,8 +72,9 @@ The existing Testcontainers harness is the right e2e home for native PNet transp
 
 | Date | Gate | Method | Result | Evidence |
 |------|------|--------|--------|----------|
-| 2026-07-01 | `gate-depends: [036, 037, 038, 040, 041]` | source | blocked | #036 is completed, but #037, #038, #040, and #041 remain open, so the issue stays gated. |
+| 2026-07-01 | `gate-depends: [036, 037, 038, 040, 041]` | source | blocked | #036 and #037 are completed, but #038, #040, and #041 remain open, so the issue stays gated. |
 
 ## Validation History
 
 - 2026-07-01: dependency gate cleared by #036; remaining dependency gates #037, #038, #040, and #041 keep #042 gated.
+- 2026-07-01: dependency gate cleared by #037; remaining dependency gates #038, #040, and #041 keep #042 gated.

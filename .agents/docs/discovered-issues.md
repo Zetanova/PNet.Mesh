@@ -1,7 +1,7 @@
 ---
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
 last-entry: 2026-07-01
-last-opened: 2026-07-01-051
+last-opened: 2026-07-01-052
 open-count: 16
 last-completed: 2026-07-01
 ---
@@ -15,7 +15,6 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | # | Date | Source | Summary | Priority | Status | File |
 |---|------|--------|---------|----------|--------|------|
 | 035 | 2026-07-01 | wireguard/transport | Track WireGuard-compatible transport mode through crypto, raw payloads, IP/PNet e2e, and relay interop. | high | gated | [035-wireguard-compatible-transport-mode](issues/035-wireguard-compatible-transport-mode.md) |
-| 037 | 2026-07-01 | wireguard/transport | Implement WireGuard packet framing and TAI64N handshake replay tracking. | high | ready | [037-wireguard-packet-framing-and-tai64n-handshake-replay-tracking](issues/037-wireguard-packet-framing-and-tai64n-handshake-replay-tracking.md) |
 | 038 | 2026-07-01 | wireguard/transport | Implement WireGuard peer, receiver-index, keypair, and rekey lifecycle state. | high | ready | [038-wireguard-peer-receiver-index-keypair-and-rekey-lifecycle-state](issues/038-wireguard-peer-receiver-index-keypair-and-rekey-lifecycle-state.md) |
 | 039 | 2026-07-01 | wireguard/transport | Implement WireGuard cookie reply and DoS gate behavior. | high | ready | [039-wireguard-cookie-reply-and-dos-gate-behavior](issues/039-wireguard-cookie-reply-and-dos-gate-behavior.md) |
 | 040 | 2026-07-01 | wireguard/transport | Expose decrypted WireGuard transport plaintext as raw payload bytes. | high | gated | [040-expose-decrypted-wireguard-transport-plaintext-as-raw-payload-bytes](issues/040-expose-decrypted-wireguard-transport-plaintext-as-raw-payload-bytes.md) |
@@ -30,6 +29,7 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | 049 | 2026-07-01 | protocol/tests | Add fuzz and property tests for WireGuard/PNet packet parser boundaries. | medium | gated | [049-packet-parser-fuzz-and-property-tests](issues/049-packet-parser-fuzz-and-property-tests.md) |
 | 050 | 2026-07-01 | wireguard/relay | Add redacted relay audit events and diagnostics for leases, demux, promotion, and fallback. | medium | gated | [050-relay-audit-and-diagnostics-hardening](issues/050-relay-audit-and-diagnostics-hardening.md) |
 | 051 | 2026-07-01 | nuget/audit | Review transitive NuGet package updates reported by the dependency audit. | medium | gated | [051-review-transitive-nuget-package-updates](issues/051-review-transitive-nuget-package-updates.md) |
+| 052 | 2026-07-01 | testing/unit | Investigate baseline failure in the three-server localhost relay exchange test. | medium | gated | [052-baseline-three-server-relay-test-failure](issues/052-baseline-three-server-relay-test-failure.md) |
 
 ## Outgoing MRs
 
@@ -50,6 +50,7 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 
 | # | Date | Completed | Summary | Commits | File |
 |---|------|-----------|---------|---------|------|
+| 037 | 2026-07-01 | 2026-07-01 | Implement WireGuard packet framing and TAI64N handshake replay tracking. | 216f246 | [037-wireguard-packet-framing-and-tai64n-handshake-replay-tracking](issues/037-wireguard-packet-framing-and-tai64n-handshake-replay-tracking.md) |
 | 036 | 2026-07-01 | 2026-07-01 | Implement WireGuard Noise profile and BLAKE2s MAC/KDF paths. | ba0de3d | [036-wireguard-noise-profile-and-blake2s-mac-kdf-paths](issues/036-wireguard-noise-profile-and-blake2s-mac-kdf-paths.md) |
 | 034 | 2026-07-01 | 2026-07-01 | Clear README/docs/workflow compose smoke dependencies so #011 can remove compose artifacts. | 4cb2ae3019cc4d15a2d4baadf8a53fac08db9844 | [034-clear-readme-docs-workflow-compose-smoke-deps](issues/034-clear-readme-docs-workflow-compose-smoke-deps.md) |
 | 014 | 2026-06-30 | 2026-07-01 | Implement or test UDP fragment transport and the 32-byte encapsulation claim. | 672f48e489f8c3253df29ac02f9cf407a190b4ad | [014-udp-fragments-and-overhead-coverage](issues/014-udp-fragments-and-overhead-coverage.md) |

@@ -71,8 +71,9 @@ The current source still decrypts into a protobuf packet and strips a trailing P
 
 | Date | Gate | Method | Result | Evidence |
 |------|------|--------|--------|----------|
-| 2026-07-01 | `gate-depends: [036, 037, 038]` | source | blocked | #036 is completed, but #037 and #038 remain open, so the issue stays gated. |
+| 2026-07-01 | `gate-depends: [036, 037, 038]` | source | blocked | #036 and #037 are completed, but #038 remains open, so the issue stays gated. |
 
 ## Validation History
 
 - 2026-07-01: dependency gate cleared by #036; remaining dependency gates #037 and #038 keep #040 gated.
+- 2026-07-01: dependency gate cleared by #037; remaining dependency gate #038 keeps #040 gated.

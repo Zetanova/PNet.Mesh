@@ -79,8 +79,9 @@ WireGuard protocol docs and `wireguard-go` show the relay needs BLAKE2s MAC help
 
 | Date | Gate | Method | Result | Evidence |
 |------|------|--------|--------|----------|
-| 2026-07-01 | `gate-depends: [036, 037, 038, 039]` | source | blocked | #036 is completed, but #037, #038, and #039 remain open, so the issue stays gated. |
+| 2026-07-01 | `gate-depends: [036, 037, 038, 039]` | source | blocked | #036 and #037 are completed, but #038 and #039 remain open, so the issue stays gated. |
 
 ## Validation History
 
 - 2026-07-01: dependency gate cleared by #036; remaining dependency gates #037, #038, and #039 keep #046 gated.
+- 2026-07-01: dependency gate cleared by #037; remaining dependency gates #038 and #039 keep #046 gated.
