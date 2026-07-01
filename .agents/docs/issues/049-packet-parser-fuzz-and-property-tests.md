@@ -3,10 +3,13 @@ issue: 049
 date: 2026-07-01
 source: protocol/tests
 priority: medium
-status: ready
+status: completed
 research-status: complete
 research-date: 2026-07-01
-terminal-state: ready
+terminal-state: completed
+completion-date: 2026-07-01
+commits:
+  - 6e3ac9a351a7d8e107d1a31527da719631c3c653
 gate: "Wait for the parser and demux surfaces."
 gate-depends:
   - 037
@@ -65,7 +68,7 @@ Parser and boundary surfaces are not ready yet: this issue depends on framing, r
 | # | Cat | Assumption | Status | Method | Detail |
 |---|-----|------------|--------|--------|--------|
 | 1 | F | Current open issues require focused parser tests but do not explicitly require fuzz or property-style coverage. | verified | source | #037, #043, #044, and #046 mention focused tests for parser behavior, not fuzz/property coverage. |
-| 2 | F | Fuzz/property tests are useful for byte-oriented packet parser boundaries. | unverified | internal | Verify suitable .NET test tooling and deterministic CI behavior during enrichment. |
+| 2 | F | Deterministic xUnit corpus coverage can exercise byte-oriented parser boundaries without adding a fuzzing package. | verified | test | `PNetMeshParserPropertyTests` covers random bytes, malformed WireGuard sizes, relay demux match counts, receiver-index scope/expiry, PNet markers, and padding boundaries. |
 | 3 | F | The fuzz/property harness should remain deterministic in normal test runs. | verified | logical | Project tests must be reproducible; seed corpus coverage can provide deterministic regression cases. |
 
 ## Gate Validation
@@ -80,3 +83,27 @@ Parser and boundary surfaces are not ready yet: this issue depends on framing, r
 - 2026-07-01: dependency gate cleared by #043; remaining dependency gates #044 and #046 keep #049 gated.
 - 2026-07-01: dependency gate cleared by #044; remaining dependency gate #046 keeps #049 gated.
 - 2026-07-01: dependency gate cleared by #046; #049 is now ready.
+
+## Completion Report
+
+Implemented deterministic parser property coverage in `src/PNet.Mesh.UnitTests/PNetMeshParserPropertyTests.cs`.
+
+Coverage added:
+- Random byte corpus probes packet framing, payload framing, and shared-port relay routing without parser crashes.
+- WireGuard demux rejects malformed initiation/response sizes, truncated `PacketData`, cookie reply, and reserved message types before MAC1 scanning.
+- PNet marker parsing accepts all extended-header low-nibble padding values and rejects representative reserved marker bytes.
+- PNet padding rejects truncated and non-zero padding for declared lengths `1..15`.
+- Relay demux covers zero, single, and ambiguous MAC1 matches without decrypting payloads.
+- Receiver-index fast path covers endpoint scoping and expiry for representative index values.
+
+Verification:
+- `timeout 120s dotnet build src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-restore` passed.
+- `timeout 120s dotnet run --project src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -class PNet.Actor.UnitTests.Mesh.PNetMeshParserPropertyTests -parallel none` passed, 6/6.
+- `timeout 120s dotnet format whitespace PNet.Mesh.sln --include src/PNet.Mesh.UnitTests/PNetMeshParserPropertyTests.cs --no-restore --verify-no-changes --verbosity minimal` passed.
+- `timeout 120s dotnet build PNet.Mesh.sln -c Release --no-restore` passed.
+- `timeout 180s dotnet run --project src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -parallel none` passed, 138/138.
+- Review gate approved after adding truncated `PacketData` and reserved marker coverage.
+
+## Resolving Commits
+
+- `6e3ac9a351a7d8e107d1a31527da719631c3c653` test: add parser property coverage
