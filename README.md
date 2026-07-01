@@ -12,7 +12,7 @@ P2P protocol to use inside managed dotnet application
 .) low overhead of 18bytes per datagram
 .) same security as wireguard
 .) crypto routing and crypto discovery
-.) NAT trafersal and neighbor detection
+.) neighbor endpoint detection and relay candidate exchange for covered container flows; full ICE/STUN/TURN NAT traversal is not implemented
 .) compression
 
 ## Used Protocols
@@ -23,7 +23,7 @@ https://www.wireguard.com/protocol/
 Noise Protocl Framework
 http://noiseprotocol.org/noise.pdf
 
-Interactive Connectivity Establishment (ICE)
+Interactive Connectivity Establishment (ICE) candidate model; full ICE checks, STUN, and TURN are not implemented
 https://tools.ietf.org/html/rfc8445
 
 Explicit Congestion Notification (ECN) for RTP over UDP
@@ -62,4 +62,12 @@ Permission boundary coverage:
 
 ```bash
 timeout 420s dotnet run --project src/PNet.Mesh.E2ETests/PNet.Mesh.E2ETests.csproj -c Release --no-build -- -method PNet.Actor.E2ETests.Mesh.PNetMeshTestNodeHarnessTests.test_node_runs_without_extended_network_permissions
+```
+
+Candidate exchange and segmented route coverage:
+
+```bash
+timeout 120s dotnet run --project src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -method PNet.Actor.UnitTests.Mesh.PNetMeshRoutingUnitTests.server_relay_candidate_selection_prefers_known_route_then_reflexive_endpoint
+timeout 120s dotnet run --project src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -method PNet.Actor.UnitTests.Mesh.PNetMeshRoutingUnitTests.session_relay_roundtrips_route_hop_payload_and_candidate_exchange
+timeout 420s dotnet run --project src/PNet.Mesh.E2ETests/PNet.Mesh.E2ETests.csproj -c Release --no-build -- -method PNet.Actor.E2ETests.Mesh.PNetMeshTestNodeHarnessTests.multi_hop_route_crosses_separated_container_segments
 ```
