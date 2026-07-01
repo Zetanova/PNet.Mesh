@@ -4,6 +4,7 @@ using Org.BouncyCastle.Crypto.Digests;
 using System;
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
 using System.Text;
@@ -81,15 +82,21 @@ namespace PNet.Mesh
             PNetMeshTransportMode.PNet,
             "Noise_IKpsk2_25519_ChaChaPoly_BLAKE2b",
             "PNet.Actor.Mesh v1 akka",
-            PNetMeshMacAlgorithm.Blake2b128);
+            PNetMeshMacAlgorithm.Blake2b128,
+            PNetMeshHandshake.PNetInitiationMessageSize,
+            sizeof(ulong));
 
         static readonly PNetMeshProtocolProfile WireGuardProfile = new PNetMeshProtocolProfile(
             PNetMeshTransportMode.WireGuard,
             "Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s",
             "WireGuard v1 zx2c4 Jason@zx2c4.com",
-            PNetMeshMacAlgorithm.Blake2s128);
+            PNetMeshMacAlgorithm.Blake2s128,
+            PNetMeshHandshake.WireGuardInitiationMessageSize,
+            PNetMeshTai64n.TimestampSize);
 
         readonly PNetMeshProtocolProfile _profile;
+
+        readonly PNetMeshHandshakeReplayTracker _handshakeReplayTracker = new PNetMeshHandshakeReplayTracker();
 
         readonly byte[] _localStaticPrivKey;
         readonly byte[] _localStaticPubKey;
@@ -109,6 +116,16 @@ namespace PNet.Mesh
         public string ProtocolName => _profile.ProtocolName;
 
         public ReadOnlySpan<byte> Prologue => _profile.Prologue;
+
+        public int HandshakeInitiationMessageSize => _profile.HandshakeInitiationMessageSize;
+
+        public int HandshakeResponseMessageSize => PNetMeshHandshake.ResponseMessageSize;
+
+        internal int HandshakeInitiationTimestampSize => _profile.HandshakeInitiationTimestampSize;
+
+        internal int HandshakeInitiationMac1Offset => _profile.HandshakeInitiationMessageSize - 32;
+
+        internal int HandshakeInitiationMac2Offset => _profile.HandshakeInitiationMessageSize - 16;
 
         public PNetMeshCookie Cookie
         {
@@ -178,13 +195,15 @@ namespace PNet.Mesh
             Span<byte> mac = stackalloc byte[16];
 
             //mac1 = MAC(HASH(LABEL_MAC1 || responder.static_public), msg[0:offsetof(msg.mac1)])
+            if (!PNetMeshPacketFraming.TryReadMessageType(payload, out var messageType))
+                return false;
 
-            switch ((PNetMeshMessageType)payload[0])
+            switch (messageType)
             {
                 case PNetMeshMessageType.PacketData:
-                    return true;
+                    return payload.Length >= PNetMeshPacketFraming.PacketDataHeaderSize;
                 case PNetMeshMessageType.HandshakeInitiation
-                    when payload.Length == PNetMeshHandshake.InitiationMessageSize:
+                    when payload.Length == _profile.HandshakeInitiationMessageSize:
 
                     ComputeMac(_mac1Key, _mac1KeyBytes, payload[0..^32], mac);
                     if (!payload[^32..^16].SequenceEqual(mac))
@@ -204,8 +223,7 @@ namespace PNet.Mesh
                     ComputeMac(_mac2Key, _mac2KeyBytes, payload[0..^16], mac);
                     return payload[^16..].SequenceEqual(mac);
                 case PNetMeshMessageType.PacketCookieReply:
-                    //todo
-                    return true;
+                    return payload.Length == PNetMeshPacketFraming.CookieReplyMessageSize;
                 default:
                     //ignore unknown or invalid
                     return false;
@@ -226,7 +244,10 @@ namespace PNet.Mesh
 
         public uint GetReceiverIndex(ReadOnlySpan<byte> payload)
         {
-            switch ((PNetMeshMessageType)payload[0])
+            if (!PNetMeshPacketFraming.TryReadMessageType(payload, out var messageType))
+                throw new InvalidOperationException("invalid message type");
+
+            switch (messageType)
             {
                 case PNetMeshMessageType.PacketData:
                     return BinaryPrimitives.ReadUInt32LittleEndian(payload[4..8]);
@@ -252,6 +273,33 @@ namespace PNet.Mesh
         public PNetMeshHandshake CreateResponder(uint senderIndex)
         {
             return Create(senderIndex, false, null);
+        }
+
+        internal void WriteInitiationTimestamp(Span<byte> destination)
+        {
+            if (destination.Length != _profile.HandshakeInitiationTimestampSize)
+                throw new ArgumentOutOfRangeException(nameof(destination));
+
+            if (_profile.Mode == PNetMeshTransportMode.WireGuard)
+                PNetMeshTai64n.WriteNow(destination);
+            else
+                BinaryPrimitives.WriteUInt64LittleEndian(destination, PNetMeshUtils.GetTimestamp());
+        }
+
+        internal long ReadInitiationTimestamp(ReadOnlySpan<byte> timestamp)
+        {
+            if (timestamp.Length != _profile.HandshakeInitiationTimestampSize)
+                throw new ArgumentOutOfRangeException(nameof(timestamp));
+
+            return _profile.Mode == PNetMeshTransportMode.WireGuard
+                ? PNetMeshTai64n.ToUnixNanoseconds(timestamp)
+                : BinaryPrimitives.ReadInt64LittleEndian(timestamp);
+        }
+
+        internal bool TryAddHandshakeInitiationTimestamp(ReadOnlySpan<byte> peerPublicKey, ReadOnlySpan<byte> timestamp)
+        {
+            return _profile.Mode != PNetMeshTransportMode.WireGuard
+                || _handshakeReplayTracker.TryAdd(peerPublicKey, timestamp);
         }
 
         byte[] CreateMac1Key(ReadOnlySpan<byte> publicKey)
@@ -339,13 +387,17 @@ namespace PNet.Mesh
             PNetMeshTransportMode mode,
             string protocolName,
             string prologue,
-            PNetMeshMacAlgorithm macAlgorithm)
+            PNetMeshMacAlgorithm macAlgorithm,
+            int handshakeInitiationMessageSize,
+            int handshakeInitiationTimestampSize)
         {
             Mode = mode;
             ProtocolName = protocolName;
             Prologue = Encoding.UTF8.GetBytes(prologue);
             Protocol = Protocol.Parse(protocolName);
             MacAlgorithm = macAlgorithm;
+            HandshakeInitiationMessageSize = handshakeInitiationMessageSize;
+            HandshakeInitiationTimestampSize = handshakeInitiationTimestampSize;
         }
 
         public PNetMeshTransportMode Mode { get; }
@@ -357,6 +409,136 @@ namespace PNet.Mesh
         public Protocol Protocol { get; }
 
         public PNetMeshMacAlgorithm MacAlgorithm { get; }
+
+        public int HandshakeInitiationMessageSize { get; }
+
+        public int HandshakeInitiationTimestampSize { get; }
+    }
+
+    public readonly struct PNetMeshTai64nTimestamp
+    {
+        public PNetMeshTai64nTimestamp(ulong unixSeconds, uint nanoseconds)
+        {
+            UnixSeconds = unixSeconds;
+            Nanoseconds = nanoseconds;
+        }
+
+        public ulong UnixSeconds { get; }
+
+        public uint Nanoseconds { get; }
+    }
+
+    public static class PNetMeshTai64n
+    {
+        public const int TimestampSize = 12;
+
+        const ulong Base = 0x400000000000000a;
+
+        const uint WhitenerMask = 0x00ffffff;
+
+        public static void Write(ulong unixSeconds, uint nanoseconds, Span<byte> destination)
+        {
+            if (destination.Length < TimestampSize) throw new ArgumentOutOfRangeException(nameof(destination));
+            if (nanoseconds >= 1_000_000_000) throw new ArgumentOutOfRangeException(nameof(nanoseconds));
+
+            BinaryPrimitives.WriteUInt64BigEndian(destination[..8], Base + unixSeconds);
+            BinaryPrimitives.WriteUInt32BigEndian(destination[8..12], nanoseconds);
+        }
+
+        public static void WriteNow(Span<byte> destination)
+        {
+            var now = DateTimeOffset.UtcNow;
+            var unixSeconds = now.ToUnixTimeSeconds();
+            var nanoseconds = (uint)((now.Ticks % TimeSpan.TicksPerSecond) * 100);
+
+            Write((ulong)unixSeconds, nanoseconds & ~WhitenerMask, destination);
+        }
+
+        public static PNetMeshTai64nTimestamp Read(ReadOnlySpan<byte> timestamp)
+        {
+            if (timestamp.Length < TimestampSize) throw new ArgumentOutOfRangeException(nameof(timestamp));
+
+            var encodedSeconds = BinaryPrimitives.ReadUInt64BigEndian(timestamp[..8]);
+            if (encodedSeconds < Base)
+                throw new ArgumentOutOfRangeException(nameof(timestamp));
+
+            return new PNetMeshTai64nTimestamp(
+                encodedSeconds - Base,
+                BinaryPrimitives.ReadUInt32BigEndian(timestamp[8..12]));
+        }
+
+        public static long ToUnixNanoseconds(ReadOnlySpan<byte> timestamp)
+        {
+            var parsed = Read(timestamp);
+            checked
+            {
+                return (long)(parsed.UnixSeconds * 1_000_000_000ul + parsed.Nanoseconds);
+            }
+        }
+
+        public static int Compare(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right)
+        {
+            if (left.Length < TimestampSize) throw new ArgumentOutOfRangeException(nameof(left));
+            if (right.Length < TimestampSize) throw new ArgumentOutOfRangeException(nameof(right));
+
+            return left[..TimestampSize].SequenceCompareTo(right[..TimestampSize]);
+        }
+    }
+
+    public sealed class PNetMeshHandshakeReplayTracker
+    {
+        readonly Dictionary<byte[], byte[]> _timestamps = new Dictionary<byte[], byte[]>(PNetMeshByteArrayComparer.Default);
+
+        public bool TryAdd(ReadOnlySpan<byte> peerPublicKey, ReadOnlySpan<byte> timestamp)
+        {
+            if (peerPublicKey.Length != 32) throw new ArgumentOutOfRangeException(nameof(peerPublicKey));
+            if (timestamp.Length < PNetMeshTai64n.TimestampSize) throw new ArgumentOutOfRangeException(nameof(timestamp));
+
+            var peer = peerPublicKey.ToArray();
+            var value = timestamp[..PNetMeshTai64n.TimestampSize].ToArray();
+
+            if (_timestamps.TryGetValue(peer, out var previous)
+                && PNetMeshTai64n.Compare(value, previous) <= 0)
+                return false;
+
+            _timestamps[peer] = value;
+            return true;
+        }
+    }
+
+    public static class PNetMeshPacketFraming
+    {
+        public const int MessageTypeSize = 4;
+
+        public const int CookieReplyMessageSize = 64;
+
+        public const int PacketDataHeaderSize = 16;
+
+        public static bool TryReadMessageType(ReadOnlySpan<byte> payload, out PNetMeshMessageType messageType)
+        {
+            messageType = PNetMeshMessageType.Unknown;
+            if (payload.Length < MessageTypeSize)
+                return false;
+
+            var rawType = BinaryPrimitives.ReadUInt32LittleEndian(payload[..4]);
+            messageType = rawType switch
+            {
+                1 => PNetMeshMessageType.HandshakeInitiation,
+                2 => PNetMeshMessageType.HandshakeResponse,
+                3 => PNetMeshMessageType.PacketCookieReply,
+                4 => PNetMeshMessageType.PacketData,
+                _ => PNetMeshMessageType.Unknown
+            };
+
+            return messageType != PNetMeshMessageType.Unknown;
+        }
+
+        internal static void WriteMessageType(Span<byte> buffer, PNetMeshMessageType messageType)
+        {
+            if (buffer.Length < MessageTypeSize) throw new ArgumentOutOfRangeException(nameof(buffer));
+
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer[..4], (uint)messageType);
+        }
     }
 
     public enum PNetMeshMessageType : byte
@@ -374,7 +556,11 @@ namespace PNet.Mesh
 
         //public const int MinBufferSize = 116;
 
-        public const int InitiationMessageSize = 144;
+        public const int PNetInitiationMessageSize = 144;
+
+        public const int WireGuardInitiationMessageSize = 148;
+
+        public const int InitiationMessageSize = PNetInitiationMessageSize;
 
         public const int ResponseMessageSize = 92;
 
@@ -406,7 +592,8 @@ namespace PNet.Mesh
 
         public void WriteInitiationMessage(Span<byte> buffer, out int bytesWritten)
         {
-            if (buffer.Length < InitiationMessageSize) throw new ArgumentOutOfRangeException(nameof(buffer));
+            var initiationMessageSize = _protocol.HandshakeInitiationMessageSize;
+            if (buffer.Length < initiationMessageSize) throw new ArgumentOutOfRangeException(nameof(buffer));
 
             /* 
            msg = handshake_initiation {
@@ -421,53 +608,55 @@ namespace PNet.Mesh
            }
             */
 
-            buffer[0] = (byte)PNetMeshMessageType.HandshakeInitiation;
-            buffer[1..4].Clear();
+            PNetMeshPacketFraming.WriteMessageType(buffer, PNetMeshMessageType.HandshakeInitiation);
 
             BinaryPrimitives.WriteUInt32LittleEndian(buffer[4..8], _senderIndex);
 
             //cipher and payload
-            Span<byte> temp = stackalloc byte[8];
+            Span<byte> temp = stackalloc byte[_protocol.HandshakeInitiationTimestampSize];
 
-            //maybe use Stopwatch.GetTimestamp()
-            BinaryPrimitives.WriteUInt64LittleEndian(temp, PNetMeshUtils.GetTimestamp());
+            _protocol.WriteInitiationTimestamp(temp);
 
-            bytesWritten = _handshake.WriteMessage(temp, buffer[8..112]).BytesWritten;
-            Debug.Assert(bytesWritten == 104);
+            var mac1Offset = _protocol.HandshakeInitiationMac1Offset;
+            var mac2Offset = _protocol.HandshakeInitiationMac2Offset;
+            bytesWritten = _handshake.WriteMessage(temp, buffer[8..mac1Offset]).BytesWritten;
+            Debug.Assert(bytesWritten == mac1Offset - 8);
 
-            _protocol.GetPacketMac(_handshake.RemoteStaticPublicKey, buffer[0..112], buffer[112..128]);
-            _protocol.GetCookieMac(buffer[0..128], buffer[128..144]); //todo set cookie
+            _protocol.GetPacketMac(_handshake.RemoteStaticPublicKey, buffer[0..mac1Offset], buffer[mac1Offset..mac2Offset]);
+            _protocol.GetCookieMac(buffer[0..mac2Offset], buffer[mac2Offset..initiationMessageSize]); //todo set cookie
 
-            bytesWritten = InitiationMessageSize;
+            bytesWritten = initiationMessageSize;
         }
 
         public bool TryReadInitiationMessage(ReadOnlySpan<byte> payload)
         {
-            if (payload.Length < InitiationMessageSize)
+            var initiationMessageSize = _protocol.HandshakeInitiationMessageSize;
+            if (payload.Length != initiationMessageSize)
                 throw new ArgumentOutOfRangeException(nameof(payload));
-            if (payload[0] != (byte)PNetMeshMessageType.HandshakeInitiation)
+            if (!PNetMeshPacketFraming.TryReadMessageType(payload, out var messageType)
+                || messageType != PNetMeshMessageType.HandshakeInitiation)
                 throw new InvalidOperationException("invalid message type");
 
             //timestamp
-            Span<byte> temp = stackalloc byte[8];
+            Span<byte> temp = stackalloc byte[_protocol.HandshakeInitiationTimestampSize];
             int c;
             try
             {
-                (c, _, _) = _handshake.ReadMessage(payload[8..112], temp);
+                (c, _, _) = _handshake.ReadMessage(payload[8.._protocol.HandshakeInitiationMac1Offset], temp);
             }
             catch (CryptographicException)
             {
                 return false;
             }
 
-            if (c != 8)
+            if (c != _protocol.HandshakeInitiationTimestampSize)
                 return false;
 
             RemotePublicKey = _handshake.RemoteStaticPublicKey.ToArray();
             _receiverIndex = BinaryPrimitives.ReadUInt32LittleEndian(payload[4..8]);
-            Timestamp = BinaryPrimitives.ReadInt64LittleEndian(temp[0..8]);
+            Timestamp = _protocol.ReadInitiationTimestamp(temp);
 
-            return true;
+            return _protocol.TryAddHandshakeInitiationTimestamp(RemotePublicKey, temp);
         }
 
         public bool TryWriteResponseMessage(Span<byte> buffer, out int bytesWritten, out PNetMeshTransport2 transport)
@@ -493,8 +682,7 @@ namespace PNet.Mesh
             }
             */
 
-            buffer[0] = (byte)PNetMeshMessageType.HandshakeResponse;
-            buffer[1..4].Clear();
+            PNetMeshPacketFraming.WriteMessageType(buffer, PNetMeshMessageType.HandshakeResponse);
             BinaryPrimitives.WriteUInt32LittleEndian(buffer[4..8], _senderIndex);
             BinaryPrimitives.WriteUInt32LittleEndian(buffer[8..12], _receiverIndex);
 
@@ -518,9 +706,10 @@ namespace PNet.Mesh
 
         public bool TryReadResponseMessage(ReadOnlySpan<byte> payload, out PNetMeshTransport2 transport)
         {
-            if (payload.Length < ResponseMessageSize)
+            if (payload.Length != ResponseMessageSize)
                 throw new ArgumentOutOfRangeException(nameof(payload));
-            if (payload[0] != (byte)PNetMeshMessageType.HandshakeResponse)
+            if (!PNetMeshPacketFraming.TryReadMessageType(payload, out var messageType)
+                || messageType != PNetMeshMessageType.HandshakeResponse)
                 throw new InvalidOperationException("invalid message type");
 
             /*
@@ -649,8 +838,7 @@ namespace PNet.Mesh
                 }             
             */
 
-            buffer[0] = (byte)PNetMeshMessageType.PacketData;
-            buffer[1..4].Clear();
+            PNetMeshPacketFraming.WriteMessageType(buffer, PNetMeshMessageType.PacketData);
             BinaryPrimitives.WriteUInt32LittleEndian(buffer[4..8], _receiverIndex);
             //placeholder BinaryPrimitives.WriteUInt64LittleEndian(buffer[8..16], counter);            
             bytesWritten = 16;
@@ -695,7 +883,8 @@ namespace PNet.Mesh
                 throw new ArgumentOutOfRangeException(nameof(payload));
             if (buffer.Length < payload.Length)
                 throw new ArgumentOutOfRangeException(nameof(buffer));
-            if (payload[0] != (byte)PNetMeshMessageType.PacketData)
+            if (!PNetMeshPacketFraming.TryReadMessageType(payload, out var messageType)
+                || messageType != PNetMeshMessageType.PacketData)
                 throw new InvalidOperationException("invalid message type");
 
             if (BinaryPrimitives.ReadUInt32LittleEndian(payload[4..8]) != _senderIndex)

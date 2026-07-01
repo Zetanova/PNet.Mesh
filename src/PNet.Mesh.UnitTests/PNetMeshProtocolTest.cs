@@ -79,6 +79,136 @@ namespace PNet.Actor.UnitTests.Mesh
         }
 
         [Fact]
+        public void wireguard_initiation_uses_148_byte_layout_and_32_bit_message_type()
+        {
+            Span<byte> buffer = new byte[4098];
+
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            using var initiator_static = KeyPair.Generate();
+            using var responder_static = KeyPair.Generate();
+
+            var initiator_protocol = new PNetMeshProtocol(
+                initiator_static.PrivateKey,
+                initiator_static.PublicKey,
+                psk,
+                PNetMeshTransportMode.WireGuard);
+            var responder_protocol = new PNetMeshProtocol(
+                responder_static.PrivateKey,
+                responder_static.PublicKey,
+                psk,
+                PNetMeshTransportMode.WireGuard);
+
+            using var initiator = initiator_protocol.CreateInitiator(1, responder_static.PublicKey);
+            using var responder = responder_protocol.CreateResponder(2);
+
+            initiator.WriteInitiationMessage(buffer, out var bytesWritten);
+
+            Assert.Equal(PNetMeshHandshake.WireGuardInitiationMessageSize, bytesWritten);
+            Assert.Equal((uint)PNetMeshMessageType.HandshakeInitiation, BinaryPrimitives.ReadUInt32LittleEndian(buffer[..4]));
+            Assert.Equal(1u, BinaryPrimitives.ReadUInt32LittleEndian(buffer[4..8]));
+            Assert.Contains(buffer.Slice(8, 32).ToArray(), b => b != 0);
+            Assert.Contains(buffer.Slice(40, 48).ToArray(), b => b != 0);
+            Assert.Contains(buffer.Slice(88, 28).ToArray(), b => b != 0);
+            Assert.Contains(buffer.Slice(116, 16).ToArray(), b => b != 0);
+            Assert.All(buffer.Slice(132, 16).ToArray(), b => Assert.Equal((byte)0, b));
+            Assert.True(responder.TryReadInitiationMessage(buffer.Slice(0, bytesWritten)));
+        }
+
+        [Fact]
+        public void tai64n_timestamp_encoding_round_trips_wireguard_layout()
+        {
+            Span<byte> timestamp = stackalloc byte[PNetMeshTai64n.TimestampSize];
+
+            PNetMeshTai64n.Write(1_700_000_000, 0x02000000, timestamp);
+            var parsed = PNetMeshTai64n.Read(timestamp);
+
+            Assert.Equal("400000006553f10a02000000", Convert.ToHexString(timestamp).ToLowerInvariant());
+            Assert.Equal(1_700_000_000ul, parsed.UnixSeconds);
+            Assert.Equal(0x02000000u, parsed.Nanoseconds);
+        }
+
+        [Fact]
+        public void handshake_replay_tracker_rejects_duplicate_or_stale_tai64n_per_peer()
+        {
+            var tracker = new PNetMeshHandshakeReplayTracker();
+            var peer = Enumerable.Range(0, 32).Select(i => (byte)i).ToArray();
+            Span<byte> first = stackalloc byte[PNetMeshTai64n.TimestampSize];
+            Span<byte> duplicate = stackalloc byte[PNetMeshTai64n.TimestampSize];
+            Span<byte> stale = stackalloc byte[PNetMeshTai64n.TimestampSize];
+            Span<byte> newer = stackalloc byte[PNetMeshTai64n.TimestampSize];
+
+            PNetMeshTai64n.Write(1_700_000_000, 0x02000000, first);
+            first.CopyTo(duplicate);
+            PNetMeshTai64n.Write(1_699_999_999, 0x02000000, stale);
+            PNetMeshTai64n.Write(1_700_000_001, 0x02000000, newer);
+
+            Assert.True(tracker.TryAdd(peer, first));
+            Assert.False(tracker.TryAdd(peer, duplicate));
+            Assert.False(tracker.TryAdd(peer, stale));
+            Assert.True(tracker.TryAdd(peer, newer));
+        }
+
+        [Fact]
+        public void wireguard_responder_rejects_replayed_handshake_initiation()
+        {
+            Span<byte> buffer = new byte[4098];
+
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            using var initiator_static = KeyPair.Generate();
+            using var responder_static = KeyPair.Generate();
+
+            var initiator_protocol = new PNetMeshProtocol(
+                initiator_static.PrivateKey,
+                initiator_static.PublicKey,
+                psk,
+                PNetMeshTransportMode.WireGuard);
+            var responder_protocol = new PNetMeshProtocol(
+                responder_static.PrivateKey,
+                responder_static.PublicKey,
+                psk,
+                PNetMeshTransportMode.WireGuard);
+
+            using var initiator = initiator_protocol.CreateInitiator(1, responder_static.PublicKey);
+            using var firstResponder = responder_protocol.CreateResponder(2);
+            using var replayResponder = responder_protocol.CreateResponder(3);
+
+            initiator.WriteInitiationMessage(buffer, out var bytesWritten);
+            var initiation = buffer.Slice(0, bytesWritten).ToArray();
+
+            Assert.True(firstResponder.TryReadInitiationMessage(initiation));
+            Assert.False(replayResponder.TryReadInitiationMessage(initiation));
+        }
+
+        [Fact]
+        public void wireguard_packet_framing_rejects_reserved_type_bytes_and_bad_cookie_size()
+        {
+            var localPrivateKey = Enumerable.Range(0, 32).Select(i => (byte)(0x20 + i)).ToArray();
+            var localPublicKey = Enumerable.Range(0, 32).Select(i => (byte)(0x40 + i)).ToArray();
+            var protocol = new PNetMeshProtocol(
+                localPrivateKey,
+                localPublicKey,
+                mode: PNetMeshTransportMode.WireGuard);
+
+            var badType = new byte[32];
+            badType[0] = (byte)PNetMeshMessageType.PacketData;
+            badType[1] = 0x01;
+
+            var shortCookie = new byte[PNetMeshPacketFraming.CookieReplyMessageSize - 1];
+            BinaryPrimitives.WriteUInt32LittleEndian(shortCookie, (uint)PNetMeshMessageType.PacketCookieReply);
+
+            var cookie = new byte[PNetMeshPacketFraming.CookieReplyMessageSize];
+            BinaryPrimitives.WriteUInt32LittleEndian(cookie, (uint)PNetMeshMessageType.PacketCookieReply);
+
+            Assert.False(PNetMeshPacketFraming.TryReadMessageType(badType, out _));
+            Assert.False(protocol.ValidatePacket(shortCookie));
+            Assert.True(protocol.ValidatePacket(cookie));
+        }
+
+        [Fact]
         public void valid_peers_complete_noise_ikpsk2_handshake_and_exchange_payloads_over_derived_transports_regression()
         {
             var initiator_sender_index = 1u;

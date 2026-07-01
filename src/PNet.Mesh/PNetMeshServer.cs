@@ -222,7 +222,10 @@ namespace PNet.Mesh
                     {
                         case PNetMeshControlCommands.Receive cmd:
                             {
-                                switch ((PNetMeshMessageType)cmd.MemoryBuffer.Span[0])
+                                if (!PNetMeshPacketFraming.TryReadMessageType(cmd.MemoryBuffer.Span, out var messageType))
+                                    continue;
+
+                                switch (messageType)
                                 {
                                     case PNetMeshMessageType.PacketData:
                                         {

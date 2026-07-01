@@ -200,10 +200,10 @@ namespace PNet.Mesh
             PNetMeshUtils.GetAddressFromPublicKey(LocalPublicKey, localAddress);
             LocalAddress = localAddress;
 
-            var buffer = MemoryPool<byte>.Shared.Rent(PNetMeshHandshake.InitiationMessageSize);
+            var buffer = MemoryPool<byte>.Shared.Rent(_protocol.HandshakeInitiationMessageSize);
 
             _handshake.WriteInitiationMessage(buffer.Memory.Span, out var bytesWritten);
-            Debug.Assert(bytesWritten == PNetMeshHandshake.InitiationMessageSize);
+            Debug.Assert(bytesWritten == _protocol.HandshakeInitiationMessageSize);
 
             Status = PNetMeshSessionStatus.Opening;
 
