@@ -2,7 +2,7 @@
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
 last-entry: 2026-07-01
 last-opened: 2026-06-30-033
-open-count: 9
+open-count: 8
 last-completed: 2026-07-01
 ---
 
@@ -18,7 +18,6 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | 014 | 2026-06-30 | coverage/readme | Implement or test UDP fragment transport and the 18-byte datagram-overhead claim. | high | clarify | [014-udp-fragments-and-overhead-coverage](issues/014-udp-fragments-and-overhead-coverage.md) |
 | 016 | 2026-06-30 | coverage/readme | Implement and test WireGuard/Noise security invariants behind the README security claim. | high | gated | [016-wireguard-noise-security-coverage](issues/016-wireguard-noise-security-coverage.md) |
 | 017 | 2026-06-30 | coverage/readme | Implement and test crypto routing and crypto discovery behavior. | high | gated | [017-crypto-routing-discovery-coverage](issues/017-crypto-routing-discovery-coverage.md) |
-| 029 | 2026-06-30 | coverage/readme | Tamper rejection coverage for wrong keys, PSKs, and corrupted packets. | high | ready | [029-tamper-rejection-coverage](issues/029-tamper-rejection-coverage.md) |
 | 030 | 2026-06-30 | coverage/readme | Replay and cookie-guard regression coverage. | high | ready | [030-replay-cookie-guard-coverage](issues/030-replay-cookie-guard-coverage.md) |
 | 031 | 2026-06-30 | coverage/readme | README security-claim wording cleanup and narrowing. | high | ready | [031-readme-security-claim-hygiene](issues/031-readme-security-claim-hygiene.md) |
 | 032 | 2026-06-30 | coverage/readme | Crypto routing and discovery behavior regression coverage. | high | ready | [032-crypto-routing-discovery-behavior-coverage](issues/032-crypto-routing-discovery-behavior-coverage.md) |
@@ -43,6 +42,7 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 
 | # | Date | Completed | Summary | Commits | File |
 |---|------|-----------|---------|---------|------|
+| 029 | 2026-06-30 | 2026-07-01 | Tamper rejection coverage for wrong keys, PSKs, and corrupted packets. | 7c66b95 | [029-tamper-rejection-coverage](issues/029-tamper-rejection-coverage.md) |
 | 028 | 2026-06-30 | 2026-07-01 | Noise handshake and authentication happy-path coverage. | b36bd7f | [028-handshake-authentication-coverage](issues/028-handshake-authentication-coverage.md) |
 | 027 | 2026-06-30 | 2026-07-01 | Flow-control limit and negotiated SYN assertion coverage. | c8648e6 | [027-flow-control-negotiation-coverage](issues/027-flow-control-negotiation-coverage.md) |
 | 015 | 2026-06-30 | 2026-07-01 | Expand packet ordering, retransmission, and flow-control implementation coverage. | c77659b, c8648e6 | [015-packet-ordering-flow-control-coverage](issues/015-packet-ordering-flow-control-coverage.md) |

@@ -3,12 +3,15 @@ issue: 029
 date: 2026-06-30
 source: coverage/readme
 priority: high
-status: ready
+status: completed
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
+completion-date: 2026-07-01
+commits: [7c66b9589b6e3e8c660b2fd55ed063823f3312a0]
 split-status: child
 parent-issue: 016
+terminal-state: completed
 brief: "description+playbook"
 views:
   enrich: "description+playbook+research+assumptions"
@@ -54,4 +57,13 @@ Parent research says the current coverage is happy-path handshake plus replay ch
 
 ## Completion Report
 
-Pending.
+Completed in `7c66b9589b6e3e8c660b2fd55ed063823f3312a0`.
+
+- Added protocol regressions for corrupted handshake initiation/response MACs, wrong responder keys, wrong PSKs, tampered transport payloads, tampered-packet replay-state poisoning, and unknown receiver indexes.
+- Converted Noise authentication failures in `TryReadInitiationMessage`, `TryReadResponseMessage`, and `TryReadMessage` into `false` results without hiding non-cryptographic misuse exceptions.
+- Moved transport replay-tracker mutation after successful AEAD authentication so tampered packets cannot consume counters; duplicate rejection clears decrypted bytes before returning `false`.
+- Verification rerun passed formatting, Release build, targeted regressions `7/7`, `PNetMeshProtocolTest` `11/11`, `PNetMeshServerTests` `2/2`, and the full unit suite `71/71`.
+
+## Resolving Commits
+
+- `7c66b9589b6e3e8c660b2fd55ed063823f3312a0` - add tamper rejection regressions and authentication-failure handling
