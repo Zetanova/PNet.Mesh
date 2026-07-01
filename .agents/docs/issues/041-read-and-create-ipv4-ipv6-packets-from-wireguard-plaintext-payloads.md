@@ -3,10 +3,10 @@ issue: 041
 date: 2026-07-01
 source: wireguard/transport
 priority: medium
-status: ready
+status: completed
 research-status: complete
 research-date: 2026-07-01
-terminal-state: ready
+terminal-state: completed
 split-status: child
 parent-issue: 035
 gate: "Wait for the raw plaintext boundary."
@@ -16,6 +16,8 @@ gate-reason: "Packet helpers consume the decrypted raw byte boundary; stock Wire
 gate-last-checked: 2026-07-01
 gate-status: cleared
 assumptions-date: 2026-07-01
+completion-date: 2026-07-01
+commits: [9faf3bde27633d46f982b31a3b1177af8ff4b9ec]
 brief: "description+playbook"
 views:
   enrich: "description+playbook+parent-tracking+scope+acceptance-criteria+assumptions"
@@ -73,3 +75,17 @@ These helpers sit above the raw plaintext boundary, so they should consume or pr
 ## Validation History
 
 - 2026-07-01: dependency gate cleared by #040; #041 is now ready.
+
+## Completion Report
+
+Completed in `9faf3bde27633d46f982b31a3b1177af8ff4b9ec`.
+
+- Added IPv4 and IPv6 packet helpers above the raw WireGuard plaintext boundary.
+- IPv4 creation writes a minimal validated header and checksum; IPv6 creation writes the fixed header and payload length.
+- Packet reads validate family, header length, total/payload length, source/destination addresses, and ignore WireGuard zero padding beyond the packet length.
+- Added regression coverage for IPv4/IPv6 create/read, unsupported families, invalid lengths, and wrong address families.
+- Verification passed: initial focused test failed on missing #041 helpers, focused #041 tests passed, Release build passed, scoped whitespace passed, `git diff --check` passed, and the full unit command passed 112/112.
+
+## Resolving Commits
+
+- `9faf3bde27633d46f982b31a3b1177af8ff4b9ec` - add WireGuard IP packet helpers
