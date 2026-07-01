@@ -3,10 +3,10 @@ issue: 048
 date: 2026-07-01
 source: wireguard/tests
 priority: high
-status: ready
+status: completed
 research-status: complete
 research-date: 2026-07-01
-terminal-state: ready
+terminal-state: completed
 gate: "Wait for the WireGuard-compatible transport, raw plaintext, and PNet helper slices."
 gate-depends:
   - 036
@@ -19,6 +19,8 @@ gate-reason: "Native PNet e2e coverage is blocked until the transport and helper
 gate-last-checked: 2026-07-01
 gate-status: cleared
 assumptions-date: 2026-07-01
+completion-date: 2026-07-01
+commits: [a52fce1e3f053149b5a2ceb976528ac63e4c583a]
 brief: "description+playbook"
 views:
   enrich: "description+playbook+related-tracking+scope+acceptance-criteria+assumptions"
@@ -84,3 +86,17 @@ The existing Testcontainers harness is the right e2e home for native PNet transp
 - 2026-07-01: dependency gate cleared by #040; remaining dependency gates #043 and #044 keep #048 gated.
 - 2026-07-01: dependency gate cleared by #043; remaining dependency gate #044 keeps #048 gated.
 - 2026-07-01: dependency gate cleared by #044; #048 is now ready.
+
+## Completion Report
+
+Completed in `a52fce1e3f053149b5a2ceb976528ac63e4c583a`.
+
+- Added a deterministic WireGuard-mode transport helper in `PNetMeshProtocolTest`.
+- Added bidirectional encrypted exchange coverage for PNet internal protobuf frames over WireGuard-compatible transport plaintext.
+- Validated decrypt, `PNetMeshPayloadFraming` classification, padding trim, and protobuf deserialization in both directions.
+- Added encrypted invalid-frame coverage for reserved PNet marker bits and non-zero declared PNet padding.
+- Verification passed: initial focused compile failed on missing #048 helpers, focused `PNetMeshProtocolTest` passed 34/34, Release build passed, scoped whitespace passed, and `git diff --check` passed. Full unit command hit known #052 relay timeout once (`bind_three_server_to_localhost_and_relay_exchange`).
+
+## Resolving Commits
+
+- `a52fce1e3f053149b5a2ceb976528ac63e4c583a` - cover PNet frames over WireGuard transport

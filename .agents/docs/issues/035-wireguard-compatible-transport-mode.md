@@ -73,7 +73,7 @@ This is a parent tracking issue. Implement child issues, not this parent directl
 | #045 | PNet relay to wireguard-go peer interoperability test | gated | Node1 session owner relays through node2 to node3 and back. |
 | #046 | Shared-port WireGuard relay registration and demux | ready | Lease registration, MAC1 handshake demux, and receiver-index fast path. |
 | #047 | Relay-assisted WireGuard endpoint discovery | gated | Learn relayed endpoint candidate, probe direct, promote only after authenticated response. |
-| #048 | PNet-to-PNet WireGuard-compatible transport e2e | gated | Exchange PNet internal `X000PPPP` protobuf frames between two PNet peers. |
+| #048 | PNet-to-PNet WireGuard-compatible transport e2e | completed | Exchange PNet internal `X000PPPP` protobuf frames between two PNet peers. |
 
 ## Assumptions
 
