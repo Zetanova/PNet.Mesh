@@ -3,15 +3,11 @@ issue: 015
 date: 2026-06-30
 source: coverage/readme
 priority: high
-status: gated
+status: completed
 split-status: parent
-terminal-state: gated
-gate: "Close only after child issues 026 and 027 are completed or explicitly superseded."
-gate-depends:
-  - 026
-  - 027
-gate-reason: "Tracking parent waits for fine-grained child issues"
-ungate-when: "All child issues are completed"
+terminal-state: completed
+completion-date: 2026-07-01
+commits: [c77659b, c8648e6]
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
@@ -52,8 +48,8 @@ This is a parent tracking issue. Implement child issues, not this parent directl
 
 | Child | Scope | Status | Notes |
 |-------|-------|--------|-------|
-| #026 | Ordering and retransmission regression coverage | open | Burst, delayed, duplicate, and expired packet windows |
-| #027 | Flow-control negotiation assertions | open | Outstanding limits and negotiated SYN fields |
+| #026 | Ordering and retransmission regression coverage | completed | Completed in c77659b |
+| #027 | Flow-control negotiation assertions | completed | Completed in c8648e6 |
 
 ## Residual Scope
 none
@@ -78,4 +74,14 @@ Existing tests cover packet tracker windows, packet buffer ack behavior, and som
 
 ## Completion Report
 
-Pending.
+Completed in `c8648e61836106888827315db932a6e4aa9967df` after the final child issue closed.
+
+- Cleared the last active dependency gate after child issues #026 and #027 were both complete.
+- Updated the parent tracking table to mark both child issues completed.
+- Promoted the parent tracker to completed because child issues #026 and #027 are all complete.
+- Preserved the existing child coverage history and recorded the final child commit trail for the parent closeout.
+
+## Resolving Commits
+
+- `c77659bfa6f3c602c7495757b1a78c4a238045e7` - preserve packet ordering during retransmission
+- `c8648e61836106888827315db932a6e4aa9967df` - honor negotiated mesh flow-control limits

@@ -3,10 +3,12 @@ issue: 027
 date: 2026-06-30
 source: coverage/readme
 priority: high
-status: ready
+status: completed
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
+completion-date: 2026-07-01
+commits: [c8648e6]
 split-status: child
 parent-issue: 015
 brief: "description+playbook"
@@ -54,4 +56,11 @@ Parent research notes that flow-control behavior is the less directly asserted p
 
 ## Completion Report
 
-Pending.
+Completed in `c8648e61836106888827315db932a6e4aa9967df`.
+
+- Added regression coverage and implementation support proving negotiated flow-control limits, SYN fields, packet-size limits, ACK-only behavior, retransmit-window cleanup, and async send/relay result failures are honored.
+- Tracker row completion is now recorded in the issue index.
+
+## Resolving Commits
+
+- `c8648e61836106888827315db932a6e4aa9967df` - honor negotiated mesh flow-control limits

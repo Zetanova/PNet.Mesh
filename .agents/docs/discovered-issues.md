@@ -1,9 +1,9 @@
 ---
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
-last-entry: 2026-06-30
+last-entry: 2026-07-01
 last-opened: 2026-06-30-033
-open-count: 12
-last-completed: 2026-06-30
+open-count: 10
+last-completed: 2026-07-01
 ---
 
 # Discovered Issues
@@ -16,10 +16,8 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 |---|------|--------|---------|----------|--------|------|
 | 011 | 2026-06-30 | e2e/cleanup | Remove Docker Compose e2e artifacts after Testcontainers reaches equivalent coverage. | medium | gated | [011-cleanup-compose-after-equivalent-coverage](issues/011-cleanup-compose-after-equivalent-coverage.md) |
 | 014 | 2026-06-30 | coverage/readme | Implement or test UDP fragment transport and the 18-byte datagram-overhead claim. | high | clarify | [014-udp-fragments-and-overhead-coverage](issues/014-udp-fragments-and-overhead-coverage.md) |
-| 015 | 2026-06-30 | coverage/readme | Expand packet ordering, retransmission, and flow-control implementation coverage. | high | gated | [015-packet-ordering-flow-control-coverage](issues/015-packet-ordering-flow-control-coverage.md) |
 | 016 | 2026-06-30 | coverage/readme | Implement and test WireGuard/Noise security invariants behind the README security claim. | high | gated | [016-wireguard-noise-security-coverage](issues/016-wireguard-noise-security-coverage.md) |
 | 017 | 2026-06-30 | coverage/readme | Implement and test crypto routing and crypto discovery behavior. | high | gated | [017-crypto-routing-discovery-coverage](issues/017-crypto-routing-discovery-coverage.md) |
-| 027 | 2026-06-30 | coverage/readme | Flow-control limit and negotiated SYN assertion coverage. | high | ready | [027-flow-control-negotiation-coverage](issues/027-flow-control-negotiation-coverage.md) |
 | 028 | 2026-06-30 | coverage/readme | Noise handshake and authentication happy-path coverage. | high | ready | [028-handshake-authentication-coverage](issues/028-handshake-authentication-coverage.md) |
 | 029 | 2026-06-30 | coverage/readme | Tamper rejection coverage for wrong keys, PSKs, and corrupted packets. | high | ready | [029-tamper-rejection-coverage](issues/029-tamper-rejection-coverage.md) |
 | 030 | 2026-06-30 | coverage/readme | Replay and cookie-guard regression coverage. | high | ready | [030-replay-cookie-guard-coverage](issues/030-replay-cookie-guard-coverage.md) |
@@ -46,6 +44,8 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 
 | # | Date | Completed | Summary | Commits | File |
 |---|------|-----------|---------|---------|------|
+| 027 | 2026-06-30 | 2026-07-01 | Flow-control limit and negotiated SYN assertion coverage. | c8648e6 | [027-flow-control-negotiation-coverage](issues/027-flow-control-negotiation-coverage.md) |
+| 015 | 2026-06-30 | 2026-07-01 | Expand packet ordering, retransmission, and flow-control implementation coverage. | c77659b, c8648e6 | [015-packet-ordering-flow-control-coverage](issues/015-packet-ordering-flow-control-coverage.md) |
 | 001 | 2026-06-30 | 2026-06-30 | Migrate project, packages, tests, and test-node container from `net5.0` to .NET 10. | 30ea5f8 | [001-dotnet-5-eol-migration.md](issues/001-dotnet-5-eol-migration.md) |
 | 002 | 2026-06-30 | 2026-06-30 | Replace unavailable `Noise` package with `Noise.NET` and restore/build/audit successfully. | 30ea5f8 | [002-noise-package-restore-blocker.md](issues/002-noise-package-restore-blocker.md) |
 | 003 | 2026-06-30 | 2026-06-30 | Add compose e2e story and runnable mesh topology smoke flow. | 30ea5f8 | [003-mesh-topology-e2e-story.md](issues/003-mesh-topology-e2e-story.md) |
