@@ -3,10 +3,10 @@ issue: 050
 date: 2026-07-01
 source: wireguard/relay
 priority: medium
-status: ready
+status: completed
 research-status: complete
 research-date: 2026-07-01
-terminal-state: ready
+terminal-state: completed
 gate: "Wait for the relay lease, demux, and promotion runtime surfaces."
 gate-depends:
   - 045
@@ -15,6 +15,9 @@ gate-depends:
 gate-reason: "Concrete diagnostic field names depend on the relay runtime surfaces created by the relay issues."
 gate-last-checked: 2026-07-01
 gate-status: cleared
+completed-date: 2026-07-01
+completed-commits:
+  - bb740ee
 assumptions-date: 2026-07-01
 brief: "description+playbook"
 views:
@@ -78,3 +81,30 @@ The relay diagnostics can stay redacted and still be useful: keep only safe leas
 - 2026-07-01: dependency gate cleared by #046; remaining dependency gates #045 and #047 keep #050 gated.
 - 2026-07-01: dependency gate cleared by #045; remaining dependency gate #047 keeps #050 gated.
 - 2026-07-01: dependency gate cleared by #047; relay lease, demux, and promotion surfaces are concrete, so #050 is ready.
+
+## Completion Report
+
+Implemented redacted relay diagnostics in `bb740ee`.
+
+- Added `PNetMeshDiagnosticRedactor` for stable hashed address, endpoint, endpoint-key, and public-key IDs.
+- Added lease registration, renewal, release, rejection, expiry, receiver-index learning/expiry, demux, and fast-path diagnostics to `PNetMeshWireGuardRelayRegistry`.
+- Added server/session diagnostics for endpoint hints, direct probe start, authenticated direct promotion, fallback, relay delivery/forward/miss/drop/enqueue decisions, and WireGuard cookie gate outcomes.
+- Kept network-driven packet/cookie diagnostics at `Debug`; lease lifecycle and promotion decisions remain `Information`.
+- Added diagnostics tests asserting representative redacted registry, session, and server logs omit raw endpoints, public keys, return addresses, route-address hex, and payload bytes.
+
+Verification:
+- `dotnet build PNet.Mesh.sln -c Release --no-restore` passed with 0 warnings.
+- `dotnet run --project src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -parallel none -class PNet.Actor.UnitTests.Mesh.PNetMeshDiagnosticsTests` passed: 5 tests.
+- `dotnet run --project src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -parallel none` passed: 154 tests.
+- Scoped `dotnet format whitespace ... --verify-no-changes` passed.
+- Security review: `SECURITY CLEAR`; residual stable-hash correlation risk accepted.
+- Testing review: `TESTING CLEAR`; representative server paths covered, residual untested debug branches non-blocking.
+- Surveyor review: `SURVEYOR APPROVED`; staged bundle limited to the five source/test files and no private state staged.
+
+## Completion Assumptions
+
+| # | Cat | Assumption | Status | Method | Detail |
+|---|-----|------------|--------|--------|--------|
+| 1 | F | The #050 source implementation is contained in commit `bb740ee`. | verified | source | `git log --oneline -3` reported `bb740ee feat: add redacted relay diagnostics`. |
+| 2 | F | Final build, focused diagnostics tests, full unit tests, and scoped whitespace verification passed after review-driven changes. | verified | test | Commands listed in the completion report passed before the source commit. |
+| 3 | I | Stable hashed diagnostic IDs satisfy the initial redaction requirement while preserving operator correlation value. | verified | logical | Tests verify raw sensitive values are omitted; security review accepted stable-hash correlation as residual non-blocking risk. |

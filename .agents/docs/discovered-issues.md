@@ -2,7 +2,7 @@
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
 last-entry: 2026-07-01
 last-opened: 2026-07-01-053
-open-count: 3
+open-count: 2
 last-completed: 2026-07-01
 ---
 
@@ -14,7 +14,6 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 
 | # | Date | Source | Summary | Priority | Status | File |
 |---|------|--------|---------|----------|--------|------|
-| 050 | 2026-07-01 | wireguard/relay | Add redacted relay audit events and diagnostics for leases, demux, promotion, and fallback. | medium | ready | [050-relay-audit-and-diagnostics-hardening](issues/050-relay-audit-and-diagnostics-hardening.md) |
 | 051 | 2026-07-01 | nuget/audit | Review transitive NuGet package updates reported by the dependency audit. | medium | gated | [051-review-transitive-nuget-package-updates](issues/051-review-transitive-nuget-package-updates.md) |
 | 053 | 2026-07-01 | testing/e2e | Split or prebuild Testcontainers e2e suite so the documented 420s command completes. | medium | ready | [053-testcontainers-e2e-suite-timeout](issues/053-testcontainers-e2e-suite-timeout.md) |
 
@@ -37,6 +36,7 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 
 | # | Date | Completed | Summary | Commits | File |
 |---|------|-----------|---------|---------|------|
+| 050 | 2026-07-01 | 2026-07-01 | Add redacted relay diagnostics for leases, demux, promotion, fallback, and relay decisions. | bb740ee | [050-relay-audit-and-diagnostics-hardening](issues/050-relay-audit-and-diagnostics-hardening.md) |
 | 035 | 2026-07-01 | 2026-07-01 | Complete WireGuard-compatible transport mode parent after all child slices finished. | fa6cd47 | [035-wireguard-compatible-transport-mode](issues/035-wireguard-compatible-transport-mode.md) |
 | 047 | 2026-07-01 | 2026-07-01 | Implement relay-assisted WireGuard endpoint discovery and direct-path promotion. | fa6cd47 | [047-relay-assisted-wireguard-endpoint-discovery](issues/047-relay-assisted-wireguard-endpoint-discovery.md) |
 | 052 | 2026-07-01 | 2026-07-01 | Fix the three-server localhost relay exchange timing failure through relay queueing. | fa6cd47 | [052-baseline-three-server-relay-test-failure](issues/052-baseline-three-server-relay-test-failure.md) |
