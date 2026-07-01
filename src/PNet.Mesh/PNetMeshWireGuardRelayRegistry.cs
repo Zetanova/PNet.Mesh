@@ -1,4 +1,6 @@
-﻿using System;
+﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -75,6 +77,7 @@ namespace PNet.Mesh
     {
         readonly PNetMeshWireGuardRelayOptions _options;
         readonly PNetMeshWireGuardRelayMac1Matcher _mac1Matcher;
+        readonly ILogger _logger;
         readonly Dictionary<byte[], PNetMeshWireGuardRelayLease> _leases =
             new Dictionary<byte[], PNetMeshWireGuardRelayLease>(PNetMeshByteArrayComparer.Default);
         readonly Dictionary<(string RemoteEndpoint, uint ReceiverIndex), ReceiverIndexEntry> _receiverIndexes =
@@ -83,17 +86,20 @@ namespace PNet.Mesh
 
         public PNetMeshWireGuardRelayRegistry(
             PNetMeshProtocol protocol,
-            PNetMeshWireGuardRelayOptions options = null)
-            : this(options ?? new PNetMeshWireGuardRelayOptions(), CreateMac1Matcher(protocol))
+            PNetMeshWireGuardRelayOptions options = null,
+            ILogger<PNetMeshWireGuardRelayRegistry> logger = null)
+            : this(options ?? new PNetMeshWireGuardRelayOptions(), CreateMac1Matcher(protocol), logger)
         {
         }
 
         internal PNetMeshWireGuardRelayRegistry(
             PNetMeshWireGuardRelayOptions options,
-            PNetMeshWireGuardRelayMac1Matcher mac1Matcher)
+            PNetMeshWireGuardRelayMac1Matcher mac1Matcher,
+            ILogger logger = null)
         {
             _options = ValidateOptions(options);
             _mac1Matcher = mac1Matcher ?? throw new ArgumentNullException(nameof(mac1Matcher));
+            _logger = logger ?? NullLogger<PNetMeshWireGuardRelayRegistry>.Instance;
         }
 
         public int Count => _leases.Count;
@@ -113,8 +119,15 @@ namespace PNet.Mesh
 
             var key = publicKey.ToArray();
             if (!_leases.ContainsKey(key) && _leases.Count >= _options.MaxLeases)
+            {
+                _logger.LogWarning(
+                    "event=wireguard_relay_lease_rejected reason=max_leases peer_id={peerId} lease_count={leaseCount}",
+                    PNetMeshDiagnosticRedactor.PublicKeyId(publicKey),
+                    _leases.Count);
                 throw new InvalidOperationException("maximum WireGuard relay leases reached");
+            }
 
+            var renewed = _leases.ContainsKey(key);
             var lease = new PNetMeshWireGuardRelayLease(
                 key,
                 returnAddress.ToArray(),
@@ -122,6 +135,14 @@ namespace PNet.Mesh
                 expiresAt,
                 CloneEndpoints(allowedRemoteEndpoints));
             _leases[key] = lease;
+            _logger.LogInformation(
+                "event=wireguard_relay_lease_{action} peer_id={peerId} return_address_id={returnAddressId} return_route_length={returnRouteLength} allowed_endpoint_count={allowedEndpointCount} expires_at={expiresAt:o}",
+                renewed ? "renewed" : "registered",
+                PNetMeshDiagnosticRedactor.PublicKeyId(publicKey),
+                PNetMeshDiagnosticRedactor.AddressId(returnAddress),
+                lease.ReturnRoute.IsDefault ? 0 : lease.ReturnRoute.Length,
+                lease.AllowedRemoteEndpoints.IsDefault ? 0 : lease.AllowedRemoteEndpoints.Length,
+                lease.ExpiresAt);
             return lease;
         }
 
@@ -131,10 +152,18 @@ namespace PNet.Mesh
 
             var key = publicKey.ToArray();
             if (!_leases.Remove(key))
+            {
+                _logger.LogInformation(
+                    "event=wireguard_relay_lease_release_missed peer_id={peerId}",
+                    PNetMeshDiagnosticRedactor.PublicKeyId(publicKey));
                 return false;
+            }
 
             foreach (var entry in _receiverIndexes.Where(item => PNetMeshByteArrayComparer.Default.Equals(item.Value.PublicKey, key)).Select(item => item.Key).ToArray())
                 _receiverIndexes.Remove(entry);
+            _logger.LogInformation(
+                "event=wireguard_relay_lease_released peer_id={peerId}",
+                PNetMeshDiagnosticRedactor.PublicKeyId(publicKey));
             return true;
         }
 
@@ -153,31 +182,47 @@ namespace PNet.Mesh
             if (!PNetMeshPacketFraming.TryReadMessageType(packet, out var messageType))
             {
                 result = PNetMeshWireGuardRelayRouteResult.MalformedPacket;
+                LogRouteResult(PNetMeshMessageType.Unknown, remoteEndPoint, receiverIndex: null, result, lease);
                 return false;
             }
 
+            bool routed;
+            uint? receiverIndex = null;
             switch (messageType)
             {
                 case PNetMeshMessageType.PacketData:
-                    return TryRouteTransport(packet, remoteEndPoint, now, out lease, out result);
+                    if (packet.Length >= PNetMeshPacketFraming.PacketDataHeaderSize)
+                        receiverIndex = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(4, 4));
+                    routed = TryRouteTransport(packet, remoteEndPoint, now, out lease, out result);
+                    break;
                 case PNetMeshMessageType.HandshakeInitiation:
                     if (packet.Length != PNetMeshHandshake.WireGuardInitiationMessageSize)
                     {
                         result = PNetMeshWireGuardRelayRouteResult.MalformedPacket;
-                        return false;
+                        routed = false;
+                        break;
                     }
-                    return TryRouteHandshake(packet, remoteEndPoint, BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(4, 4)), now, out lease, out result);
+                    receiverIndex = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(4, 4));
+                    routed = TryRouteHandshake(packet, remoteEndPoint, receiverIndex.Value, now, out lease, out result);
+                    break;
                 case PNetMeshMessageType.HandshakeResponse:
                     if (packet.Length != PNetMeshHandshake.ResponseMessageSize)
                     {
                         result = PNetMeshWireGuardRelayRouteResult.MalformedPacket;
-                        return false;
+                        routed = false;
+                        break;
                     }
-                    return TryRouteHandshake(packet, remoteEndPoint, BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(4, 4)), now, out lease, out result);
+                    receiverIndex = BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(4, 4));
+                    routed = TryRouteHandshake(packet, remoteEndPoint, receiverIndex.Value, now, out lease, out result);
+                    break;
                 default:
                     result = PNetMeshWireGuardRelayRouteResult.MalformedPacket;
-                    return false;
+                    routed = false;
+                    break;
             }
+
+            LogRouteResult(messageType, remoteEndPoint, receiverIndex, result, lease);
+            return routed;
         }
 
         bool TryRouteTransport(
@@ -277,6 +322,12 @@ namespace PNet.Mesh
                 expiresAt = lease.ExpiresAt;
 
             _receiverIndexes[(GetEndpointKey(remoteEndPoint), receiverIndex)] = new ReceiverIndexEntry(lease.PublicKey.ToArray(), expiresAt);
+            _logger.LogInformation(
+                "event=wireguard_relay_receiver_index_learned endpoint_id={endpointId} receiver_index={receiverIndex} peer_id={peerId} expires_at={expiresAt:o}",
+                PNetMeshDiagnosticRedactor.EndpointId(remoteEndPoint),
+                receiverIndex,
+                PNetMeshDiagnosticRedactor.PublicKeyId(lease.PublicKey.Span),
+                expiresAt);
         }
 
         bool TryConsumeMac1Scan(EndPoint remoteEndPoint, DateTimeOffset now)
@@ -299,7 +350,12 @@ namespace PNet.Mesh
         void PurgeExpired(DateTimeOffset now)
         {
             foreach (var key in _leases.Where(item => item.Value.ExpiresAt <= now).Select(item => item.Key).ToArray())
+            {
                 _leases.Remove(key);
+                _logger.LogInformation(
+                    "event=wireguard_relay_lease_expired peer_id={peerId}",
+                    PNetMeshDiagnosticRedactor.PublicKeyId(key));
+            }
 
             foreach (var key in _receiverIndexes
                 .Where(item => item.Value.ExpiresAt <= now || !_leases.ContainsKey(item.Value.PublicKey))
@@ -307,7 +363,31 @@ namespace PNet.Mesh
                 .ToArray())
             {
                 _receiverIndexes.Remove(key);
+                _logger.LogInformation(
+                    "event=wireguard_relay_receiver_index_expired endpoint_id={endpointId} receiver_index={receiverIndex}",
+                    PNetMeshDiagnosticRedactor.EndpointKeyId(key.RemoteEndpoint),
+                    key.ReceiverIndex);
             }
+        }
+
+        void LogRouteResult(
+            PNetMeshMessageType messageType,
+            EndPoint remoteEndPoint,
+            uint? receiverIndex,
+            PNetMeshWireGuardRelayRouteResult result,
+            PNetMeshWireGuardRelayLease lease)
+        {
+            var eventName = messageType == PNetMeshMessageType.PacketData
+                ? "wireguard_relay_fast_path"
+                : "wireguard_relay_demux";
+            _logger.LogDebug(
+                "event={eventName} result={result} message_type={messageType} endpoint_id={endpointId} receiver_index={receiverIndex} peer_id={peerId}",
+                eventName,
+                result,
+                messageType,
+                PNetMeshDiagnosticRedactor.EndpointId(remoteEndPoint),
+                receiverIndex,
+                lease is null ? "peer:none" : PNetMeshDiagnosticRedactor.PublicKeyId(lease.PublicKey.Span));
         }
 
         static PNetMeshWireGuardRelayMac1Matcher CreateMac1Matcher(PNetMeshProtocol protocol)

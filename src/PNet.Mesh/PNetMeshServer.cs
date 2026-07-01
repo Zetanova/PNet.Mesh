@@ -136,7 +136,8 @@ namespace PNet.Mesh
                 {
                     MemoryOwner = MemoryPool<byte>.Shared.Rent(ushort.MaxValue),
                     Protocol = _protocol,
-                    Writer = _controlChannel.Writer
+                    Writer = _controlChannel.Writer,
+                    Logger = _logger
                 };
                 var args = new SocketAsyncEventArgs();
                 args.UserToken = item;
@@ -252,7 +253,7 @@ namespace PNet.Mesh
                                     case PNetMeshMessageType.HandshakeInitiation:
                                         {
                                             //create new sesssion
-                                            session = new PNetMeshSession(_protocol, _outboundChannel.Writer)
+                                            session = new PNetMeshSession(_protocol, _outboundChannel.Writer, _logger)
                                             {
                                                 LocalEndPoint = cmd.LocalEndPoint,
                                                 RemoteEndPoint = cmd.RelayCandidateEndPoint is null ? cmd.RemoteEndPoint : null
@@ -267,9 +268,30 @@ namespace PNet.Mesh
                                             if (cmd.RelayCandidateEndPoint is not null)
                                             {
                                                 if (session.SupportsDirectEndpointDiscovery)
-                                                    session.TryApplyDirectEndpointHint(cmd.RelayCandidateEndPoint, DateTimeOffset.UtcNow);
+                                                {
+                                                    if (session.TryApplyDirectEndpointHint(cmd.RelayCandidateEndPoint, DateTimeOffset.UtcNow))
+                                                    {
+                                                        _logger.LogInformation(
+                                                            "event=wireguard_endpoint_hint_queued session={sessionIndex} endpoint_id={endpointId}",
+                                                            session.SenderIndex,
+                                                            PNetMeshDiagnosticRedactor.EndpointId(cmd.RelayCandidateEndPoint));
+                                                    }
+                                                    else
+                                                    {
+                                                        _logger.LogInformation(
+                                                            "event=wireguard_endpoint_hint_ignored session={sessionIndex} endpoint_id={endpointId}",
+                                                            session.SenderIndex,
+                                                            PNetMeshDiagnosticRedactor.EndpointId(cmd.RelayCandidateEndPoint));
+                                                    }
+                                                }
                                                 else
+                                                {
                                                     session.ConfirmRemoteEndpoint(cmd.RelayCandidateEndPoint);
+                                                    _logger.LogInformation(
+                                                        "event=relay_endpoint_confirmed session={sessionIndex} mode=legacy_hint endpoint_id={endpointId}",
+                                                        session.SenderIndex,
+                                                        PNetMeshDiagnosticRedactor.EndpointId(cmd.RelayCandidateEndPoint));
+                                                }
                                             }
                                             if (!channels.TryGetValue(session.RemoteAddress, out var channel))
                                             {
@@ -369,7 +391,7 @@ namespace PNet.Mesh
                                             //maybe endpoints = new[] { null };
 
                                             //no endpoint
-                                            session = new PNetMeshSession(_protocol, _outboundChannel.Writer)
+                                            session = new PNetMeshSession(_protocol, _outboundChannel.Writer, _logger)
                                             {
                                                 RemoteEndPoint = null //broadcast
                                             };
@@ -399,7 +421,7 @@ namespace PNet.Mesh
                                     foreach (var ep in endpoints)
                                     {
                                         //create new sesssion
-                                        session = new PNetMeshSession(_protocol, _outboundChannel.Writer)
+                                        session = new PNetMeshSession(_protocol, _outboundChannel.Writer, _logger)
                                         {
                                             //LocalEndPoint = cmd.LocalEndPoint,
                                             RemoteEndPoint = ep
@@ -470,6 +492,12 @@ namespace PNet.Mesh
                                         try
                                         {
                                             channel.TryWriteRoutePath(PNetMeshRoutePath.FromRelayPacket(packet, remoteEndPoint));
+                                            _logger.LogDebug(
+                                                "event=relay_packet_delivered destination_id={destinationId} source_id={sourceId} route_length={routeLength} candidate_endpoint_id={candidateEndpointId}",
+                                                PNetMeshDiagnosticRedactor.AddressId(packet.Address),
+                                                PNetMeshDiagnosticRedactor.AddressId(remoteAddress),
+                                                packet.Route.Length,
+                                                PNetMeshDiagnosticRedactor.EndpointId(remoteEndPoint));
                                         }
                                         catch (Exception ex)
                                         {
@@ -484,6 +512,10 @@ namespace PNet.Mesh
                                     //relay to known peer
                                     if (cmd.Result != null)
                                     {
+                                        _logger.LogDebug(
+                                            "event=relay_packet_forward_queued destination_id={destinationId} route_length={routeLength} mode=direct",
+                                            PNetMeshDiagnosticRedactor.AddressId(packet.Address),
+                                            packet.Route.Length);
                                         _ = channel.RelayAsync(packet, cmd.MemoryOwner)
                                             .ContinueWith(_ => cmd.Result.SetResult());
                                     }
@@ -491,7 +523,10 @@ namespace PNet.Mesh
                                     {
                                         if (!channel.TryRelay(packet, cmd.MemoryOwner))
                                         {
-                                            //todo log warning
+                                            _logger.LogDebug(
+                                                "event=relay_packet_forward_rejected destination_id={destinationId} route_length={routeLength} mode=direct",
+                                                PNetMeshDiagnosticRedactor.AddressId(packet.Address),
+                                                packet.Route.Length);
                                         }
                                     }
                                 }
@@ -512,6 +547,12 @@ namespace PNet.Mesh
 
                                     if (tasks.Count > 0)
                                     {
+                                        _logger.LogDebug(
+                                            "event=relay_packet_fanout_queued destination_id={destinationId} source_id={sourceId} route_length={routeLength} fanout_count={fanoutCount}",
+                                            PNetMeshDiagnosticRedactor.AddressId(packet.Address),
+                                            PNetMeshDiagnosticRedactor.AddressId(packet.Route[0]),
+                                            packet.Route.Length,
+                                            tasks.Count);
                                         _ = Task.WhenAll(tasks).ContinueWith(t =>
                                         {
                                             cmd.MemoryOwner?.Dispose();
@@ -530,6 +571,11 @@ namespace PNet.Mesh
                                     }
                                     else
                                     {
+                                        _logger.LogDebug(
+                                            "event=relay_packet_route_missed destination_id={destinationId} source_id={sourceId} route_length={routeLength}",
+                                            PNetMeshDiagnosticRedactor.AddressId(packet.Address),
+                                            PNetMeshDiagnosticRedactor.AddressId(packet.Route[0]),
+                                            packet.Route.Length);
                                         cmd.MemoryOwner?.Dispose();
                                         //todo better error message
                                         cmd.Result?.SetException(new InvalidOperationException("route not found"));
@@ -539,6 +585,10 @@ namespace PNet.Mesh
                                 {
                                     //ignore unknown peer
 
+                                    _logger.LogDebug(
+                                        "event=relay_packet_dropped destination_id={destinationId} route_length={routeLength} reason=hop_limit",
+                                        PNetMeshDiagnosticRedactor.AddressId(packet.Address),
+                                        packet.Route.Length);
                                     cmd.MemoryOwner?.Dispose();
                                     //todo better error message
                                     cmd.Result?.SetException(new InvalidOperationException("route not found"));
@@ -687,7 +737,9 @@ namespace PNet.Mesh
 
                                 if (!_controlChannel.Writer.TryWrite(cmd))
                                 {
-                                    _logger.LogWarning("relay packet to address[{remotePeer}] failed", msg.RemoteAddress);
+                                    _logger.LogWarning(
+                                        "event=relay_packet_enqueue_failed destination_id={destinationId}",
+                                        PNetMeshDiagnosticRedactor.AddressId(msg.RemoteAddress));
 
                                     msg.MemoryOwner?.Dispose();
                                 }
@@ -704,7 +756,9 @@ namespace PNet.Mesh
 
                                 if (!_controlChannel.Writer.TryWrite(cmd))
                                 {
-                                    _logger.LogWarning("relay packet to address[{remotePeer}] failed", msg.Packet.Address);
+                                    _logger.LogWarning(
+                                        "event=relay_packet_enqueue_failed destination_id={destinationId}",
+                                        PNetMeshDiagnosticRedactor.AddressId(msg.Packet.Address));
 
                                     //msg.MemoryOwner?.Dispose();
                                 }
@@ -730,14 +784,25 @@ namespace PNet.Mesh
                 if (session.TryApplyDirectEndpointHint(cmd.RelayCandidateEndPoint, DateTimeOffset.UtcNow))
                 {
                     _logger.LogInformation(
-                        "session[{sessionIndex}] queued direct endpoint candidate {remoteEndPoint}",
+                        "event=wireguard_endpoint_hint_queued session={sessionIndex} endpoint_id={endpointId}",
                         session.SenderIndex,
-                        cmd.RelayCandidateEndPoint);
+                        PNetMeshDiagnosticRedactor.EndpointId(cmd.RelayCandidateEndPoint));
                 }
                 else if (!session.SupportsDirectEndpointDiscovery)
                 {
                     session.ConfirmRemoteEndpoint(cmd.RelayCandidateEndPoint);
                     _router.SetEntry(session.RemoteAddress, session.RemoteEndPoint);
+                    _logger.LogInformation(
+                        "event=relay_endpoint_confirmed session={sessionIndex} mode=legacy_hint endpoint_id={endpointId}",
+                        session.SenderIndex,
+                        PNetMeshDiagnosticRedactor.EndpointId(cmd.RelayCandidateEndPoint));
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "event=wireguard_endpoint_hint_ignored session={sessionIndex} endpoint_id={endpointId}",
+                        session.SenderIndex,
+                        PNetMeshDiagnosticRedactor.EndpointId(cmd.RelayCandidateEndPoint));
                 }
 
                 return;
@@ -749,12 +814,16 @@ namespace PNet.Mesh
             if (session.TryPromoteDirectEndpoint(cmd.RemoteEndPoint, DateTimeOffset.UtcNow))
             {
                 _logger.LogInformation(
-                    "session[{sessionIndex}] promoted direct endpoint {remoteEndPoint}",
+                    "event=wireguard_direct_promoted session={sessionIndex} endpoint_id={endpointId}",
                     session.SenderIndex,
-                    cmd.RemoteEndPoint);
+                    PNetMeshDiagnosticRedactor.EndpointId(cmd.RemoteEndPoint));
             }
             else
             {
+                _logger.LogInformation(
+                    "event=wireguard_direct_fallback session={sessionIndex} endpoint_id={endpointId}",
+                    session.SenderIndex,
+                    PNetMeshDiagnosticRedactor.EndpointId(cmd.RemoteEndPoint));
                 session.ConfirmRemoteEndpoint(cmd.RemoteEndPoint);
             }
 
@@ -772,6 +841,10 @@ namespace PNet.Mesh
 
             session.ConfirmRemoteEndpoint(remoteEndPoint);
             _router.SetEntry(session.RemoteAddress, session.RemoteEndPoint);
+            _logger.LogInformation(
+                "event=relay_endpoint_confirmed session={sessionIndex} mode=legacy endpoint_id={endpointId}",
+                session.SenderIndex,
+                PNetMeshDiagnosticRedactor.EndpointId(remoteEndPoint));
         }
 
         internal static bool TryAcceptRelayPacket(PNetMeshRouter router, PNetMeshRelayPacket packet)
@@ -972,6 +1045,11 @@ namespace PNet.Mesh
                     item.Protocol.RequireCookieMac2);
                 if (result == PNetMeshCookieGateResult.CookieRequired)
                     TrySendCookieReply(socket, item.Protocol, args.RemoteEndPoint, data);
+                item.Logger?.LogDebug(
+                    "event=wireguard_cookie_gate result={result} message_type={messageType} endpoint_id={endpointId}",
+                    result,
+                    messageType,
+                    PNetMeshDiagnosticRedactor.EndpointId(args.RemoteEndPoint));
                 return result == PNetMeshCookieGateResult.Accepted;
             }
 
@@ -1011,6 +1089,8 @@ namespace PNet.Mesh
         public IMemoryOwner<byte> MemoryOwner { get; set; }
 
         public ChannelWriter<PNetMeshControlCommands.Command> Writer { get; set; }
+
+        public ILogger Logger { get; set; }
     }
 
     internal sealed class PNetMeshSocketSendWorkItem

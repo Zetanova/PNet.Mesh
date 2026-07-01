@@ -1,4 +1,6 @@
 ﻿using Google.Protobuf;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -36,6 +38,8 @@ namespace PNet.Mesh
         readonly PNetMeshProtocol _protocol;
 
         readonly ChannelWriter<PNetMeshOutboundMessages.Message> _outboundWriter;
+
+        readonly ILogger _logger;
 
         readonly PNetMeshPacketBuffer _retransBuffer;
         // multi-threading: receive-side ACK processing removes retransmit entries while the control loop counts, adds, and enumerates them for send-window gating.
@@ -134,8 +138,17 @@ namespace PNet.Mesh
             lock (_endpointDiscoveryLock)
             {
                 endpoint = null;
-                return _endpointDiscovery.DirectEndpoint is null
-                       && _endpointDiscovery.TryBeginDirectProbe(now, out endpoint);
+                var started = _endpointDiscovery.DirectEndpoint is null
+                              && _endpointDiscovery.TryBeginDirectProbe(now, out endpoint);
+                if (started)
+                {
+                    _logger.LogInformation(
+                        "event=wireguard_direct_probe_started session={sessionIndex} endpoint_id={endpointId}",
+                        SenderIndex,
+                        PNetMeshDiagnosticRedactor.EndpointId(endpoint));
+                }
+
+                return started;
             }
         }
 
@@ -181,10 +194,11 @@ namespace PNet.Mesh
         Timer _retransTimer;
         Timer _cumAckTimer;
 
-        internal PNetMeshSession(PNetMeshProtocol protocol, ChannelWriter<PNetMeshOutboundMessages.Message> writer)
+        internal PNetMeshSession(PNetMeshProtocol protocol, ChannelWriter<PNetMeshOutboundMessages.Message> writer, ILogger logger = null)
         {
             _protocol = protocol;
             _outboundWriter = writer;
+            _logger = logger ?? NullLogger<PNetMeshSession>.Instance;
             _retransBuffer = new PNetMeshPacketBuffer();
         }
 
