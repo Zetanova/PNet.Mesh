@@ -1,4 +1,5 @@
-﻿using Noise;
+﻿using Google.Protobuf;
+using Noise;
 using PNet.Mesh;
 using System;
 using System.Buffers.Binary;
@@ -159,6 +160,38 @@ namespace PNet.Actor.UnitTests.Mesh
             initiatorTransport.WriteMessage(payload, buffer, out bytesWritten, out _);
 
             Assert.Equal(PNetMeshPacketFraming.PacketDataHeaderSize + AeadTagBytes + payload.Length, bytesWritten);
+        }
+
+        [Fact]
+        public void wireguard_transport_exchanges_pnet_internal_protobuf_frames_bidirectionally()
+        {
+            using var transports = CreateEstablishedWireGuardTransports();
+
+            AssertPNetProtobufFrameExchange(
+                transports.Initiator,
+                transports.Responder,
+                "from initiator");
+            AssertPNetProtobufFrameExchange(
+                transports.Responder,
+                transports.Initiator,
+                "from responder");
+        }
+
+        [Fact]
+        public void wireguard_transport_pnet_internal_frame_rejects_invalid_marker_and_padding()
+        {
+            using var transports = CreateEstablishedWireGuardTransports();
+
+            AssertEncryptedPNetFrameRejected(
+                transports.Initiator,
+                transports.Responder,
+                new byte[] { 0x70, 0x01 },
+                PNetMeshPayloadFrameError.ReservedMarker);
+            AssertEncryptedPNetFrameRejected(
+                transports.Initiator,
+                transports.Responder,
+                new byte[] { 0x02, 0x01 }.Concat(new byte[13]).Append((byte)0x01).ToArray(),
+                PNetMeshPayloadFrameError.NonZeroPNetPadding);
         }
 
         [Fact]
@@ -969,20 +1002,30 @@ namespace PNet.Actor.UnitTests.Mesh
 
         static EstablishedTransportPair CreateEstablishedTransports()
         {
+            return CreateEstablishedTransports(PNetMeshTransportMode.PNet);
+        }
+
+        static EstablishedTransportPair CreateEstablishedWireGuardTransports()
+        {
+            return CreateEstablishedTransports(PNetMeshTransportMode.WireGuard);
+        }
+
+        static EstablishedTransportPair CreateEstablishedTransports(PNetMeshTransportMode mode)
+        {
             var psk = new byte[32];
             RandomNumberGenerator.Fill(psk);
 
             var initiatorStatic = KeyPair.Generate();
             var responderStatic = KeyPair.Generate();
 
-            var initiatorProtocol = new PNetMeshProtocol(initiatorStatic.PrivateKey, initiatorStatic.PublicKey, psk);
-            var responderProtocol = new PNetMeshProtocol(responderStatic.PrivateKey, responderStatic.PublicKey, psk);
+            var initiatorProtocol = new PNetMeshProtocol(initiatorStatic.PrivateKey, initiatorStatic.PublicKey, psk, mode);
+            var responderProtocol = new PNetMeshProtocol(responderStatic.PrivateKey, responderStatic.PublicKey, psk, mode);
 
             var initiator = initiatorProtocol.CreateInitiator(1, responderStatic.PublicKey);
             var responder = responderProtocol.CreateResponder(2);
 
-            Span<byte> initiationBuffer = new byte[PNetMeshHandshake.InitiationMessageSize];
-            Span<byte> responseBuffer = new byte[PNetMeshHandshake.ResponseMessageSize];
+            Span<byte> initiationBuffer = new byte[4098];
+            Span<byte> responseBuffer = new byte[4098];
 
             initiator.WriteInitiationMessage(initiationBuffer, out var bytesWritten);
             Assert.True(responder.TryReadInitiationMessage(initiationBuffer.Slice(0, bytesWritten)));
@@ -996,6 +1039,62 @@ namespace PNet.Actor.UnitTests.Mesh
                 responder,
                 initiatorStatic,
                 responderStatic);
+        }
+
+        static void AssertPNetProtobufFrameExchange(
+            PNetMeshTransport2 sender,
+            PNetMeshTransport2 receiver,
+            string expectedPayload)
+        {
+            var packet = new PNet.Actor.Mesh.Protos.Packet();
+            packet.Payload.Add(new PNet.Actor.Mesh.Protos.Payload
+            {
+                Raw = ByteString.CopyFromUtf8(expectedPayload)
+            });
+
+            var frame = PNetMeshPayloadFraming.CreatePNet(packet.ToByteArray());
+            var encrypted = new byte[4098];
+            var plaintext = new byte[4098];
+
+            sender.WriteMessage(frame, encrypted, out var bytesWritten, out _);
+
+            Assert.True(receiver.TryReadPlaintext(
+                encrypted.AsSpan(0, bytesWritten),
+                plaintext,
+                out var metadata));
+            Assert.True(PNetMeshPayloadFraming.TryRead(
+                plaintext.AsSpan(0, metadata.BytesWritten),
+                out var payloadFrame,
+                out var error));
+            Assert.Equal(PNetMeshPayloadFrameError.None, error);
+            Assert.Equal(PNetMeshPayloadFrameKind.PNet, payloadFrame.Kind);
+            Assert.Equal(0, payloadFrame.Frame.Length % 16);
+
+            var parsed = PNet.Actor.Mesh.Protos.Packet.Parser.ParseFrom(payloadFrame.Payload);
+            var payload = Assert.Single(parsed.Payload);
+            Assert.Equal(expectedPayload, payload.Raw.ToStringUtf8());
+        }
+
+        static void AssertEncryptedPNetFrameRejected(
+            PNetMeshTransport2 sender,
+            PNetMeshTransport2 receiver,
+            byte[] frame,
+            PNetMeshPayloadFrameError expectedError)
+        {
+            var encrypted = new byte[4098];
+            var plaintext = new byte[4098];
+
+            sender.WriteMessage(frame, encrypted, out var bytesWritten, out _);
+
+            Assert.True(receiver.TryReadPlaintext(
+                encrypted.AsSpan(0, bytesWritten),
+                plaintext,
+                out var metadata));
+            Assert.False(PNetMeshPayloadFraming.TryRead(
+                plaintext.AsSpan(0, metadata.BytesWritten),
+                out _,
+                out var error));
+            Assert.Equal(expectedError, error);
         }
 
         static byte[] CreatePayload(int length)
