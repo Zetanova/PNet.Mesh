@@ -272,6 +272,50 @@ namespace PNet.Actor.UnitTests.Mesh
         }
 
         [Fact]
+        public void try_read_message_rejects_replayed_packet_without_plaintext_regression()
+        {
+            Span<byte> buffer1 = new byte[4098];
+            Span<byte> buffer2 = new byte[4098];
+
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            using var initiator_static = KeyPair.Generate();
+            using var responder_static = KeyPair.Generate();
+
+            var initiator_protocol = new PNetMeshProtocol(initiator_static.PrivateKey, initiator_static.PublicKey, psk);
+            var responder_protocol = new PNetMeshProtocol(responder_static.PrivateKey, responder_static.PublicKey, psk);
+
+            using var initiator = initiator_protocol.CreateInitiator(1, responder_static.PublicKey);
+            using var responder = responder_protocol.CreateResponder(2);
+
+            initiator.WriteInitiationMessage(buffer1, out var bytesWritten);
+            Assert.True(responder.TryReadInitiationMessage(buffer1.Slice(0, bytesWritten)));
+            Assert.True(responder.TryWriteResponseMessage(buffer2, out bytesWritten, out var responder_transport));
+            Assert.True(initiator.TryReadResponseMessage(buffer2.Slice(0, bytesWritten), out var initiator_transport));
+
+            initiator_transport.WriteMessage(Encoding.UTF8.GetBytes("first"), buffer1, out bytesWritten, out var writtenCounter);
+            Assert.Equal(0ul, writtenCounter);
+            Assert.True(responder_transport.TryReadMessage(buffer1.Slice(0, bytesWritten), buffer2, out bytesWritten, out var readCounter));
+            Assert.Equal(0ul, readCounter);
+
+            initiator_transport.WriteMessage(Encoding.UTF8.GetBytes("second"), buffer1, out bytesWritten, out writtenCounter);
+            Assert.Equal(1ul, writtenCounter);
+            var replayed = buffer1.Slice(0, bytesWritten).ToArray();
+
+            Assert.True(responder_transport.TryReadMessage(replayed, buffer2, out bytesWritten, out readCounter));
+            Assert.Equal(1ul, readCounter);
+            Assert.Equal("second", Encoding.UTF8.GetString(buffer2.Slice(0, bytesWritten)));
+
+            buffer2.Slice(0, 32).Fill(0x5a);
+
+            Assert.False(responder_transport.TryReadMessage(replayed, buffer2, out bytesWritten, out readCounter));
+            Assert.Equal(0, bytesWritten);
+            Assert.Equal(1ul, readCounter);
+            Assert.All(buffer2.Slice(0, 16).ToArray(), b => Assert.Equal((byte)0, b));
+        }
+
+        [Fact]
         public void exchange_handshake_cookieless()
         {
             var initiator_sender_index = 1u;
@@ -333,6 +377,129 @@ namespace PNet.Actor.UnitTests.Mesh
                 Assert.True(r);
                 Assert.Equal(5, bytesWritten);
                 Assert.Equal("World", Encoding.UTF8.GetString(buffer2.Slice(0, bytesWritten)));
+            }
+        }
+
+        [Fact]
+        public void validate_packet_accepts_matching_cookie_macs_regression()
+        {
+            var initiator_sender_index = 1u;
+            var responder_sender_index = 2u;
+
+            Span<byte> buffer1 = new byte[4098];
+            Span<byte> buffer2 = new byte[4098];
+
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            var cookieValue = new byte[32];
+            RandomNumberGenerator.Fill(cookieValue);
+            var cookie = new PNetMeshCookie(cookieValue, DateTime.UtcNow.AddMinutes(2));
+
+            using var initiator_static = KeyPair.Generate();
+            using var responder_static = KeyPair.Generate();
+
+            var initiator_protocol = new PNetMeshProtocol(initiator_static.PrivateKey, initiator_static.PublicKey, psk);
+            var responder_protocol = new PNetMeshProtocol(responder_static.PrivateKey, responder_static.PublicKey, psk);
+
+            initiator_protocol.Cookie = cookie;
+            responder_protocol.Cookie = cookie;
+
+            using var initiator = initiator_protocol.CreateInitiator(initiator_sender_index, responder_static.PublicKey);
+            using var responder = responder_protocol.CreateResponder(responder_sender_index);
+
+            initiator.WriteInitiationMessage(buffer1, out var bytesWritten);
+            Assert.True(responder_protocol.ValidatePacket(buffer1.Slice(0, bytesWritten)));
+            Assert.True(responder.TryReadInitiationMessage(buffer1.Slice(0, bytesWritten)));
+
+            Assert.True(responder.TryWriteResponseMessage(buffer2, out bytesWritten, out var responder_transport));
+            Assert.NotNull(responder_transport);
+            Assert.True(initiator_protocol.ValidatePacket(buffer2.Slice(0, bytesWritten)));
+        }
+
+        [Fact]
+        public void validate_packet_rejects_missing_or_wrong_cookie_initiation_mac_regression()
+        {
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            var expectedCookieValue = new byte[32];
+            var wrongCookieValue = new byte[32];
+            RandomNumberGenerator.Fill(expectedCookieValue);
+            expectedCookieValue.CopyTo(wrongCookieValue, 0);
+            wrongCookieValue[0] ^= 0xff;
+
+            var expectedCookie = new PNetMeshCookie(expectedCookieValue, DateTime.UtcNow.AddMinutes(2));
+            var wrongCookie = new PNetMeshCookie(wrongCookieValue, DateTime.UtcNow.AddMinutes(2));
+
+            using var initiator_static = KeyPair.Generate();
+            using var responder_static = KeyPair.Generate();
+
+            var initiator_protocol = new PNetMeshProtocol(initiator_static.PrivateKey, initiator_static.PublicKey, psk);
+            var responder_protocol = new PNetMeshProtocol(responder_static.PrivateKey, responder_static.PublicKey, psk)
+            {
+                Cookie = expectedCookie
+            };
+
+            Span<byte> buffer = new byte[4098];
+            using (var initiator = initiator_protocol.CreateInitiator(1, responder_static.PublicKey))
+            {
+                initiator.WriteInitiationMessage(buffer, out var bytesWritten);
+                Assert.False(responder_protocol.ValidatePacket(buffer.Slice(0, bytesWritten)));
+            }
+
+            initiator_protocol.Cookie = wrongCookie;
+            using (var initiator = initiator_protocol.CreateInitiator(1, responder_static.PublicKey))
+            {
+                initiator.WriteInitiationMessage(buffer, out var bytesWritten);
+                Assert.False(responder_protocol.ValidatePacket(buffer.Slice(0, bytesWritten)));
+            }
+        }
+
+        [Fact]
+        public void validate_packet_rejects_missing_or_wrong_cookie_response_mac_regression()
+        {
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            var expectedCookieValue = new byte[32];
+            var wrongCookieValue = new byte[32];
+            RandomNumberGenerator.Fill(expectedCookieValue);
+            expectedCookieValue.CopyTo(wrongCookieValue, 0);
+            wrongCookieValue[0] ^= 0xff;
+
+            var expectedCookie = new PNetMeshCookie(expectedCookieValue, DateTime.UtcNow.AddMinutes(2));
+            var wrongCookie = new PNetMeshCookie(wrongCookieValue, DateTime.UtcNow.AddMinutes(2));
+
+            using var initiator_static = KeyPair.Generate();
+            using var responder_static = KeyPair.Generate();
+
+            Assert.False(WriteResponseWithoutMatchingCookie(PNetMeshCookie.Empty));
+            Assert.False(WriteResponseWithoutMatchingCookie(wrongCookie));
+
+            bool WriteResponseWithoutMatchingCookie(PNetMeshCookie responderCookie)
+            {
+                var initiator_protocol = new PNetMeshProtocol(initiator_static.PrivateKey, initiator_static.PublicKey, psk)
+                {
+                    Cookie = expectedCookie
+                };
+                var responder_protocol = new PNetMeshProtocol(responder_static.PrivateKey, responder_static.PublicKey, psk)
+                {
+                    Cookie = responderCookie
+                };
+
+                Span<byte> initiationBuffer = new byte[4098];
+                Span<byte> responseBuffer = new byte[4098];
+
+                using var initiator = initiator_protocol.CreateInitiator(1, responder_static.PublicKey);
+                using var responder = responder_protocol.CreateResponder(2);
+
+                initiator.WriteInitiationMessage(initiationBuffer, out var bytesWritten);
+                Assert.True(responder.TryReadInitiationMessage(initiationBuffer.Slice(0, bytesWritten)));
+                Assert.True(responder.TryWriteResponseMessage(responseBuffer, out bytesWritten, out var responder_transport));
+                Assert.NotNull(responder_transport);
+
+                return initiator_protocol.ValidatePacket(responseBuffer.Slice(0, bytesWritten));
             }
         }
 

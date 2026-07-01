@@ -83,6 +83,32 @@ namespace PNet.Actor.UnitTests.Mesh
         }
 
         [Fact]
+        public void get_bitmap_rejects_counter_before_latest_regression()
+        {
+            using var tracker = new PNetMeshPacketTracker(32);
+
+            for (ulong i = 0; i <= 64; i++)
+                Assert.True(tracker.TryAdd(i));
+
+            Assert.True(tracker.Latest > 0);
+
+            var buffer = new byte[16];
+            Assert.Throws<ArgumentOutOfRangeException>(() => tracker.GetBitmap(tracker.Latest - 1, buffer, out _));
+        }
+
+        [Fact]
+        public void get_bitmap_rejects_undersized_buffer_regression()
+        {
+            using var tracker = new PNetMeshPacketTracker();
+
+            for (ulong i = 0; i <= 8; i++)
+                Assert.True(tracker.TryAdd(i));
+
+            var buffer = new byte[1];
+            Assert.Throws<ArgumentOutOfRangeException>(() => tracker.GetBitmap(0, buffer, out _));
+        }
+
+        [Fact]
         public void bitmap_from_small_end()
         {
             using var tracker = new PNetMeshPacketTracker();
