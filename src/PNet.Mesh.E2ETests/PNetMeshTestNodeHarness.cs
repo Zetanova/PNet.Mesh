@@ -2,9 +2,11 @@
 using DotNet.Testcontainers.Containers;
 using DotNet.Testcontainers.Images;
 using DotNet.Testcontainers.Networks;
+using Docker.DotNet.Models;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -57,7 +59,16 @@ public sealed class PNetMeshTestNodeHarness : IAsyncDisposable
             .WithCleanUp(true)
             .WithNetworkAliases(node.Name)
             .WithExposedPort($"{node.Port}/udp")
-            .WithEnvironment(node.ToEnvironment());
+            .WithEnvironment(node.ToEnvironment())
+            .WithCreateParameterModifier(parameters =>
+            {
+                parameters.HostConfig ??= new HostConfig();
+                parameters.HostConfig.Privileged = false;
+                parameters.HostConfig.CapDrop = (parameters.HostConfig.CapDrop ?? Array.Empty<string>())
+                    .Concat(new[] { "NET_ADMIN", "NET_RAW" })
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            });
 
         var networkNames = node.NetworkNames.Count > 0
             ? node.NetworkNames

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -49,6 +50,32 @@ public sealed class PNetMeshTestNodeHarnessTests
         Assert.Contains($"Test node '{node.Name}' failed to start.", ex.Message);
         Assert.Contains("Container logs:", ex.Message);
         Assert.Contains($"Node[{node.Name}] starting", ex.Message);
+    }
+
+    [Fact]
+    public async Task test_node_runs_without_extended_network_permissions()
+    {
+        await using var harness = new PNetMeshTestNodeHarness();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromMinutes(5));
+
+        await harness.InitializeAsync(timeout.Token);
+
+        var node = PNetMeshTestNodeSpec.StandaloneNode00();
+        var container = await harness.StartNodeAsync(node, timeout.Token);
+        var result = await container.ExecAsync(new[]
+        {
+            "sh",
+            "-c",
+            "grep '^CapEff:' /proc/self/status; if [ -e /dev/net/tun ]; then echo tun=present; else echo tun=absent; fi"
+        }, timeout.Token);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("tun=absent", result.Stdout);
+
+        var capEff = ParseCapEff(result.Stdout);
+        Assert.False(HasCapability(capEff, 12), "CAP_NET_ADMIN must not be effective.");
+        Assert.False(HasCapability(capEff, 13), "CAP_NET_RAW must not be effective.");
     }
 
     [Fact]
@@ -432,5 +459,17 @@ public sealed class PNetMeshTestNodeHarnessTests
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         return await PNetMeshTestNodeHarness.GetLogsAsync(container, timeout.Token);
+    }
+
+    static ulong ParseCapEff(string statusOutput)
+    {
+        var line = statusOutput.Split('\n', StringSplitOptions.TrimEntries).Single(n => n.StartsWith("CapEff:", StringComparison.Ordinal));
+        var value = line["CapEff:".Length..].Trim();
+        return ulong.Parse(value, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+    }
+
+    static bool HasCapability(ulong capEff, int capability)
+    {
+        return (capEff & (1UL << capability)) != 0;
     }
 }
