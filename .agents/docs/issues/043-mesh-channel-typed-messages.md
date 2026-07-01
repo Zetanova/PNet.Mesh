@@ -3,11 +3,13 @@ issue: 043
 date: 2026-07-01
 source: mesh/channel
 priority: high
-status: ready
+status: completed
 research-status: complete
 research-date: 2026-07-01
-terminal-state: ready
+terminal-state: completed
 assumptions-date: 2026-07-01
+completion-date: 2026-07-01
+commits: [7165d94e69250bb6fce8b4a94f60141bd34ac95f]
 brief: "description+playbook"
 views:
   enrich: "description+playbook+related-tracking+scope+acceptance-criteria+research+assumptions"
@@ -75,4 +77,14 @@ Report result: keep the channel untyped and add adjacent helper/info types that 
 
 ## Completion Report
 
-Pending.
+Completed in `7165d94e69250bb6fce8b4a94f60141bd34ac95f`.
+
+- Added `PNetMeshPayloadFraming`, `PNetMeshPayloadFrame`, and explicit parse error/kind enums.
+- PNet internal frames now classify first-byte `X000....` headers while treating the header as exactly one byte.
+- IPv4/IPv6 helpers classify and craft raw packet payloads through `PNetMeshIpPacket`, trimming authenticated padding beyond IP packet length.
+- Kept `PNetMeshChannel` raw byte send semantics unchanged.
+- Verification passed: initial focused compile failed on missing #043 helpers, focused #043 tests passed 7/7, Release build passed, scoped whitespace passed, `git diff --check` passed, and the full unit command passed 119/119.
+
+## Resolving Commits
+
+- `7165d94e69250bb6fce8b4a94f60141bd34ac95f` - add mesh payload framing helpers
