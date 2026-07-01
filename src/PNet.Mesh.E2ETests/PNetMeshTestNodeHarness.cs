@@ -20,6 +20,9 @@ public sealed class PNetMeshTestNodeHarness : IAsyncDisposable
     static readonly TimeSpan DiagnosticLogTimeout = TimeSpan.FromSeconds(5);
     static readonly TimeSpan CleanupTimeout = TimeSpan.FromSeconds(30);
     const string DefaultNetworkName = "default";
+    static readonly string SharedImageName = $"localhost/pnet-mesh-test-node:{Guid.NewGuid():N}";
+    static readonly SemaphoreSlim SharedImageLock = new SemaphoreSlim(1, 1);
+    static Task<IFutureDockerImage> SharedImageTask;
 
     readonly string _runId = Guid.NewGuid().ToString("N");
     readonly List<IContainer> _containers = new List<IContainer>();
@@ -27,22 +30,11 @@ public sealed class PNetMeshTestNodeHarness : IAsyncDisposable
 
     IFutureDockerImage _image;
 
+    internal string TestNodeImageName => SharedImageName;
+
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(ImageBuildTimeout);
-
-        var repositoryRoot = FindRepositoryRoot();
-        _image = new ImageFromDockerfileBuilder()
-            .WithName($"localhost/pnet-mesh-test-node:{_runId}")
-            .WithContextDirectory(repositoryRoot)
-            .WithDockerfileDirectory(repositoryRoot)
-            .WithDockerfile("src/PNet.Mesh.TestNode/Dockerfile")
-            .WithCleanUp(true)
-            .Build();
-
-        await _image.CreateAsync(timeout.Token);
-
+        _image = await GetOrCreateSharedImageAsync(cancellationToken);
         await GetOrCreateNetworkAsync(DefaultNetworkName, cancellationToken);
     }
 
@@ -159,9 +151,6 @@ public sealed class PNetMeshTestNodeHarness : IAsyncDisposable
             await TryDisposeAsync(network, "network", cleanupErrors);
         }
 
-        if (_image is not null)
-            await TryDeleteImageAsync(_image, cleanupErrors);
-
         if (cleanupErrors.Count == 1)
             throw cleanupErrors[0];
 
@@ -255,16 +244,63 @@ public sealed class PNetMeshTestNodeHarness : IAsyncDisposable
         }
     }
 
-    static async Task TryDeleteImageAsync(IFutureDockerImage image, List<Exception> cleanupErrors)
+    static async Task<IFutureDockerImage> GetOrCreateSharedImageAsync(CancellationToken cancellationToken)
     {
+        Task<IFutureDockerImage> imageTask;
+        await SharedImageLock.WaitAsync(cancellationToken);
         try
         {
-            using var timeout = new CancellationTokenSource(CleanupTimeout);
-            await image.DeleteAsync(timeout.Token);
+            SharedImageTask ??= CreateSharedImageAsync(cancellationToken);
+            imageTask = SharedImageTask;
         }
-        catch (Exception ex)
+        finally
         {
-            cleanupErrors.Add(new InvalidOperationException("Failed to delete generated Testcontainers image.", ex));
+            SharedImageLock.Release();
+        }
+
+        try
+        {
+            return await imageTask.WaitAsync(cancellationToken);
+        }
+        catch
+        {
+            await ClearFailedSharedImageTaskAsync(imageTask);
+            throw;
+        }
+    }
+
+    static async Task<IFutureDockerImage> CreateSharedImageAsync(CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(ImageBuildTimeout);
+
+        var repositoryRoot = FindRepositoryRoot();
+        var image = new ImageFromDockerfileBuilder()
+            .WithName(SharedImageName)
+            .WithContextDirectory(repositoryRoot)
+            .WithDockerfileDirectory(repositoryRoot)
+            .WithDockerfile("src/PNet.Mesh.TestNode/Dockerfile")
+            .WithCleanUp(true)
+            .Build();
+
+        await image.CreateAsync(timeout.Token);
+        return image;
+    }
+
+    static async Task ClearFailedSharedImageTaskAsync(Task<IFutureDockerImage> imageTask)
+    {
+        if (!imageTask.IsCanceled && !imageTask.IsFaulted)
+            return;
+
+        await SharedImageLock.WaitAsync();
+        try
+        {
+            if (ReferenceEquals(SharedImageTask, imageTask))
+                SharedImageTask = null;
+        }
+        finally
+        {
+            SharedImageLock.Release();
         }
     }
 

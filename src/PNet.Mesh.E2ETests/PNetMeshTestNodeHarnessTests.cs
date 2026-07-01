@@ -24,6 +24,15 @@ public sealed class PNetMeshTestNodeHarnessTests
     }
 
     [Fact]
+    public void test_node_image_name_is_shared_across_harness_instances()
+    {
+        var first = new PNetMeshTestNodeHarness();
+        var second = new PNetMeshTestNodeHarness();
+
+        Assert.Equal(first.TestNodeImageName, second.TestNodeImageName);
+    }
+
+    [Fact]
     public async Task starts_single_test_node_container_and_waits_for_readiness()
     {
         await using var harness = new PNetMeshTestNodeHarness();
