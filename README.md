@@ -13,7 +13,7 @@ P2P protocol to use inside managed dotnet application
 .) same security as wireguard
 .) crypto routing and crypto discovery
 .) neighbor endpoint detection and relay candidate exchange for covered container flows; full ICE/STUN/TURN NAT traversal is not implemented
-.) compression
+.) compression protocol fields are reserved; runtime compression negotiation and compressed payload handling are not implemented
 
 ## Used Protocols
 
