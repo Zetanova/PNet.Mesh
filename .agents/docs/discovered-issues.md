@@ -2,7 +2,7 @@
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
 last-entry: 2026-06-30
 last-opened: 2026-06-30-033
-open-count: 13
+open-count: 12
 last-completed: 2026-06-30
 ---
 
@@ -19,7 +19,6 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | 015 | 2026-06-30 | coverage/readme | Expand packet ordering, retransmission, and flow-control implementation coverage. | high | gated | [015-packet-ordering-flow-control-coverage](issues/015-packet-ordering-flow-control-coverage.md) |
 | 016 | 2026-06-30 | coverage/readme | Implement and test WireGuard/Noise security invariants behind the README security claim. | high | gated | [016-wireguard-noise-security-coverage](issues/016-wireguard-noise-security-coverage.md) |
 | 017 | 2026-06-30 | coverage/readme | Implement and test crypto routing and crypto discovery behavior. | high | gated | [017-crypto-routing-discovery-coverage](issues/017-crypto-routing-discovery-coverage.md) |
-| 026 | 2026-06-30 | coverage/readme | Deterministic packet ordering and retransmission regression tests. | high | ready | [026-packet-ordering-retransmission-coverage](issues/026-packet-ordering-retransmission-coverage.md) |
 | 027 | 2026-06-30 | coverage/readme | Flow-control limit and negotiated SYN assertion coverage. | high | ready | [027-flow-control-negotiation-coverage](issues/027-flow-control-negotiation-coverage.md) |
 | 028 | 2026-06-30 | coverage/readme | Noise handshake and authentication happy-path coverage. | high | ready | [028-handshake-authentication-coverage](issues/028-handshake-authentication-coverage.md) |
 | 029 | 2026-06-30 | coverage/readme | Tamper rejection coverage for wrong keys, PSKs, and corrupted packets. | high | ready | [029-tamper-rejection-coverage](issues/029-tamper-rejection-coverage.md) |
@@ -67,3 +66,4 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | 023 | 2026-06-30 | 2026-06-30 | Multi-hop relay Testcontainers scenario across separated segments. | 84bb53b | [023-multi-hop-route-e2e-coverage](issues/023-multi-hop-route-e2e-coverage.md) |
 | 024 | 2026-06-30 | 2026-06-30 | Restart recovery Testcontainers scenario for a rejoining node. | 6a02e9d | [024-restart-recovery-e2e-coverage](issues/024-restart-recovery-e2e-coverage.md) |
 | 025 | 2026-06-30 | 2026-06-30 | Negative-path Testcontainers scenario for invalid PSK delivery rejection. | 7c09bd6 | [025-negative-path-e2e-coverage](issues/025-negative-path-e2e-coverage.md) |
+| 026 | 2026-06-30 | 2026-06-30 | Deterministic packet ordering and retransmission regression tests. | c77659b | [026-packet-ordering-retransmission-coverage](issues/026-packet-ordering-retransmission-coverage.md) |

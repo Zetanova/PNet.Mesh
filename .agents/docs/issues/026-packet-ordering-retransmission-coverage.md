@@ -3,10 +3,12 @@ issue: 026
 date: 2026-06-30
 source: coverage/readme
 priority: high
-status: ready
+status: completed
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
+completion-date: 2026-06-30
+commits: [c77659b]
 split-status: child
 parent-issue: 015
 brief: "description+playbook"
@@ -54,4 +56,12 @@ Parent research already confirmed packet buffer and packet tracker coverage exis
 
 ## Completion Report
 
-Pending.
+Completed in `c77659bfa6f3c602c7495757b1a78c4a238045e7`.
+
+- Added deterministic packet ordering and retransmission coverage across reordered payload delivery, missing-packet retransmission selection, stale out-of-sequence bitmap clearing, out-of-order ACK processing, and concurrent ACK generation with reordered reads.
+- Verified the release build, targeted packet ordering and retransmission unit coverage, the full unit suite, scoped whitespace formatting, and `git diff --check`.
+- Tracker row completion is now recorded in the issue index.
+
+## Resolving Commits
+
+- `c77659bfa6f3c602c7495757b1a78c4a238045e7` - preserve packet ordering during retransmission
