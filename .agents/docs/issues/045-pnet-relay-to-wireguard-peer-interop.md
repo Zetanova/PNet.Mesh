@@ -3,10 +3,10 @@ issue: 045
 date: 2026-07-01
 source: wireguard/relay
 priority: high
-status: gated
+status: ready
 research-status: complete
 research-date: 2026-07-01
-terminal-state: gated
+terminal-state: ready
 gate: "Wait for the WireGuard-compatible transport, raw plaintext, IP helper, and direct interop child issues."
 gate-depends:
   - 036
@@ -18,7 +18,7 @@ gate-depends:
   - 042
 gate-reason: "Relay interop depends on the unfinished WireGuard-compatible transport and interop children."
 gate-last-checked: 2026-07-01
-gate-status: blocked
+gate-status: cleared
 assumptions-date: 2026-07-01
 brief: "description+playbook"
 views:
@@ -80,7 +80,7 @@ Primary `wireguard-go` receive/send flow shows that a normal UDP relay makes nod
 
 | Date | Gate | Method | Result | Evidence |
 |------|------|--------|--------|----------|
-| 2026-07-01 | `gate-depends: [036, 037, 038, 039, 040, 041, 042]` | source | blocked | #036, #037, #038, #039, #040, and #041 are completed, but #042 remains open, so the issue stays gated. |
+| 2026-07-01 | `gate-depends: [036, 037, 038, 039, 040, 041, 042]` | source | ready | #036, #037, #038, #039, #040, #041, and #042 are completed, so #045 is implementation-ready. |
 
 ## Validation History
 
@@ -90,3 +90,4 @@ Primary `wireguard-go` receive/send flow shows that a normal UDP relay makes nod
 - 2026-07-01: dependency gate cleared by #039; remaining dependency gates #040, #041, and #042 keep #045 gated.
 - 2026-07-01: dependency gate cleared by #040; remaining dependency gates #041 and #042 keep #045 gated.
 - 2026-07-01: dependency gate cleared by #041; remaining dependency gate #042 keeps #045 gated.
+- 2026-07-01: dependency gate cleared by #042; #045 is now ready.

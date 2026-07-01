@@ -69,8 +69,8 @@ This is a parent tracking issue. Implement child issues, not this parent directl
 | #039 | Cookie reply and DoS gate behavior | completed | Load-shedding and endpoint-bound cookies. |
 | #040 | Decrypted transport plaintext as raw payload bytes | completed | Raw authenticated bytes only, no protobuf/IP parsing. |
 | #041 | IPv4/IPv6 packet read/create helpers on plaintext bytes | completed | Layer above raw plaintext, with packet validation. |
-| #042 | wireguard-go/Testcontainers interoperability test | ready | Peer handshake and encrypted exchange harness. |
-| #045 | PNet relay to wireguard-go peer interoperability test | gated | Node1 session owner relays through node2 to node3 and back. |
+| #042 | wireguard-go/Testcontainers interoperability test | completed | Peer handshake and encrypted exchange harness. |
+| #045 | PNet relay to wireguard-go peer interoperability test | ready | Node1 session owner relays through node2 to node3 and back. |
 | #046 | Shared-port WireGuard relay registration and demux | completed | Lease registration, MAC1 handshake demux, and receiver-index fast path. |
 | #047 | Relay-assisted WireGuard endpoint discovery | gated | Learn relayed endpoint candidate, probe direct, promote only after authenticated response. |
 | #048 | PNet-to-PNet WireGuard-compatible transport e2e | completed | Exchange PNet internal `X000PPPP` protobuf frames between two PNet peers. |
@@ -91,7 +91,7 @@ This is a parent tracking issue. Implement child issues, not this parent directl
 
 | Date | Gate | Method | Result | Evidence |
 |------|------|--------|--------|----------|
-| 2026-07-01 | `gate-depends: [036, 037, 038, 039, 040, 041, 042, 045, 046, 047, 048]` | source | blocked | #036, #037, #038, #039, #040, and #041 are completed, but #042, #045, #046, #047, and #048 remain open, so the parent stays gated. |
+| 2026-07-01 | `gate-depends: [036, 037, 038, 039, 040, 041, 042, 045, 046, 047, 048]` | source | blocked | #036 through #042, #046, and #048 are completed, but #045 and #047 remain open, so the parent stays gated. |
 
 ## Validation History
 
@@ -101,3 +101,4 @@ This is a parent tracking issue. Implement child issues, not this parent directl
 - 2026-07-01: dependency gate cleared by #039; remaining dependency gates #040, #041, #042, #045, #046, #047, and #048 keep #035 gated.
 - 2026-07-01: dependency gate cleared by #040; remaining dependency gates #041, #042, #045, #046, #047, and #048 keep #035 gated.
 - 2026-07-01: dependency gate cleared by #041; remaining dependency gates #042, #045, #046, #047, and #048 keep #035 gated.
+- 2026-07-01: dependency gate cleared by #042; remaining dependency gates #045 and #047 keep #035 gated.

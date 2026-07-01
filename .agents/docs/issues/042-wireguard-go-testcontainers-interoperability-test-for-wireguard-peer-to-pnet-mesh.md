@@ -3,10 +3,13 @@ issue: 042
 date: 2026-07-01
 source: wireguard/tests
 priority: high
-status: ready
+status: completed
 research-status: complete
 research-date: 2026-07-01
-terminal-state: ready
+terminal-state: completed
+completion-date: 2026-07-01
+commits:
+  - e0e9b62d08c951dc63176fb3450aeb32c0f3dfe7
 split-status: child
 parent-issue: 035
 gate: "Wait for the core WireGuard-compatible transport and raw plaintext helpers."
@@ -81,3 +84,24 @@ The existing Testcontainers harness is the right e2e home for native PNet transp
 - 2026-07-01: dependency gate cleared by #038; remaining dependency gates #040 and #041 keep #042 gated.
 - 2026-07-01: dependency gate cleared by #040; remaining dependency gate #041 keeps #042 gated.
 - 2026-07-01: dependency gate cleared by #041; #042 is now ready.
+
+## Completion Report
+
+Implemented an unprivileged Testcontainers equivalent WireGuard peer harness.
+
+Changes:
+- Added `WireGuardPeer` mode to `PNet.Mesh.TestNode`, backed by raw UDP and `PNetMeshProtocol` in WireGuard transport mode.
+- Extended `PNetMeshTestNodeSpec` and `PNetMeshTestNodeHarness` to publish a UDP port and wait for mode-specific readiness logs.
+- Added `wireguard_peer_container_exchanges_encrypted_packets_with_pnet_mesh_protocol`, which starts the peer container, completes a WireGuard-mode handshake from the host-side PNet.Mesh protocol, sends an encrypted request, decrypts the encrypted response, and asserts peer logs.
+
+Verification:
+- `timeout 120s dotnet build PNet.Mesh.sln -c Release --no-restore` passed.
+- `timeout 120s dotnet format whitespace PNet.Mesh.sln --include src/PNet.Mesh.E2ETests/PNetMeshTestNodeHarness.cs src/PNet.Mesh.E2ETests/PNetMeshTestNodeSpec.cs src/PNet.Mesh.E2ETests/PNetMeshTestNodeHarnessTests.cs src/PNet.Mesh.TestNode/Program.cs src/PNet.Mesh.TestNode/WireGuardPeerService.cs --no-restore --verify-no-changes --verbosity minimal` passed.
+- `timeout 180s dotnet run --project src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -parallel none` passed, 138/138.
+- `timeout 420s dotnet run --project src/PNet.Mesh.E2ETests/PNet.Mesh.E2ETests.csproj -c Release --no-build -- -method PNet.Actor.E2ETests.Mesh.PNetMeshTestNodeHarnessTests.wireguard_peer_container_exchanges_encrypted_packets_with_pnet_mesh_protocol -parallel none` passed, 1/1.
+- Full Testcontainers e2e command timed out at 420s after multiple topology groups completed; tracked separately as #053.
+- Review gate approved the staged implementation.
+
+## Resolving Commits
+
+- `e0e9b62d08c951dc63176fb3450aeb32c0f3dfe7` test: add WireGuard peer container interop
