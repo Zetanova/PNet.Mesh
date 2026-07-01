@@ -12,6 +12,60 @@ namespace PNet.Actor.UnitTests.Mesh
     public sealed class PNetMeshProtocolTest
     {
         [Fact]
+        public void valid_peers_complete_noise_ikpsk2_handshake_and_exchange_payloads_over_derived_transports_regression()
+        {
+            var initiator_sender_index = 1u;
+            var responder_sender_index = 2u;
+
+            Span<byte> buffer1 = new byte[4098];
+            Span<byte> buffer2 = new byte[4098];
+
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            using var initiator_static = KeyPair.Generate();
+            using var responder_static = KeyPair.Generate();
+
+            var initiator_protocol = new PNetMeshProtocol(initiator_static.PrivateKey, initiator_static.PublicKey, psk);
+            var responder_protocol = new PNetMeshProtocol(responder_static.PrivateKey, responder_static.PublicKey, psk);
+
+            using var initiator = initiator_protocol.CreateInitiator(initiator_sender_index, responder_static.PublicKey);
+            using var responder = responder_protocol.CreateResponder(responder_sender_index);
+
+            initiator.WriteInitiationMessage(buffer1, out var bytesWritten);
+            Assert.Equal(PNetMeshHandshake.InitiationMessageSize, bytesWritten);
+
+            var r = responder.TryReadInitiationMessage(buffer1.Slice(0, bytesWritten));
+            Assert.True(r);
+            Assert.True(responder.Timestamp > 0);
+
+            r = responder.TryWriteResponseMessage(buffer2, out bytesWritten, out var responder_transport);
+            Assert.True(r);
+            Assert.Equal(PNetMeshHandshake.ResponseMessageSize, bytesWritten);
+            Assert.NotNull(responder_transport);
+
+            r = initiator.TryReadResponseMessage(buffer2.Slice(0, bytesWritten), out var initiator_transport);
+            Assert.True(r);
+            Assert.NotNull(initiator_transport);
+
+            ulong counter;
+            var initiatorPayload = Encoding.UTF8.GetBytes("initiator payload");
+            var responderPayload = Encoding.UTF8.GetBytes("responder payload");
+
+            initiator_transport.WriteMessage(initiatorPayload, buffer1, out bytesWritten, out counter);
+            r = responder_transport.TryReadMessage(buffer1.Slice(0, bytesWritten), buffer2, out bytesWritten, out counter);
+            Assert.True(r);
+            Assert.Equal(initiatorPayload.Length, bytesWritten);
+            Assert.Equal("initiator payload", Encoding.UTF8.GetString(buffer2.Slice(0, bytesWritten)));
+
+            responder_transport.WriteMessage(responderPayload, buffer1, out bytesWritten, out counter);
+            r = initiator_transport.TryReadMessage(buffer1.Slice(0, bytesWritten), buffer2, out bytesWritten, out counter);
+            Assert.True(r);
+            Assert.Equal(responderPayload.Length, bytesWritten);
+            Assert.Equal("responder payload", Encoding.UTF8.GetString(buffer2.Slice(0, bytesWritten)));
+        }
+
+        [Fact]
         public void exchange_handshake_cookieless()
         {
             var initiator_sender_index = 1u;
