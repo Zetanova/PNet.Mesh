@@ -5,11 +5,7 @@ source: e2e/cleanup
 priority: medium
 status: gated
 terminal-state: gated
-gate: "Wait until Testcontainers coverage from issues 007, 008, and 009 is complete and README/CI no longer depend on compose."
-gate-depends:
-  - 007
-  - 008
-  - 009
+gate: "Wait until README/CI no longer depend on compose."
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
@@ -48,17 +44,18 @@ Remove or retire Docker Compose e2e artifacts only after the Testcontainers suit
 
 ### Current State
 
-The current README still documents the compose smoke command, and the repo contains compose files and a compose script.
+The repo now has Testcontainers e2e coverage, but the current README still documents the compose smoke command and the repo still contains compose files and a compose script.
 
 ## Assumptions
 
 | # | Cat | Assumption | Status | Method | Detail |
 |---|-----|------------|--------|--------|--------|
 | 1 | F | The README currently references `scripts/e2e-mesh-topology.sh`. | verified | source | README maintenance commands include the compose e2e script. |
-| 2 | F | Compose artifacts are currently the only container e2e implementation in the repo. | verified | source | No Testcontainers project or package reference was found during issue filing. |
+| 2 | F | Testcontainers e2e coverage exists while compose artifacts remain present. | verified | source | `src/PNet.Mesh.E2ETests` uses Testcontainers, and README plus `scripts/e2e-mesh-topology.sh` still reference compose. |
 
 ## Enrichment History
 
+- 2026-06-30: Removed completed dependency gates #007, #008, and #009 after #009 completed; parent remains gated on README/CI compose cleanup and stale assumptions were revalidated against the new Testcontainers suite.
 - 2026-06-30: Kept compose cleanup gated because the README, solution, and runner still depend on compose artifacts. Evidence: `README.md`, `PNet.Mesh.sln`, `scripts/e2e-mesh-topology.sh`, `docker-compose.yml`, `docker-compose.e2e.yml`.
 
 ## Completion Report

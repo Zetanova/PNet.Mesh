@@ -3,11 +3,10 @@ issue: 006
 date: 2026-06-30
 source: e2e/testcontainers
 priority: high
-status: gated
-terminal-state: gated
-gate: "Close only after child issue 009 is completed or explicitly superseded. Child issues 007, 008, and 010 completed in 52cf1f7, 948f553, and 49deb32."
-gate-depends:
-  - 009
+status: completed
+terminal-state: completed
+completion-date: 2026-06-30
+commits: [52cf1f7, 948f553, 61af492, 56a70ff, 84bb53b, 6a02e9d, 7c09bd6, 49deb32]
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
@@ -50,13 +49,14 @@ This is a parent tracking issue. Implement child issues, not this parent directl
 
 ### Current State
 
-The repo has a completed compose smoke story and script, but the current assertion surface is log-based and narrow. Unit/integration tests exist in the unit test project, including localhost direct and relay exchange coverage.
+The repo now has a Testcontainers xUnit e2e suite alongside the older compose smoke story and script. README maintenance commands include the Testcontainers suite, while compose artifact removal remains tracked by #011.
 
 ### Code References
 
 - `scripts/e2e-mesh-topology.sh`
 - `docker-compose.yml`
 - `docker-compose.e2e.yml`
+- `src/PNet.Mesh.E2ETests/PNet.Mesh.E2ETests.csproj`
 - `src/PNet.Mesh.UnitTests/PNetMeshServerTests.cs`
 - `src/PNet.Mesh.TestNode/NodeService.cs`
 
@@ -64,12 +64,14 @@ The repo has a completed compose smoke story and script, but the current asserti
 
 | # | Cat | Assumption | Status | Method | Detail |
 |---|-----|------------|--------|--------|--------|
-| 1 | F | The current e2e runner is Docker Compose based. | verified | source | `scripts/e2e-mesh-topology.sh` constructs and runs a `docker compose` command. |
+| 1 | F | A compose e2e runner still exists. | verified | source | `scripts/e2e-mesh-topology.sh` constructs and runs a `docker compose` command. |
 | 2 | F | Current compose e2e coverage checks a six-node topology. | verified | source | The runner lists `node00`, `node01`, `node10`, `node11`, `node20`, and `node21`. |
 | 3 | F | The current unit test project contains localhost server integration tests. | verified | source | `PNetMeshServerTests.cs` includes two-server and three-server exchange tests. |
+| 4 | F | README maintenance commands include the Testcontainers e2e path. | verified | source | `README.md` runs `src/PNet.Mesh.E2ETests/PNet.Mesh.E2ETests.csproj`. |
 
 ## Enrichment History
 
+- 2026-06-30: Closed the parent tracker after #007, #008, #009, and #010 all completed.
 - 2026-06-30: Kept the parent tracker gated while child issues #007, #008, #009, and #010 remain the path to closing the Testcontainers migration. Evidence: `scripts/e2e-mesh-topology.sh`, `README.md`, `PNet.Mesh.sln`.
 - 2026-06-30: Removed completed child issue #010 from the active gate after `49deb32`; parent remains gated on #007, #008, and #009.
 - 2026-06-30: Removed completed child issue #007 from the active gate after `52cf1f7`; parent remains gated on #008 and #009.
@@ -77,4 +79,22 @@ The repo has a completed compose smoke story and script, but the current asserti
 
 ## Completion Report
 
-Pending.
+Completed on 2026-06-30 after the last dependent coverage issue closed.
+
+- #007 completed the reusable Testcontainers xUnit harness and test-node foundation in `52cf1f7`.
+- #008 completed the six-node Testcontainers port of the compose smoke topology in `948f553`.
+- #009 completed the broader e2e coverage set in `61af492`, `56a70ff`, `84bb53b`, `6a02e9d`, and `7c09bd6`.
+- #010 completed the deterministic routing/session/relay unit coverage in `49deb32`.
+- README maintenance commands now include the Testcontainers e2e path.
+- With #007, #008, #009, and #010 complete, the parent tracker is closed. Compose artifact cleanup remains gated under #011.
+
+## Resolving Commits
+
+- `52cf1f7` - add Testcontainers xUnit harness
+- `948f553` - port compose smoke topology to Testcontainers
+- `61af492` - add direct peer Testcontainers coverage
+- `56a70ff` - add bootstrap discovery Testcontainers coverage
+- `84bb53b` - add multi-hop route Testcontainers coverage
+- `6a02e9d` - add restart recovery Testcontainers coverage
+- `7c09bd6` - add invalid PSK Testcontainers coverage
+- `49deb32` - add deterministic routing unit coverage
