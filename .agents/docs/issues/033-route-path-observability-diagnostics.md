@@ -3,12 +3,15 @@ issue: 033
 date: 2026-06-30
 source: coverage/readme
 priority: high
-status: ready
+status: completed
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
+completion-date: 2026-07-01
+commits: [0ae5bc38aaa4eaa99f2169d75967d5692c291734]
 split-status: child
 parent-issue: 017
+terminal-state: completed
 brief: "description+playbook"
 views:
   enrich: "description+playbook+research+assumptions"
@@ -54,4 +57,14 @@ Parent research says the current localhost coverage still relies on comments and
 
 ## Completion Report
 
-Pending.
+Completed in `0ae5bc38aaa4eaa99f2169d75967d5692c291734`.
+
+- Added `PNetMeshRoutePath` diagnostics with destination address, route addresses, remaining hop count, selected remote endpoint, and a route string form for assertion failure output.
+- Added route-path reading on `PNetMeshChannel` using the same wait/try-read pattern as payload reads.
+- Wrote diagnostics from the server local relay path after the payload receive command is accepted, so diagnostic failures do not block delivery.
+- Added deterministic coverage for diagnostic snapshot copying, channel diagnostic reads, and the actual server `RelayPacket` branch that emits route diagnostics.
+- Verification passed scoped whitespace formatting, Release build, targeted diagnostic tests `3/3`, and `PNetMeshRoutingUnitTests` `43/43`.
+
+## Resolving Commits
+
+- `0ae5bc38aaa4eaa99f2169d75967d5692c291734` - route-path diagnostic API and server relay coverage

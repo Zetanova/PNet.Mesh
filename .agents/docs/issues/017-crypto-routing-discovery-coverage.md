@@ -3,18 +3,22 @@ issue: 017
 date: 2026-06-30
 source: coverage/readme
 priority: high
-status: gated
+status: completed
 split-status: parent
-terminal-state: gated
+terminal-state: completed
 gate: "Close only after child issues 032 and 033 are completed or explicitly superseded."
 gate-depends:
   - 032
   - 033
 gate-reason: "Tracking parent waits for fine-grained child issues"
 ungate-when: "All child issues are completed"
+gate-last-checked: 2026-07-01
+gate-status: cleared
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
+completion-date: 2026-07-01
+commits: [b9c4cba5492de97a4f7f3f849d62730993063198, 0ae5bc38aaa4eaa99f2169d75967d5692c291734]
 brief: "description+playbook"
 views:
   enrich: "description+playbook+research+assumptions"
@@ -55,7 +59,7 @@ This is a parent tracking issue. Implement child issues, not this parent directl
 | Child | Scope | Status | Notes |
 |-------|-------|--------|-------|
 | #032 | Routing and discovery behavior coverage | completed | Direct/discovered routes plus deterministic address coverage |
-| #033 | Route-path observability and diagnostics | open | Assert the actual route, not only the final payload |
+| #033 | Route-path observability and diagnostics | completed | Route-path diagnostic API plus server relay emission coverage |
 
 ## Residual Scope
 none
@@ -83,11 +87,23 @@ Three-server localhost integration tests include comments for discovering over a
 | Date | Gate | Method | Result | Evidence |
 |------|------|--------|--------|----------|
 | 2026-07-01 | `gate-depends: [032, 033]` | source | blocked | #032 is completed, but #033 remains open, so the parent stays gated. |
+| 2026-07-01 | `gate-depends: [032, 033]` | source | passed | #032 and #033 are completed, so the parent gate is cleared. |
 
 ## Validation History
 
 - 2026-07-01: dependency gate cleared by #032; remaining dependency gate #033 keeps #017 gated.
+- 2026-07-01: dependency gate cleared by #033; all child issues are completed, so #017 is completed.
 
 ## Completion Report
 
-Pending.
+Completed through child issues #032 and #033.
+
+- #032 added deterministic address derivation coverage and confirmed session handshakes derive local and remote mesh addresses from public keys.
+- #032 verification reran routing, server, and multi-hop route coverage that already exercises direct/discovered route behavior and duplicate relay suppression.
+- #033 added a route-path diagnostic API and server relay-path emission coverage, allowing tests to assert actual route, destination, hop count, and selected endpoint instead of only final payload delivery.
+- The legacy three-server localhost relay test was observed failing at `HEAD` with a payload timeout, so #033 used deterministic server-control-loop coverage rather than the flaky UDP timing path.
+
+## Resolving Commits
+
+- `b9c4cba5492de97a4f7f3f849d62730993063198` - crypto routing and discovery behavior regression coverage
+- `0ae5bc38aaa4eaa99f2169d75967d5692c291734` - route-path diagnostic API and server relay coverage
