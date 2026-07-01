@@ -3,10 +3,13 @@ issue: 020
 date: 2026-06-30
 source: coverage/readme
 priority: medium
-status: ready
+status: completed
 research-date: 2026-06-30
 research-status: complete
 assumptions-date: 2026-06-30
+completion-date: 2026-06-30
+terminal-state: completed
+commits: [708236e]
 brief: "description+playbook"
 views:
   enrich: "description+playbook+research+assumptions"
@@ -43,7 +46,7 @@ Implement and test the ECN and LEDBAT behavior referenced by the README's Used P
 
 ### Current State
 
-The proto defines probe, probe reply, ECN enum, reports, ack delay, and timestamps. `PNetMeshSession` currently has placeholder branches for probe/probe reply and no visible completed ECN/LEDBAT behavior in the inspected path.
+The proto defines probe, probe reply, ECN enum, reports, ack delay, and timestamps. `PNetMeshSession` currently has placeholder branches for probe/probe reply and reads packet timestamps without visible completed ECN/LEDBAT behavior in the inspected path. README now narrows ECN and LEDBAT references to field/timestamp models and states runtime marking, reporting, congestion behavior, and delay-based congestion control are not implemented.
 
 ## Assumptions
 
@@ -59,4 +62,14 @@ The proto defines probe, probe reply, ECN enum, reports, ack delay, and timestam
 
 ## Completion Report
 
-Pending.
+Completed on 2026-06-30 in `708236e`.
+
+- Narrowed the README ECN reference to an ECN field model and documented that runtime ECN marking, reporting, and congestion behavior are not implemented.
+- Narrowed the README LEDBAT reference to a timestamp/delay field model and documented that runtime delay-based congestion control is not implemented.
+- Left runtime code unchanged because the session path still has placeholder probe/probe-reply branches and only reads packet timestamps into a local value.
+
+Verification:
+
+- `timeout 10s git diff --check`
+- `timeout 10s git diff --cached --check`
+- Source evidence: `MeshProtocol.proto` defines probe, ECN/report, ack delay, and timestamp fields; `PNetMeshSession` contains placeholder probe/probe-reply branches and reads timestamp without applying behavior.
