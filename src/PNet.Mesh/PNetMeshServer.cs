@@ -452,6 +452,15 @@ namespace PNet.Mesh
                                     }
                                     else
                                     {
+                                        try
+                                        {
+                                            channel.TryWriteRoutePath(PNetMeshRoutePath.FromRelayPacket(packet, remoteEndPoint));
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            _logger.LogDebug(ex, "route path diagnostic write failed");
+                                        }
+
                                         cmd.Result?.SetResult();
                                     }
                                 }

@@ -3,6 +3,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 using System;
 using System.Buffers;
 using System.Collections.Immutable;
+using System.Linq;
+using System.Net;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -14,6 +16,8 @@ namespace PNet.Mesh
         readonly ILogger _logger;
 
         Channel<ReadOnlyMemory<byte>> _inboundChannel;
+
+        Channel<PNetMeshRoutePath> _routePathChannel;
 
         Channel<PNetMeshChannelCommands.Command> _controlChannel;
         Task _controlTask = Task.CompletedTask;
@@ -43,6 +47,14 @@ namespace PNet.Mesh
                 FullMode = BoundedChannelFullMode.Wait
             });
 
+            _routePathChannel = Channel.CreateBounded<PNetMeshRoutePath>(new BoundedChannelOptions(100)
+            {
+                AllowSynchronousContinuations = true,
+                SingleReader = true,
+                SingleWriter = false,
+                FullMode = BoundedChannelFullMode.DropOldest
+            });
+
             _controlChannel = Channel.CreateBounded<PNetMeshChannelCommands.Command>(new BoundedChannelOptions(100)
             {
                 AllowSynchronousContinuations = true,
@@ -59,6 +71,9 @@ namespace PNet.Mesh
 
             _inboundChannel?.Writer.Complete();
             _inboundChannel = null;
+
+            _routePathChannel?.Writer.Complete();
+            _routePathChannel = null;
 
             _controlChannel?.Writer.Complete();
             _controlChannel = null;
@@ -174,6 +189,21 @@ namespace PNet.Mesh
             return _inboundChannel.Reader.TryRead(out payload);
         }
 
+        public ValueTask<bool> WaitToReadRoutePathAsync(CancellationToken cancellationToken = default)
+        {
+            return _routePathChannel.Reader.WaitToReadAsync(cancellationToken);
+        }
+
+        public bool TryReadRoutePath(out PNetMeshRoutePath routePath)
+        {
+            return _routePathChannel.Reader.TryRead(out routePath);
+        }
+
+        internal bool TryWriteRoutePath(PNetMeshRoutePath routePath)
+        {
+            return _routePathChannel.Writer.TryWrite(routePath);
+        }
+
         public bool TryWrite(ReadOnlyMemory<byte> payload, IMemoryOwner<byte> memoryOwner = default)
         {
             return _controlChannel.Writer.TryWrite(new PNetMeshChannelCommands.Send
@@ -233,6 +263,45 @@ namespace PNet.Mesh
         static bool IsRelaySession(PNetMeshSession session)
         {
             return session?.Status == PNetMeshSessionStatus.Open && session.RemoteEndPoint is not null;
+        }
+    }
+
+    public sealed class PNetMeshRoutePath
+    {
+        public byte[] DestinationAddress { get; init; }
+
+        public ImmutableArray<byte[]> Route { get; init; }
+
+        public ushort RemainingHopCount { get; init; }
+
+        public EndPoint RemoteEndPoint { get; init; }
+
+        public override string ToString()
+        {
+            var route = Route.IsDefault ? ImmutableArray<byte[]>.Empty : Route;
+            return string.Join(" -> ", route.Select(address => Convert.ToHexString(address ?? Array.Empty<byte>())));
+        }
+
+        internal static PNetMeshRoutePath FromRelayPacket(PNetMeshRelayPacket packet, EndPoint remoteEndPoint)
+        {
+            return new PNetMeshRoutePath
+            {
+                DestinationAddress = packet.Address?.ToArray() ?? Array.Empty<byte>(),
+                Route = CloneRoute(packet.Route),
+                RemainingHopCount = packet.HopCount,
+                RemoteEndPoint = remoteEndPoint
+            };
+        }
+
+        static ImmutableArray<byte[]> CloneRoute(ImmutableArray<byte[]> route)
+        {
+            if (route.IsDefaultOrEmpty)
+                return ImmutableArray<byte[]>.Empty;
+
+            var builder = ImmutableArray.CreateBuilder<byte[]>(route.Length);
+            foreach (var address in route)
+                builder.Add(address?.ToArray() ?? Array.Empty<byte>());
+            return builder.ToImmutable();
         }
     }
 

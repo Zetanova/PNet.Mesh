@@ -188,6 +188,134 @@ namespace PNet.Actor.UnitTests.Mesh
         }
 
         [Fact]
+        public void route_path_diagnostic_preserves_route_endpoint_and_destination()
+        {
+            var source = Address(36);
+            var relay = Address(37);
+            var destination = Address(38);
+            var remoteEndPoint = new IPEndPoint(IPAddress.Loopback, 12403);
+            var packet = new PNetMeshRelayPacket
+            {
+                Address = destination,
+                SeqNumber = 43,
+                HopCount = 2,
+                Route = ImmutableArray.Create(source, relay, destination),
+                Payload = Encoding.UTF8.GetBytes("diagnostic")
+            };
+
+            var routePath = PNetMeshRoutePath.FromRelayPacket(packet, remoteEndPoint);
+
+            Assert.Equal(remoteEndPoint, routePath.RemoteEndPoint);
+            Assert.Equal((ushort)2, routePath.RemainingHopCount);
+            Assert.Equal(destination, routePath.DestinationAddress);
+            Assert.Equal(new[] { source, relay, destination }, routePath.Route);
+            Assert.NotSame(destination, routePath.DestinationAddress);
+            Assert.NotSame(source, routePath.Route[0]);
+            Assert.Equal($"{Convert.ToHexString(source)} -> {Convert.ToHexString(relay)} -> {Convert.ToHexString(destination)}", routePath.ToString());
+
+            source[0] = 0xff;
+            relay[0] = 0xee;
+            destination[0] = 0xdd;
+
+            Assert.Equal(Address(36), routePath.Route[0]);
+            Assert.Equal(Address(37), routePath.Route[1]);
+            Assert.Equal(Address(38), routePath.DestinationAddress);
+        }
+
+        [Fact]
+        public async Task channel_route_path_reader_exposes_written_diagnostics()
+        {
+            using var channel = new PNetMeshChannel();
+            var routePath = new PNetMeshRoutePath
+            {
+                DestinationAddress = Address(39),
+                Route = ImmutableArray.Create(Address(40), Address(41), Address(39)),
+                RemainingHopCount = 1,
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 12404)
+            };
+
+            Assert.True(channel.TryWriteRoutePath(routePath));
+
+            var ready = await channel.WaitToReadRoutePathAsync(TestContext.Current.CancellationToken)
+                .AsTask()
+                .WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+
+            Assert.True(ready);
+            Assert.True(channel.TryReadRoutePath(out var readRoutePath));
+            Assert.Same(routePath, readRoutePath);
+            Assert.False(channel.TryReadRoutePath(out _));
+        }
+
+        [Fact]
+        public async Task server_local_relay_writes_route_path_diagnostic_to_target_channel()
+        {
+            using var localKey = KeyPair.Generate();
+            using var remoteKey = KeyPair.Generate();
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+            var remoteEndPoint = new IPEndPoint(IPAddress.Loopback, 12405);
+            var settings = new PNetMeshServerSettings
+            {
+                PublicKey = localKey.PublicKey,
+                PrivateKey = localKey.PrivateKey,
+                Psk = psk,
+                BindTo = Array.Empty<string>()
+            };
+            var localAddress = DeriveAddress(settings.PublicKey);
+            var remoteAddress = DeriveAddress(remoteKey.PublicKey);
+
+            using var server = new PNetMeshServer(settings);
+            server.Start();
+
+            try
+            {
+                var channel = await server.ConnectToAsync(new PNetMeshPeer
+                {
+                    PublicKey = remoteKey.PublicKey,
+                    EndPoints = Array.Empty<string>()
+                }, TestContext.Current.CancellationToken);
+
+                var result = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var packet = new PNetMeshRelayPacket
+                {
+                    Address = localAddress,
+                    SeqNumber = 44,
+                    HopCount = 1,
+                    Route = ImmutableArray.Create(remoteAddress, localAddress),
+                    Payload = new byte[] { 0xff },
+                    CandidateExchange = new PNetMeshCandidateExchange
+                    {
+                        Candidates = ImmutableArray.Create(new PNetMeshCandidate
+                        {
+                            Address = remoteEndPoint,
+                            Protocol = PNetMeshProtocolType.UDP,
+                            Type = PNetMeshCandidateType.Host
+                        })
+                    }
+                };
+
+                Assert.True(GetServerControlChannel(server).Writer.TryWrite(new PNetMeshControlCommands.RelayPacket
+                {
+                    Packet = packet,
+                    Result = result
+                }));
+
+                await result.Task.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+
+                Assert.True(channel.TryReadRoutePath(out var routePath));
+                Assert.Equal(remoteEndPoint, routePath.RemoteEndPoint);
+                Assert.Equal((ushort)1, routePath.RemainingHopCount);
+                Assert.Equal(localAddress, routePath.DestinationAddress);
+                Assert.Equal(new[] { remoteAddress, localAddress }, routePath.Route);
+                Assert.Equal($"{Convert.ToHexString(remoteAddress)} -> {Convert.ToHexString(localAddress)}", routePath.ToString());
+            }
+            finally
+            {
+                await server.ShutdownAsync(TestContext.Current.CancellationToken);
+            }
+        }
+
+        [Fact]
         public void session_relay_roundtrips_route_hop_payload_and_candidate_exchange()
         {
             using var senderKey = KeyPair.Generate();
@@ -2319,6 +2447,12 @@ namespace PNet.Actor.UnitTests.Mesh
         {
             var field = typeof(PNetMeshChannel).GetField("_controlChannel", BindingFlags.Instance | BindingFlags.NonPublic);
             return Assert.IsAssignableFrom<Channel<PNetMeshChannelCommands.Command>>(field.GetValue(channel));
+        }
+
+        static Channel<PNetMeshControlCommands.Command> GetServerControlChannel(PNetMeshServer server)
+        {
+            var field = typeof(PNetMeshServer).GetField("_controlChannel", BindingFlags.Instance | BindingFlags.NonPublic);
+            return Assert.IsAssignableFrom<Channel<PNetMeshControlCommands.Command>>(field.GetValue(server));
         }
 
         static PNetMeshOutboundMessages.Packet ReadPacket(Channel<PNetMeshOutboundMessages.Message> channel)
