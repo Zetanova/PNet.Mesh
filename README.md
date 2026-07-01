@@ -9,7 +9,7 @@ P2P protocol to use inside managed dotnet application
 .) no extended OS permission required for covered container flows: ordinary UDP sockets, no TUN/TAP device, no raw-socket capability, no `CAP_NET_ADMIN`, and no privileged container mode
 .) communiction over data fragments (UDP)
 .) packet ordering and flow control
-.) low overhead of 18bytes per datagram
+.) low overhead: 32 bytes encrypted payload encapsulation per data packet (16-byte transport header + 16-byte AEAD tag; excludes outer UDP/IP and padding)
 .) Noise IKpsk2 handshake and encrypted transport coverage; see Security coverage below. This is not a full WireGuard-equivalence claim
 .) crypto routing and crypto discovery
 .) neighbor endpoint detection and relay candidate exchange for covered container flows; full ICE/STUN/TURN NAT traversal is not implemented
