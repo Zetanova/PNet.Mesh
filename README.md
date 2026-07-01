@@ -10,17 +10,17 @@ P2P protocol to use inside managed dotnet application
 .) communiction over data fragments (UDP)
 .) packet ordering and flow control
 .) low overhead of 18bytes per datagram
-.) same security as wireguard
+.) Noise IKpsk2 handshake and encrypted transport coverage; see Security coverage below. This is not a full WireGuard-equivalence claim
 .) crypto routing and crypto discovery
 .) neighbor endpoint detection and relay candidate exchange for covered container flows; full ICE/STUN/TURN NAT traversal is not implemented
 .) compression protocol fields are reserved; runtime compression negotiation and compressed payload handling are not implemented
 
 ## Used Protocols
 
-Wireguard
+WireGuard protocol reference; PNet.Mesh does not claim full WireGuard behavior or equivalence
 https://www.wireguard.com/protocol/
 
-Noise Protocl Framework
+Noise Protocol Framework
 http://noiseprotocol.org/noise.pdf
 
 Interactive Connectivity Establishment (ICE) candidate model; full ICE checks, STUN, and TURN are not implemented
@@ -62,6 +62,27 @@ Permission boundary coverage:
 
 ```bash
 timeout 420s dotnet run --project src/PNet.Mesh.E2ETests/PNet.Mesh.E2ETests.csproj -c Release --no-build -- -method PNet.Actor.E2ETests.Mesh.PNetMeshTestNodeHarnessTests.test_node_runs_without_extended_network_permissions
+```
+
+Security coverage:
+
+- `PNetMeshProtocolTest.valid_peers_complete_noise_ikpsk2_handshake_and_exchange_payloads_over_derived_transports_regression`
+- `PNetMeshProtocolTest.try_read_response_rejects_wrong_psk_regression`
+- `PNetMeshProtocolTest.validate_packet_rejects_wrong_responder_key_regression`
+- `PNetMeshProtocolTest.validate_packet_rejects_corrupted_handshake_initiation_mac_regression`
+- `PNetMeshProtocolTest.validate_packet_rejects_corrupted_handshake_response_mac_regression`
+- `PNetMeshProtocolTest.try_read_message_rejects_tampered_payload_without_plaintext_regression`
+- `PNetMeshProtocolTest.try_read_message_does_not_consume_counter_for_tampered_payload_regression`
+- `PNetMeshProtocolTest.try_read_message_rejects_replayed_packet_without_plaintext_regression`
+- `PNetMeshProtocolTest.try_read_message_rejects_unknown_receiver_index_without_plaintext_regression`
+- `PNetMeshProtocolTest.validate_packet_accepts_matching_cookie_macs_regression`
+- `PNetMeshProtocolTest.validate_packet_rejects_missing_or_wrong_cookie_initiation_mac_regression`
+- `PNetMeshProtocolTest.validate_packet_rejects_missing_or_wrong_cookie_response_mac_regression`
+- `PNetMeshPacketTrackerTest.get_bitmap_rejects_counter_before_latest_regression`
+- `PNetMeshPacketTrackerTest.get_bitmap_rejects_undersized_buffer_regression`
+
+```bash
+dotnet run --project src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -class PNet.Actor.UnitTests.Mesh.PNetMeshProtocolTest -class PNet.Actor.UnitTests.Mesh.PNetMeshPacketTrackerTest -parallel none
 ```
 
 Candidate exchange and segmented route coverage:
