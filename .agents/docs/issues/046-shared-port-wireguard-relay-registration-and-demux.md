@@ -3,10 +3,10 @@ issue: 046
 date: 2026-07-01
 source: wireguard/relay
 priority: high
-status: gated
+status: ready
 research-status: complete
 research-date: 2026-07-01
-terminal-state: gated
+terminal-state: ready
 gate: "Wait for the WireGuard MAC/framing, receiver-index, and cookie/DoS foundations."
 gate-depends:
   - 036
@@ -15,7 +15,7 @@ gate-depends:
   - 039
 gate-reason: "Shared-port registration and demux depend on BLAKE2s MAC helpers, packet framing, receiver-index state, and cookie-gate behavior."
 gate-last-checked: 2026-07-01
-gate-status: blocked
+gate-status: cleared
 assumptions-date: 2026-07-01
 brief: "description+playbook"
 views:
@@ -79,10 +79,11 @@ WireGuard protocol docs and `wireguard-go` show the relay needs BLAKE2s MAC help
 
 | Date | Gate | Method | Result | Evidence |
 |------|------|--------|--------|----------|
-| 2026-07-01 | `gate-depends: [036, 037, 038, 039]` | source | blocked | #036, #037, and #038 are completed, but #039 remains open, so the issue stays gated. |
+| 2026-07-01 | `gate-depends: [036, 037, 038, 039]` | source | ready | #036, #037, #038, and #039 are completed, so #046 is implementation-ready. |
 
 ## Validation History
 
 - 2026-07-01: dependency gate cleared by #036; remaining dependency gates #037, #038, and #039 keep #046 gated.
 - 2026-07-01: dependency gate cleared by #037; remaining dependency gates #038 and #039 keep #046 gated.
 - 2026-07-01: dependency gate cleared by #038; remaining dependency gate #039 keeps #046 gated.
+- 2026-07-01: dependency gate cleared by #039; #046 is now ready.

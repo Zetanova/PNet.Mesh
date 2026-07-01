@@ -66,12 +66,12 @@ This is a parent tracking issue. Implement child issues, not this parent directl
 | #036 | WireGuard Noise profile and BLAKE2s MAC/KDF paths | completed | Core crypto/profile split. |
 | #037 | Packet framing and TAI64N handshake replay tracking | completed | Message sizes, headers, and replay timestamps. |
 | #038 | Peer, receiver-index, keypair, and rekey lifecycle state | completed | Peer table and key lifecycle management. |
-| #039 | Cookie reply and DoS gate behavior | ready | Load-shedding and endpoint-bound cookies. |
+| #039 | Cookie reply and DoS gate behavior | completed | Load-shedding and endpoint-bound cookies. |
 | #040 | Decrypted transport plaintext as raw payload bytes | ready | Raw authenticated bytes only, no protobuf/IP parsing. |
 | #041 | IPv4/IPv6 packet read/create helpers on plaintext bytes | gated | Layer above raw plaintext, with packet validation. |
 | #042 | wireguard-go/Testcontainers interoperability test | gated | Peer handshake and encrypted exchange harness. |
 | #045 | PNet relay to wireguard-go peer interoperability test | gated | Node1 session owner relays through node2 to node3 and back. |
-| #046 | Shared-port WireGuard relay registration and demux | gated | Lease registration, MAC1 handshake demux, and receiver-index fast path. |
+| #046 | Shared-port WireGuard relay registration and demux | ready | Lease registration, MAC1 handshake demux, and receiver-index fast path. |
 | #047 | Relay-assisted WireGuard endpoint discovery | gated | Learn relayed endpoint candidate, probe direct, promote only after authenticated response. |
 | #048 | PNet-to-PNet WireGuard-compatible transport e2e | gated | Exchange PNet internal `X000PPPP` protobuf frames between two PNet peers. |
 
@@ -91,10 +91,11 @@ This is a parent tracking issue. Implement child issues, not this parent directl
 
 | Date | Gate | Method | Result | Evidence |
 |------|------|--------|--------|----------|
-| 2026-07-01 | `gate-depends: [036, 037, 038, 039, 040, 041, 042, 045, 046, 047, 048]` | source | blocked | #036, #037, and #038 are completed, but #039, #040, #041, #042, #045, #046, #047, and #048 remain open, so the parent stays gated. |
+| 2026-07-01 | `gate-depends: [036, 037, 038, 039, 040, 041, 042, 045, 046, 047, 048]` | source | blocked | #036, #037, #038, and #039 are completed, but #040, #041, #042, #045, #046, #047, and #048 remain open, so the parent stays gated. |
 
 ## Validation History
 
 - 2026-07-01: dependency gate cleared by #036; remaining dependency gates #037, #038, #039, #040, #041, #042, #045, #046, #047, and #048 keep #035 gated.
 - 2026-07-01: dependency gate cleared by #037; remaining dependency gates #038, #039, #040, #041, #042, #045, #046, #047, and #048 keep #035 gated.
 - 2026-07-01: dependency gate cleared by #038; remaining dependency gates #039, #040, #041, #042, #045, #046, #047, and #048 keep #035 gated.
+- 2026-07-01: dependency gate cleared by #039; remaining dependency gates #040, #041, #042, #045, #046, #047, and #048 keep #035 gated.

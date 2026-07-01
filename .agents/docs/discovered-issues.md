@@ -2,7 +2,7 @@
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
 last-entry: 2026-07-01
 last-opened: 2026-07-01-052
-open-count: 15
+open-count: 14
 last-completed: 2026-07-01
 ---
 
@@ -15,14 +15,13 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | # | Date | Source | Summary | Priority | Status | File |
 |---|------|--------|---------|----------|--------|------|
 | 035 | 2026-07-01 | wireguard/transport | Track WireGuard-compatible transport mode through crypto, raw payloads, IP/PNet e2e, and relay interop. | high | gated | [035-wireguard-compatible-transport-mode](issues/035-wireguard-compatible-transport-mode.md) |
-| 039 | 2026-07-01 | wireguard/transport | Implement WireGuard cookie reply and DoS gate behavior. | high | ready | [039-wireguard-cookie-reply-and-dos-gate-behavior](issues/039-wireguard-cookie-reply-and-dos-gate-behavior.md) |
 | 040 | 2026-07-01 | wireguard/transport | Expose decrypted WireGuard transport plaintext as raw payload bytes. | high | ready | [040-expose-decrypted-wireguard-transport-plaintext-as-raw-payload-bytes](issues/040-expose-decrypted-wireguard-transport-plaintext-as-raw-payload-bytes.md) |
 | 041 | 2026-07-01 | wireguard/transport | Read and create IPv4/IPv6 packets from WireGuard plaintext payloads. | medium | gated | [041-read-and-create-ipv4-ipv6-packets-from-wireguard-plaintext-payloads](issues/041-read-and-create-ipv4-ipv6-packets-from-wireguard-plaintext-payloads.md) |
 | 042 | 2026-07-01 | wireguard/tests | Add wireguard-go/Testcontainers interoperability test for WireGuard peer to PNet.Mesh. | high | gated | [042-wireguard-go-testcontainers-interoperability-test-for-wireguard-peer-to-pnet-mesh](issues/042-wireguard-go-testcontainers-interoperability-test-for-wireguard-peer-to-pnet-mesh.md) |
 | 043 | 2026-07-01 | mesh/channel | Keep mesh channel raw bytes and add helpers to parse/craft PNet, IPv4, and IPv6 payloads. | high | ready | [043-mesh-channel-typed-messages](issues/043-mesh-channel-typed-messages.md) |
 | 044 | 2026-07-01 | mesh/framing | Define PNet frame padding-count header and document WireGuard zero-padding behavior. | high | ready | [044-pnet-frame-padding-and-default-protobuf-header](issues/044-pnet-frame-padding-and-default-protobuf-header.md) |
 | 045 | 2026-07-01 | wireguard/relay | Implement and test PNet relay from node1 through node2 to wireguard-go node3. | high | gated | [045-pnet-relay-to-wireguard-peer-interop](issues/045-pnet-relay-to-wireguard-peer-interop.md) |
-| 046 | 2026-07-01 | wireguard/relay | Implement shared-port WireGuard relay registration, MAC1 demux, and receiver-index fast path. | high | gated | [046-shared-port-wireguard-relay-registration-and-demux](issues/046-shared-port-wireguard-relay-registration-and-demux.md) |
+| 046 | 2026-07-01 | wireguard/relay | Implement shared-port WireGuard relay registration, MAC1 demux, and receiver-index fast path. | high | ready | [046-shared-port-wireguard-relay-registration-and-demux](issues/046-shared-port-wireguard-relay-registration-and-demux.md) |
 | 047 | 2026-07-01 | wireguard/relay | Implement relay-assisted WireGuard endpoint discovery and direct-path promotion. | high | gated | [047-relay-assisted-wireguard-endpoint-discovery](issues/047-relay-assisted-wireguard-endpoint-discovery.md) |
 | 048 | 2026-07-01 | wireguard/tests | Add PNet-to-PNet WireGuard-compatible transport e2e coverage for internal protobuf frames. | high | gated | [048-pnet-to-pnet-wireguard-compatible-transport-e2e](issues/048-pnet-to-pnet-wireguard-compatible-transport-e2e.md) |
 | 049 | 2026-07-01 | protocol/tests | Add fuzz and property tests for WireGuard/PNet packet parser boundaries. | medium | gated | [049-packet-parser-fuzz-and-property-tests](issues/049-packet-parser-fuzz-and-property-tests.md) |
@@ -49,6 +48,7 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 
 | # | Date | Completed | Summary | Commits | File |
 |---|------|-----------|---------|---------|------|
+| 039 | 2026-07-01 | 2026-07-01 | Implement WireGuard cookie reply and DoS gate behavior. | 92a0133 | [039-wireguard-cookie-reply-and-dos-gate-behavior](issues/039-wireguard-cookie-reply-and-dos-gate-behavior.md) |
 | 038 | 2026-07-01 | 2026-07-01 | Implement WireGuard peer, receiver-index, keypair, and rekey lifecycle state. | 6a37478 | [038-wireguard-peer-receiver-index-keypair-and-rekey-lifecycle-state](issues/038-wireguard-peer-receiver-index-keypair-and-rekey-lifecycle-state.md) |
 | 037 | 2026-07-01 | 2026-07-01 | Implement WireGuard packet framing and TAI64N handshake replay tracking. | 216f246 | [037-wireguard-packet-framing-and-tai64n-handshake-replay-tracking](issues/037-wireguard-packet-framing-and-tai64n-handshake-replay-tracking.md) |
 | 036 | 2026-07-01 | 2026-07-01 | Implement WireGuard Noise profile and BLAKE2s MAC/KDF paths. | ba0de3d | [036-wireguard-noise-profile-and-blake2s-mac-kdf-paths](issues/036-wireguard-noise-profile-and-blake2s-mac-kdf-paths.md) |
