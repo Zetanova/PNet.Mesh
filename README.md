@@ -48,8 +48,9 @@ dotnet restore PNet.Mesh.sln
 dotnet build PNet.Mesh.sln -c Release --no-restore
 dotnet run --project src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -parallel none
 timeout 420s dotnet run --project src/PNet.Mesh.E2ETests/PNet.Mesh.E2ETests.csproj -c Release --no-build -- -parallel none
-timeout 120s scripts/e2e-mesh-topology.sh --no-build --timeout 90
 ```
+
+Supported mesh E2E coverage lives in the Testcontainers project below; use the named methods instead of the legacy compose smoke runner.
 
 Direct P2P coverage:
 
@@ -91,4 +92,10 @@ Candidate exchange and segmented route coverage:
 timeout 120s dotnet run --project src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -method PNet.Actor.UnitTests.Mesh.PNetMeshRoutingUnitTests.server_relay_candidate_selection_prefers_known_route_then_reflexive_endpoint
 timeout 120s dotnet run --project src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -method PNet.Actor.UnitTests.Mesh.PNetMeshRoutingUnitTests.session_relay_roundtrips_route_hop_payload_and_candidate_exchange
 timeout 420s dotnet run --project src/PNet.Mesh.E2ETests/PNet.Mesh.E2ETests.csproj -c Release --no-build -- -method PNet.Actor.E2ETests.Mesh.PNetMeshTestNodeHarnessTests.multi_hop_route_crosses_separated_container_segments
+```
+
+Legacy compose smoke artifact, retained for #011:
+
+```bash
+timeout 120s scripts/e2e-mesh-topology.sh --no-build --timeout 90
 ```
