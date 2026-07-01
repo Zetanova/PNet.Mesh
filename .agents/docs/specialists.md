@@ -20,8 +20,8 @@ Specialists activated by detected project type. From registry lookup.
 
 Specialists activated via reasoning pass - signals found in project files, deps, or code patterns.
 
-- +container - `docker-compose.yml`, `docker-compose.override.yml`, `.dockerignore`, and `tests/PNet.Mesh.TestNode/Dockerfile`.
-- +config - `tests/PNet.Mesh.TestNode/appsettings.json` and Compose environment configuration.
+- +container - `src/PNet.Mesh.TestNode/Dockerfile` and Testcontainers-backed mesh flows.
+- +config - `src/PNet.Mesh.TestNode/appsettings.json` and Testcontainers runtime configuration.
 
 ## Custom
 
