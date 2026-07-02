@@ -824,9 +824,9 @@ internal static class TunPNetBenchmarkRunner
             options.IperfPort.ToString(CultureInfo.InvariantCulture),
             "-u",
             "-b",
-            "1K",
+            options.IperfBandwidth,
             "-l",
-            "64",
+            options.IperfDatagramBytes.ToString(CultureInfo.InvariantCulture),
             "-t",
             Math.Ceiling(options.IperfDuration.TotalSeconds).ToString(CultureInfo.InvariantCulture),
             "--json"
@@ -1175,7 +1175,10 @@ internal static class TunPNetBenchmarkRunner
                 options.Warmup.TotalSeconds,
                 options.IperfDuration.TotalSeconds,
                 options.IperfPort,
-                options.Mtu),
+                options.Mtu,
+                options.PayloadMode,
+                options.IperfBandwidth,
+                options.IperfDatagramBytes),
             traffic,
             processes,
             false,
@@ -1279,7 +1282,7 @@ internal static class TunPNetBenchmarkRunner
     static void WriteUsage(TextWriter output)
     {
         output.WriteLine("Usage:");
-        output.WriteLine("  --tun-benchmark pnet-mesh-tun|wireguard-go [--name <name>] [--image <image>] [--ping-count <count>] [--warmup <duration>] [--iperf-duration <duration>] [--timeout <duration>]");
+        output.WriteLine("  --tun-benchmark pnet-mesh-tun|wireguard-go [--name <name>] [--image <image>] [--ping-count <count>] [--warmup <duration>] [--iperf-duration <duration>] [--mtu <bytes>] [--payload-mode control|mtu] [--timeout <duration>]");
         output.WriteLine();
         output.WriteLine("Runs a manual privileged TUN traffic benchmark on the #060 topology and emits JSON.");
     }
@@ -1394,6 +1397,12 @@ internal static class TunPNetBenchmarkRunner
 
         public int Mtu { get; private init; } = 1280;
 
+        public string PayloadMode { get; private init; } = "control";
+
+        public string IperfBandwidth { get; private init; } = "1K";
+
+        public int IperfDatagramBytes { get; private init; } = 64;
+
         public string CommandLine { get; private init; } = "--tun-benchmark";
 
         public bool ShowHelp { get; private init; }
@@ -1420,6 +1429,8 @@ internal static class TunPNetBenchmarkRunner
             var warmup = TimeSpan.FromSeconds(2);
             var iperfDuration = TimeSpan.FromSeconds(3);
             var pingCount = 1;
+            var mtu = 1280;
+            var payloadMode = "control";
 
             for (var i = 1; i < args.Length; i++)
             {
@@ -1467,6 +1478,20 @@ internal static class TunPNetBenchmarkRunner
                             return false;
                         }
                         break;
+                    case "--mtu":
+                        if (!TryReadIntValue(args, ref i, out mtu) || mtu <= 0)
+                        {
+                            error.WriteLine("--mtu requires a positive integer.");
+                            return false;
+                        }
+                        break;
+                    case "--payload-mode":
+                        if (!TryReadValue(args, ref i, out payloadMode) || !IsSupportedPayloadMode(payloadMode))
+                        {
+                            error.WriteLine("--payload-mode requires one of: control, mtu.");
+                            return false;
+                        }
+                        break;
                     case "--help":
                     case "-h":
                         options = new TunPNetBenchmarkOptions { ShowHelp = true };
@@ -1486,6 +1511,10 @@ internal static class TunPNetBenchmarkRunner
                 Warmup = warmup,
                 IperfDuration = iperfDuration,
                 PingCount = pingCount,
+                Mtu = mtu,
+                PayloadMode = payloadMode,
+                IperfBandwidth = GetIperfBandwidth(payloadMode),
+                IperfDatagramBytes = GetIperfDatagramBytes(payloadMode, mtu),
                 CommandLine = CreateCommandLine(args)
             };
             return true;
@@ -1546,6 +1575,24 @@ internal static class TunPNetBenchmarkRunner
                    || string.Equals(value, WireGuardGoScenario, StringComparison.Ordinal);
         }
 
+        static bool IsSupportedPayloadMode(string value)
+        {
+            return string.Equals(value, "control", StringComparison.Ordinal)
+                   || string.Equals(value, "mtu", StringComparison.Ordinal);
+        }
+
+        static string GetIperfBandwidth(string payloadMode)
+        {
+            return string.Equals(payloadMode, "mtu", StringComparison.Ordinal) ? "64K" : "1K";
+        }
+
+        static int GetIperfDatagramBytes(string payloadMode, int mtu)
+        {
+            return string.Equals(payloadMode, "mtu", StringComparison.Ordinal)
+                ? Math.Max(64, mtu - 80)
+                : 64;
+        }
+
         static string CreateCommandLine(string[] args)
         {
             return "--tun-benchmark " + string.Join(" ", args.Select(QuoteCommandLineToken));
@@ -1593,7 +1640,10 @@ internal sealed record TunPNetBenchmarkSettings(
     double WarmupSeconds,
     double IperfDurationSeconds,
     int IperfPort,
-    int Mtu);
+    int Mtu,
+    string? PayloadMode,
+    string? IperfBandwidth,
+    int? IperfDatagramBytes);
 
 internal sealed record TunBenchmarkTrafficResult(
     string Tool,

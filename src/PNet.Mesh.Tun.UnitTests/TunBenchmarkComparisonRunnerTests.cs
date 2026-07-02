@@ -113,6 +113,9 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             var settings = root.GetProperty("metrics").GetProperty("settings");
             Assert.Equal(1280, settings.GetProperty("mtu").GetProperty("pnet").GetInt32());
             Assert.Equal(3, settings.GetProperty("iperfDurationSeconds").GetProperty("wireguard").GetDouble());
+            Assert.Equal("control", settings.GetProperty("payloadMode").GetProperty("pnet").GetString());
+            Assert.Equal("1K", settings.GetProperty("iperfBandwidth").GetProperty("wireguard").GetString());
+            Assert.Equal(64, settings.GetProperty("iperfDatagramBytes").GetProperty("pnet").GetInt32());
 
             var traceability = root.GetProperty("metrics").GetProperty("traceability");
             Assert.Equal("pnet-topology", traceability.GetProperty("topologyId").GetProperty("pnet").GetString());
@@ -244,7 +247,10 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
                     2,
                     3,
                     5201,
-                    1280),
+                    1280,
+                    "control",
+                    "1K",
+                    64),
                 new[]
                 {
                     CreatePingTraffic("ipv4", ipv4PingLatency, ipv4PacketLoss, $"{scenario} ipv4 ping raw"),

@@ -78,6 +78,32 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
                 TextWriter.Null,
                 out var wireGuardOptions));
             Assert.Equal("wireguard-go", wireGuardOptions.Scenario);
+
+            Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
+                new[] { "pnet-mesh-tun", "--mtu", "1420", "--payload-mode", "mtu" },
+                TextWriter.Null,
+                out var mtuOptions));
+            Assert.Equal(1420, mtuOptions.Mtu);
+            Assert.Equal("mtu", mtuOptions.PayloadMode);
+            Assert.Equal("64K", mtuOptions.IperfBandwidth);
+            Assert.Equal(1340, mtuOptions.IperfDatagramBytes);
+        }
+
+        [Theory]
+        [InlineData("--mtu", "0", "--mtu requires a positive integer.")]
+        [InlineData("--mtu", "not-a-number", "--mtu requires a positive integer.")]
+        [InlineData("--payload-mode", "bulk", "--payload-mode requires one of: control, mtu.")]
+        public void options_reject_invalid_tun_benchmark_payload_options(string option, string value, string expectedError)
+        {
+            var error = new StringWriter();
+
+            var parsed = TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
+                new[] { "pnet-mesh-tun", option, value },
+                error,
+                out _);
+
+            Assert.False(parsed);
+            Assert.Contains(expectedError, error.ToString(), StringComparison.Ordinal);
         }
 
         [Fact]

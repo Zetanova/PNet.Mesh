@@ -182,7 +182,10 @@ internal static class TunBenchmarkComparisonRunner
             Pair(pnet.Settings.WarmupSeconds, wireGuard.Settings.WarmupSeconds),
             Pair(pnet.Settings.IperfDurationSeconds, wireGuard.Settings.IperfDurationSeconds),
             Pair(pnet.Settings.IperfPort, wireGuard.Settings.IperfPort),
-            Pair(pnet.Settings.Mtu, wireGuard.Settings.Mtu));
+            Pair(pnet.Settings.Mtu, wireGuard.Settings.Mtu),
+            Pair(pnet.Settings.PayloadMode, wireGuard.Settings.PayloadMode),
+            Pair(pnet.Settings.IperfBandwidth, wireGuard.Settings.IperfBandwidth),
+            Pair(pnet.Settings.IperfDatagramBytes, wireGuard.Settings.IperfDatagramBytes));
     }
 
     static TunBenchmarkTraceabilityMetrics CreateTraceabilityMetrics(
@@ -478,7 +481,10 @@ internal sealed record TunBenchmarkSettingsMetrics(
     TunBenchmarkComparisonValue WarmupSeconds,
     TunBenchmarkComparisonValue IperfDurationSeconds,
     TunBenchmarkComparisonValue IperfPort,
-    TunBenchmarkComparisonValue Mtu);
+    TunBenchmarkComparisonValue Mtu,
+    TunBenchmarkComparisonValue PayloadMode,
+    TunBenchmarkComparisonValue IperfBandwidth,
+    TunBenchmarkComparisonValue IperfDatagramBytes);
 
 internal sealed record TunBenchmarkTraceabilityMetrics(
     TunBenchmarkComparisonValue TopologyId,
