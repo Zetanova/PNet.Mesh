@@ -3,12 +3,13 @@ issue: 058
 date: 2026-07-02
 source: benchmark/phase-5
 priority: medium
-status: gated
-terminal-state: gated
+status: ready
 gate: "Wait for #057 baseline and regression policy."
 gate-depends:
   - 57
 gate-reason: "Requires baseline and regression policy so optimization issues are evidence-backed."
+gate-last-checked: 2026-07-02
+gate-status: cleared
 research-status: complete
 research-date: 2026-07-02
 assumptions-date: 2026-07-02
@@ -54,7 +55,7 @@ After baseline capture, use benchmark evidence to file focused optimization issu
 
 ## Gate
 
-This issue stays gated until #057 documents the baseline and regression policy.
+Cleared on 2026-07-02: #057 documented the benchmark baseline and regression policy in `8af78e0`.
 
 ## Assumptions
 
@@ -63,3 +64,13 @@ This issue stays gated until #057 documents the baseline and regression policy.
 | 1 | R | Optimization work should be driven by measured benchmark hotspots rather than guesses. | verified | logical | The benchmark rollout exists to produce evidence before optimization. |
 | 2 | F | Potential allocation hotspots include hash/MAC byte-array conversions, protobuf `ToArray` parse, PNet frame allocation, and padding buffers. | verified | source | These paths were identified from current source-level benchmark planning. |
 | 3 | F | Post-baseline child issues must include allocation targets when allocation pressure is the measured problem. | verified | source | The rollout explicitly asks for memory allocations to be measured, tested, and benchmarked. |
+
+## Gate Validation
+
+| Date | Gate | Method | Result | Evidence |
+|------|------|--------|--------|----------|
+| 2026-07-02 | `gate-depends: [057]` | source | ready | #057 is completed, so #058 is implementation-ready. |
+
+## Validation History
+
+- 2026-07-02: dependency gate cleared by #057; #058 is now ready.

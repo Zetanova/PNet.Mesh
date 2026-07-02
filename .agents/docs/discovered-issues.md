@@ -2,7 +2,7 @@
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
 last-entry: 2026-07-02
 last-opened: 2026-07-02-065
-open-count: 10
+open-count: 9
 last-completed: 2026-07-02
 ---
 
@@ -15,8 +15,7 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | # | Date | Source | Summary | Priority | Status | File |
 |---|------|--------|---------|----------|--------|------|
 | 051 | 2026-07-01 | nuget/audit | Review transitive NuGet package updates reported by the dependency audit. | medium | gated | [051-review-transitive-nuget-package-updates](issues/051-review-transitive-nuget-package-updates.md) |
-| 057 | 2026-07-02 | benchmark/phase-4 | Capture benchmark baselines and define performance/allocation regression policy. | medium | ready | [057-benchmark-baseline-and-regression-policy](issues/057-benchmark-baseline-and-regression-policy.md) |
-| 058 | 2026-07-02 | benchmark/phase-5 | Fan out optimization issues only from measured benchmark hotspots. | medium | gated | [058-post-baseline-benchmark-optimization-backlog](issues/058-post-baseline-benchmark-optimization-backlog.md) |
+| 058 | 2026-07-02 | benchmark/phase-5 | Fan out optimization issues only from measured benchmark hotspots. | medium | ready | [058-post-baseline-benchmark-optimization-backlog](issues/058-post-baseline-benchmark-optimization-backlog.md) |
 | 059 | 2026-07-02 | tun/optional-component | Add optional PNet.Mesh.Tun component for OS TUN interface integration. | medium | ready | [059-add-optional-pnet-mesh-tun-component](issues/059-add-optional-pnet-mesh-tun-component.md) |
 | 060 | 2026-07-02 | benchmark/integration-phase-1 | Define privileged Linux namespace/container topology for PNet.Mesh.Tun benchmarks. | medium | gated | [060-privileged-tun-benchmark-topology](issues/060-privileged-tun-benchmark-topology.md) |
 | 061 | 2026-07-02 | benchmark/integration-phase-2 | Add PNet.Mesh.Tun ping and iperf3 IPv4/IPv6 benchmark scenario. | medium | gated | [061-pnet-mesh-tun-iperf3-benchmark-scenario](issues/061-pnet-mesh-tun-iperf3-benchmark-scenario.md) |
@@ -44,6 +43,7 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 
 | # | Date | Completed | Summary | Commits | File |
 |---|------|-----------|---------|---------|------|
+| 057 | 2026-07-02 | 2026-07-02 | Capture benchmark baselines and define report-only performance/allocation regression policy. | 8af78e0 | [057-benchmark-baseline-and-regression-policy](issues/057-benchmark-baseline-and-regression-policy.md) |
 | 056 | 2026-07-02 | 2026-07-02 | Add Release macro harnesses for in-memory session and UDP loopback throughput/latency JSON. | 64aa683 | [056-macro-throughput-and-latency-benchmarks](issues/056-macro-throughput-and-latency-benchmarks.md) |
 | 055 | 2026-07-02 | 2026-07-02 | Benchmark handshake, transport, framing, rejection, and session hot paths with allocations. | 15537b4 | [055-core-protocol-microbenchmarks](issues/055-core-protocol-microbenchmarks.md) |
 | 054 | 2026-07-02 | 2026-07-02 | Add BenchmarkDotNet project, Release-only commands, benchmark matrix, and allocation metrics. | a402a8a | [054-benchmarkdotnet-foundation-and-allocation-metrics](issues/054-benchmarkdotnet-foundation-and-allocation-metrics.md) |
