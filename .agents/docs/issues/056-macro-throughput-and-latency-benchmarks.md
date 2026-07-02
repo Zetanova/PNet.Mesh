@@ -3,12 +3,13 @@ issue: 056
 date: 2026-07-02
 source: benchmark/phase-3
 priority: medium
-status: gated
-terminal-state: gated
+status: ready
 gate: "Wait for #055 core protocol microbenchmarks."
 gate-depends:
   - 55
 gate-reason: "Requires core microbenchmarks so macro results can be interpreted against protocol hot-path costs."
+gate-last-checked: 2026-07-02
+gate-status: cleared
 research-status: complete
 research-date: 2026-07-02
 assumptions-date: 2026-07-02
@@ -54,7 +55,7 @@ Add Release-only macro benchmark harnesses for end-to-end throughput and latency
 
 ## Gate
 
-This issue stays gated until #055 provides the protocol microbenchmark baseline.
+Cleared on 2026-07-02: #055 added category-filterable core protocol microbenchmarks in `15537b4`.
 
 ## Assumptions
 
@@ -63,3 +64,13 @@ This issue stays gated until #055 provides the protocol microbenchmark baseline.
 | 1 | F | Existing E2E coverage uses Testcontainers for mesh topology validation. | verified | source | `src/PNet.Mesh.E2ETests` contains Testcontainers-backed harness tests. |
 | 2 | R | UDP and Docker timing are less stable than in-process microbenchmarks. | verified | logical | They include OS scheduling, socket buffering, container startup, and host load effects. |
 | 3 | F | Macro harnesses must include allocation data as part of benchmark output. | verified | source | The rollout asks for memory allocations to be measured, tested, and benchmarked. |
+
+## Gate Validation
+
+| Date | Gate | Method | Result | Evidence |
+|------|------|--------|--------|----------|
+| 2026-07-02 | `gate-depends: [055]` | source | ready | #055 is completed, so #056 is implementation-ready. |
+
+## Validation History
+
+- 2026-07-02: dependency gate cleared by #055; #056 is now ready.

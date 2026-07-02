@@ -3,17 +3,16 @@ issue: 055
 date: 2026-07-02
 source: benchmark/phase-2
 priority: medium
-status: ready
-gate: "Wait for #054 BenchmarkDotNet foundation and allocation metrics."
-gate-depends:
-  - 54
-gate-reason: "Requires the BenchmarkDotNet project and allocation metric foundation from #054."
-gate-last-checked: 2026-07-02
-gate-status: cleared
+status: completed
 research-status: complete
 research-date: 2026-07-02
 assumptions-date: 2026-07-02
-brief: "description+scope+acceptance-criteria+assumptions+playbook+gate"
+terminal-state: completed
+completed-date: 2026-07-02
+completed: 2026-07-02
+completed-commits:
+  - 15537b4b022fd525a5f320ea142ae8653dd0013b
+brief: "description+completion-report"
 views:
   enrich: "description+scope+acceptance-criteria+assumptions+playbook+gate"
   fix: "description+scope+acceptance-criteria+assumptions+playbook+gate"
@@ -75,3 +74,22 @@ Cleared on 2026-07-02: #054 created the benchmark project and standard allocatio
 ## Validation History
 
 - 2026-07-02: dependency gate cleared by #054; #055 is now ready.
+
+## Completion Report
+
+Implemented in `15537b4`.
+
+- Added category-filterable microbenchmarks for transport, framing, handshake, rejection, and session paths.
+- Added in-memory `PNetMeshSession` setup for session serialization/frame/encrypt and decrypt/frame/parse coverage.
+- Exposed internals to the benchmark assembly so the benchmark harness can avoid sockets and Testcontainers.
+
+Verification:
+- `dotnet build PNet.Mesh.sln -c Release --no-restore` passed.
+- `dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --list flat` listed the seven benchmark methods.
+- `dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --filter '*SessionWriteReadPayloadPacket*'` passed and produced `Gen1`, `Gen2`, `Op/s`, `Gen0`, and `Allocated` columns.
+- `dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --filter '*RejectInvalidTransportPackets*'` passed and produced the same allocation columns.
+- `dotnet run --project src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -parallel none` passed 154 tests.
+
+## Resolving Commits
+
+- `15537b4b022fd525a5f320ea142ae8653dd0013b` - benchmarks: add core protocol microbenchmarks
