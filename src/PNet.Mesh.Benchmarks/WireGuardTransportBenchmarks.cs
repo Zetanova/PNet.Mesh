@@ -4,11 +4,9 @@ using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Engines;
 using BenchmarkDotNet.Reports;
 using BenchmarkDotNet.Running;
-using Noise;
 using System.Buffers.Binary;
 using System.Globalization;
 using System.Net;
-using System.Threading.Channels;
 
 namespace PNet.Mesh.Benchmarks;
 
@@ -17,12 +15,9 @@ namespace PNet.Mesh.Benchmarks;
 [Config(typeof(BenchmarkConfig))]
 public class WireGuardTransportBenchmarks
 {
-    const int MaxPayloadSize = 1420;
-    const int BufferSize = 2048;
-
-    readonly byte[] _payload = new byte[MaxPayloadSize];
-    readonly byte[] _encryptedPacket = new byte[BufferSize];
-    readonly byte[] _plaintext = new byte[BufferSize];
+    readonly byte[] _payload = BenchmarkProtocolHarness.CreatePayload(BenchmarkProtocolHarness.MaxPayloadSize);
+    readonly byte[] _encryptedPacket = new byte[BenchmarkProtocolHarness.BufferSize];
+    readonly byte[] _plaintext = new byte[BenchmarkProtocolHarness.BufferSize];
 
     byte[] _pnetFrame = Array.Empty<byte>();
     byte[] _ipv4Packet = Array.Empty<byte>();
@@ -36,10 +31,7 @@ public class WireGuardTransportBenchmarks
     [GlobalSetup]
     public void GlobalSetup()
     {
-        for (var i = 0; i < _payload.Length; i++)
-            _payload[i] = (byte)(i % 251);
-
-        _transports = CreateEstablishedTransports();
+        _transports = BenchmarkProtocolHarness.CreateEstablishedTransports();
         _pnetFrame = PNetMeshPayloadFraming.CreatePNet(_payload.AsSpan(0, PayloadSize));
         _ipv4Packet = PNetMeshIpPacket.CreateIPv4(
             IPAddress.Parse("10.10.0.1"),
@@ -115,7 +107,7 @@ public class WireGuardTransportBenchmarks
     [BenchmarkCategory("handshake")]
     public int FullHandshakeSetup()
     {
-        using var transports = CreateEstablishedTransports();
+        using var transports = BenchmarkProtocolHarness.CreateEstablishedTransports();
         return (int)(transports.Initiator.SenderIndex + transports.Responder.SenderIndex);
     }
 
@@ -134,11 +126,11 @@ public class WireGuardTransportBenchmarks
     [BenchmarkCategory("session")]
     public int SessionWriteReadPayloadPacket()
     {
-        using var pair = CreateOpenSessionPair();
+        using var pair = BenchmarkProtocolHarness.CreateOpenSessionPair();
         pair.Sender.WritePayload(_payload.AsSpan(0, PayloadSize));
         pair.Sender.WritePacket();
 
-        var packet = ReadPacket(pair.SenderOutbound);
+        var packet = BenchmarkProtocolHarness.ReadPacket(pair.SenderOutbound);
         try
         {
             if (!pair.Receiver.TryReadMessage(packet.MemoryBuffer.Span))
@@ -157,7 +149,7 @@ public class WireGuardTransportBenchmarks
 
     bool RejectTamperedPacket()
     {
-        using var transports = CreateEstablishedTransports();
+        using var transports = BenchmarkProtocolHarness.CreateEstablishedTransports();
         var packet = WriteTransportPacket(transports.Initiator);
         packet[^1] ^= 0x80;
         return !transports.Responder.TryReadMessage(packet, _plaintext, out _, out _);
@@ -165,7 +157,7 @@ public class WireGuardTransportBenchmarks
 
     bool RejectReplayPacket()
     {
-        using var transports = CreateEstablishedTransports();
+        using var transports = BenchmarkProtocolHarness.CreateEstablishedTransports();
         var packet = WriteTransportPacket(transports.Initiator);
         if (!transports.Responder.TryReadMessage(packet, _plaintext, out _, out _))
             throw new InvalidOperationException("Responder rejected first packet before replay.");
@@ -175,7 +167,7 @@ public class WireGuardTransportBenchmarks
 
     bool RejectUnknownReceiverPacket()
     {
-        using var transports = CreateEstablishedTransports();
+        using var transports = BenchmarkProtocolHarness.CreateEstablishedTransports();
         var packet = WriteTransportPacket(transports.Initiator);
         BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(4, 4), uint.MaxValue);
         return !transports.Responder.TryReadMessage(packet, _plaintext, out _, out _);
@@ -190,122 +182,6 @@ public class WireGuardTransportBenchmarks
             out _);
 
         return _encryptedPacket.AsSpan(0, packetBytes).ToArray();
-    }
-
-    static EstablishedTransportPair CreateEstablishedTransports()
-    {
-        var psk = new byte[32];
-        for (var i = 0; i < psk.Length; i++)
-            psk[i] = (byte)(0x80 + i);
-
-        var initiatorStatic = KeyPair.Generate();
-        var responderStatic = KeyPair.Generate();
-
-        var initiatorProtocol = new PNetMeshProtocol(
-            initiatorStatic.PrivateKey,
-            initiatorStatic.PublicKey,
-            psk);
-        var responderProtocol = new PNetMeshProtocol(
-            responderStatic.PrivateKey,
-            responderStatic.PublicKey,
-            psk);
-
-        var initiator = initiatorProtocol.CreateInitiator(1, responderStatic.PublicKey);
-        var responder = responderProtocol.CreateResponder(2);
-
-        Span<byte> initiationBuffer = stackalloc byte[256];
-        Span<byte> responseBuffer = stackalloc byte[128];
-
-        initiator.WriteInitiationMessage(initiationBuffer, out var bytesWritten);
-        if (!responder.TryReadInitiationMessage(initiationBuffer[..bytesWritten]))
-            throw new InvalidOperationException("Responder rejected handshake initiation.");
-
-        if (!responder.TryWriteResponseMessage(responseBuffer, out bytesWritten, out var responderTransport))
-            throw new InvalidOperationException("Responder did not write handshake response.");
-
-        if (!initiator.TryReadResponseMessage(responseBuffer[..bytesWritten], out var initiatorTransport))
-            throw new InvalidOperationException("Initiator rejected handshake response.");
-
-        return new EstablishedTransportPair(
-            initiatorTransport,
-            responderTransport,
-            initiator,
-            responder,
-            initiatorStatic,
-            responderStatic);
-    }
-
-    static SessionPair CreateOpenSessionPair()
-    {
-        var psk = new byte[32];
-        for (var i = 0; i < psk.Length; i++)
-            psk[i] = (byte)(0x40 + i);
-
-        var senderStatic = KeyPair.Generate();
-        var receiverStatic = KeyPair.Generate();
-        var senderProtocol = new PNetMeshProtocol(senderStatic.PrivateKey, senderStatic.PublicKey, psk);
-        var receiverProtocol = new PNetMeshProtocol(receiverStatic.PrivateKey, receiverStatic.PublicKey, psk);
-        var senderOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
-        var receiverOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
-        var senderInbound = Channel.CreateUnbounded<ReadOnlyMemory<byte>>();
-        var receiverInbound = Channel.CreateUnbounded<ReadOnlyMemory<byte>>();
-        var senderControl = Channel.CreateUnbounded<PNetMeshChannelCommands.Command>();
-        var receiverControl = Channel.CreateUnbounded<PNetMeshChannelCommands.Command>();
-        var sender = new PNetMeshSession(senderProtocol, senderOutbound.Writer)
-        {
-            LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 30001),
-            RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 30002)
-        };
-        var receiver = new PNetMeshSession(receiverProtocol, receiverOutbound.Writer)
-        {
-            LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 30002),
-            RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 30001)
-        };
-        sender.AttachTo(senderInbound.Writer, senderControl.Writer);
-        receiver.AttachTo(receiverInbound.Writer, receiverControl.Writer);
-
-        sender.WriteInitialize(1, receiverStatic.PublicKey);
-        var initiation = ReadPacket(senderOutbound);
-        try
-        {
-            if (!receiver.TryReadInitialize(2, initiation.MemoryBuffer.Span))
-                throw new InvalidOperationException("Receiver rejected session initiation.");
-        }
-        finally
-        {
-            initiation.MemoryOwner?.Dispose();
-        }
-
-        receiver.WriteResponse();
-        var response = ReadPacket(receiverOutbound);
-        try
-        {
-            if (!sender.TryReadResponse(response.MemoryBuffer.Span))
-                throw new InvalidOperationException("Sender rejected session response.");
-        }
-        finally
-        {
-            response.MemoryOwner?.Dispose();
-        }
-
-        return new SessionPair(
-            sender,
-            receiver,
-            senderOutbound,
-            receiverOutbound,
-            senderInbound,
-            receiverInbound,
-            senderStatic,
-            receiverStatic);
-    }
-
-    static PNetMeshOutboundMessages.Packet ReadPacket(Channel<PNetMeshOutboundMessages.Message> channel)
-    {
-        if (!channel.Reader.TryRead(out var message))
-            throw new InvalidOperationException("Expected outbound packet.");
-
-        return message as PNetMeshOutboundMessages.Packet
-            ?? throw new InvalidOperationException("Expected packet message.");
     }
 
     sealed class BenchmarkConfig : ManualConfig
@@ -373,69 +249,4 @@ public class WireGuardTransportBenchmarks
         }
     }
 
-    sealed class EstablishedTransportPair : IDisposable
-    {
-        readonly IDisposable[] _disposables;
-
-        public EstablishedTransportPair(
-            PNetMeshTransport2 initiator,
-            PNetMeshTransport2 responder,
-            params IDisposable[] disposables)
-        {
-            Initiator = initiator;
-            Responder = responder;
-            _disposables = new IDisposable[] { initiator, responder }.Concat(disposables).ToArray();
-        }
-
-        public PNetMeshTransport2 Initiator { get; }
-
-        public PNetMeshTransport2 Responder { get; }
-
-        public void Dispose()
-        {
-            foreach (var disposable in _disposables)
-                disposable.Dispose();
-        }
-    }
-
-    sealed class SessionPair : IDisposable
-    {
-        readonly IDisposable[] _disposables;
-
-        public SessionPair(
-            PNetMeshSession sender,
-            PNetMeshSession receiver,
-            Channel<PNetMeshOutboundMessages.Message> senderOutbound,
-            Channel<PNetMeshOutboundMessages.Message> receiverOutbound,
-            Channel<ReadOnlyMemory<byte>> senderInbound,
-            Channel<ReadOnlyMemory<byte>> receiverInbound,
-            params IDisposable[] disposables)
-        {
-            Sender = sender;
-            Receiver = receiver;
-            SenderOutbound = senderOutbound;
-            ReceiverOutbound = receiverOutbound;
-            SenderInbound = senderInbound;
-            ReceiverInbound = receiverInbound;
-            _disposables = new IDisposable[] { sender, receiver }.Concat(disposables).ToArray();
-        }
-
-        public PNetMeshSession Sender { get; }
-
-        public PNetMeshSession Receiver { get; }
-
-        public Channel<PNetMeshOutboundMessages.Message> SenderOutbound { get; }
-
-        public Channel<PNetMeshOutboundMessages.Message> ReceiverOutbound { get; }
-
-        public Channel<ReadOnlyMemory<byte>> SenderInbound { get; }
-
-        public Channel<ReadOnlyMemory<byte>> ReceiverInbound { get; }
-
-        public void Dispose()
-        {
-            foreach (var disposable in _disposables)
-                disposable.Dispose();
-        }
-    }
 }
