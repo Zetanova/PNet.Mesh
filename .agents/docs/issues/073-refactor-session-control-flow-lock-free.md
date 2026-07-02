@@ -3,18 +3,17 @@ issue: 073
 date: 2026-07-02
 source: performance/refactor
 priority: high
-status: open
-research-status: partial
+status: completed
+research-status: complete
 research-date: 2026-07-02
 assumptions-date: 2026-07-02
 split-status: parent
-terminal-state: gated
-gate-depends:
-  - 077
-  - 078
-  - 079
-gate-reason: "Tracking parent waits for fine-grained child issues"
-ungate-when: "All child issues are completed"
+terminal-state: completed
+completed-date: 2026-07-02
+completion-commits:
+  - e480ba9
+  - a8c2a6b
+  - c89ada0
 brief: "description+related-issues+playbook+scope+out-of-scope+benchmark-plan+acceptance-criteria+tracking+residual-scope+assumptions"
 views:
   enrich: "description+related-issues+playbook+scope+out-of-scope+benchmark-plan+acceptance-criteria+tracking+residual-scope+assumptions"
@@ -96,9 +95,9 @@ timeout 900s scripts/bench-tun-comparison.sh --output-dir artifacts/benchmarks/t
 
 | Child | Scope | Status | Notes |
 |-------|-------|--------|-------|
-| #077 | PNetMeshSession single-owner mailbox refactor | ready | Serialize mutable session state behind one owner. |
-| #078 | PNetMeshChannel relay-state atomic signaling | ready | Replace relay-state lock with atomic TCS swap if tests hold. |
-| #079 | PNetMeshTunBridge peer connect memoization | ready | Replace connect semaphore with lock-free memoization if tests hold. |
+| #077 | PNetMeshSession single-owner mailbox refactor | completed | `e480ba9` serializes mutable session state behind one owner and keeps callbacks off the owner gate. |
+| #078 | PNetMeshChannel relay-state atomic signaling | completed | `a8c2a6b` replaces relay-state locking with atomic TCS signaling. |
+| #079 | PNetMeshTunBridge peer connect memoization | completed | `c89ada0` replaces first-connect serialization with async memoization. |
 
 ## Residual Scope
 `none`
@@ -112,6 +111,18 @@ timeout 900s scripts/bench-tun-comparison.sh --output-dir artifacts/benchmarks/t
 | 3 | F | `PNetMeshChannel` has a small relay-state lock around a `TaskCompletionSource` swap. | verified | source | `PNetMeshChannel.cs` defines `_relayStateLock` and uses it in `GetRelayStateChangedTask` and `SignalRelayStateChanged`. |
 | 4 | F | `PNetMeshTunBridge.PeerState` uses `SemaphoreSlim` only to serialize first channel connect and cache population. | verified | source | `PNetMeshTunBridge.cs` defines `_connectLock` and uses it in `GetChannelAsync`. |
 | 5 | F | The repository has concrete micro and macro benchmark commands for protocol/session and in-memory or UDP loopback scenarios. | verified | source | `README.md` and `.agents/docs/benchmarks/regression-policy.md` document BenchmarkDotNet and `--macro all` commands. |
-| 6 | R | A per-session single-reader mailbox can remove most session locks without changing protocol behavior. | unverified | logical | Needs implementation, regression tests, and before/after benchmark evidence. |
-| 7 | R | `Volatile.Read` plus `Interlocked.Exchange` is sufficient for relay-state signal swapping. | unverified | logical | Needs targeted tests around pending relay waiters, cancellation, and dispose signaling. |
-| 8 | R | Lock-free async connect memoization can replace the TUN bridge semaphore without increasing duplicate connects or complexity. | unverified | logical | Needs targeted tests proving exactly one cached channel is used under concurrent peer reader/writer startup. |
+| 6 | R | A per-session owner path can remove most session locks without changing covered protocol behavior. | verified | test | `e480ba9` passed full unit coverage and before/after micro and macro benchmark gates. |
+| 7 | R | `Volatile.Read` plus `Interlocked.Exchange` is sufficient for relay-state signal swapping. | verified | test | `a8c2a6b` passed targeted relay-state, cancellation, dispose, build, and unit checks. |
+| 8 | R | Lock-free async connect memoization can replace the TUN bridge semaphore without increasing duplicate connects or complexity. | verified | test | `c89ada0` passed concurrent peer reader/writer startup coverage and TUN unit checks. |
+
+## Completion Report
+
+All child issues are complete:
+
+| Child | Commit | Evidence |
+|---|---|---|
+| #077 | e480ba9 | Full unit suite 194/194, focused session micro benchmark, and in-memory/UDP macro benchmark comparison passed the benchmark gate. |
+| #078 | a8c2a6b | Relay-state atomic signaling tests and full unit coverage passed. |
+| #079 | c89ada0 | TUN bridge connect memoization tests and TUN unit coverage passed. |
+
+Residual scope remains `none`; no follow-up issue was required for this parent.
