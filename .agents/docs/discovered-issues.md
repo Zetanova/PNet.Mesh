@@ -1,8 +1,8 @@
 ---
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
 last-entry: 2026-07-02
-last-opened: 2026-07-02-071
-open-count: 1
+last-opened: 2026-07-02-079
+open-count: 8
 last-completed: 2026-07-02
 ---
 
@@ -15,6 +15,13 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | # | Date | Source | Summary | Priority | Status | File |
 |---|------|--------|---------|----------|--------|------|
 | 051 | 2026-07-01 | nuget/audit | Review transitive NuGet package updates reported by the dependency audit. | medium | gated | [051-review-transitive-nuget-package-updates](issues/051-review-transitive-nuget-package-updates.md) |
+| 072 | 2026-07-02 | performance/analysis | Apply .NET 10 memory and CommunityToolkit.HighPerformance optimizations across mesh hot paths. | medium | gated | [072-apply-dotnet-10-memory-and-toolkit-optimizations](issues/072-apply-dotnet-10-memory-and-toolkit-optimizations.md) |
+| 073 | 2026-07-02 | performance/refactor | Refactor PNetMeshSession control flow to remove premature locks with channel-owned state and benchmark gates. | high | gated | [073-refactor-session-control-flow-lock-free](issues/073-refactor-session-control-flow-lock-free.md) |
+| 075 | 2026-07-02 | performance/analysis | TUN packet ownership transfer and no-copy channel enqueue. | medium | ready | [075-tun-packet-ownership-transfer-and-no-copy-channel-enqueue](issues/075-tun-packet-ownership-transfer-and-no-copy-channel-enqueue.md) |
+| 076 | 2026-07-02 | performance/analysis | ACK bitmap processing and packet tracker cleanup. | medium | ready | [076-ack-bitmap-processing-and-packet-tracker-cleanup](issues/076-ack-bitmap-processing-and-packet-tracker-cleanup.md) |
+| 077 | 2026-07-02 | performance/refactor | PNetMeshSession single-owner mailbox refactor. | high | ready | [077-pnetmeshsession-single-owner-mailbox-refactor](issues/077-pnetmeshsession-single-owner-mailbox-refactor.md) |
+| 078 | 2026-07-02 | performance/refactor | PNetMeshChannel relay-state atomic signaling. | high | ready | [078-pnetmeshchannel-relay-state-atomic-signaling](issues/078-pnetmeshchannel-relay-state-atomic-signaling.md) |
+| 079 | 2026-07-02 | performance/refactor | PNetMeshTunBridge peer connect memoization. | high | ready | [079-pnetmeshtunbridge-peer-connect-memoization](issues/079-pnetmeshtunbridge-peer-connect-memoization.md) |
 
 ## Outgoing MRs
 
@@ -35,6 +42,7 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 
 | # | Date | Completed | Summary | Commits | File |
 |---|------|-----------|---------|---------|------|
+| 074 | 2026-07-02 | 2026-07-02 | Span-based byte-key and IP-byte helper optimizations. | 0433a9e | [074-span-based-byte-key-and-ip-byte-helper-optimizations](issues/074-span-based-byte-key-and-ip-byte-helper-optimizations.md) |
 | 071 | 2026-07-02 | 2026-07-02 | Stabilize sustained PNet.Mesh.Tun OS traffic before ping and iperf3 benchmarks can pass. | d667db3 | [071-stabilize-pnet-mesh-tun-os-traffic](issues/071-stabilize-pnet-mesh-tun-os-traffic.md) |
 | 061 | 2026-07-02 | 2026-07-02 | Add PNet.Mesh.Tun ping and iperf3 IPv4/IPv6 benchmark scenario. | 53ca5bb, d667db3 | [061-pnet-mesh-tun-iperf3-benchmark-scenario](issues/061-pnet-mesh-tun-iperf3-benchmark-scenario.md) |
 | 062 | 2026-07-02 | 2026-07-02 | Add wireguard-go TUN benchmark baseline using the same topology and traffic profile. | efecd4a | [062-wireguard-go-tun-comparison-benchmark](issues/062-wireguard-go-tun-comparison-benchmark.md) |
