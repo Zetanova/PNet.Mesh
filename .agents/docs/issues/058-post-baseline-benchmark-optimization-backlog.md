@@ -3,17 +3,16 @@ issue: 058
 date: 2026-07-02
 source: benchmark/phase-5
 priority: medium
-status: ready
-gate: "Wait for #057 baseline and regression policy."
-gate-depends:
-  - 57
-gate-reason: "Requires baseline and regression policy so optimization issues are evidence-backed."
-gate-last-checked: 2026-07-02
-gate-status: cleared
+status: completed
 research-status: complete
 research-date: 2026-07-02
 assumptions-date: 2026-07-02
-brief: "description+scope+acceptance-criteria+assumptions+playbook+gate"
+terminal-state: completed
+completed-date: 2026-07-02
+completed: 2026-07-02
+completed-commits:
+  - 720e48a25d06d53af13d5a3f66345d67daf443f9
+brief: "description+completion-report"
 views:
   enrich: "description+scope+acceptance-criteria+assumptions+playbook+gate"
   fix: "description+scope+acceptance-criteria+assumptions+playbook+gate"
@@ -74,3 +73,24 @@ Cleared on 2026-07-02: #057 documented the benchmark baseline and regression pol
 ## Validation History
 
 - 2026-07-02: dependency gate cleared by #057; #058 is now ready.
+
+## Completion Report
+
+Implemented in `720e48a`.
+
+Created measured optimization child issues from the #057 baseline:
+
+- #066: reduce WireGuard hash/MAC allocation pressure measured in handshake and rejection benchmarks.
+- #067: reduce session protobuf/frame allocation pressure measured in session and in-memory macro benchmarks.
+- #068: add a non-allocating or pooled PNet frame creation path for payload framing hotspots.
+- #069: reduce UDP loopback macro harness receive allocation to isolate protocol cost.
+
+No speculative optimization work was implemented in this parent issue. Each child includes baseline metric, target area, and verification command.
+
+Verification:
+- `md .agents/docs/discovered-issues.md .agents/docs/issues/066-wireguard-hash-mac-allocation-hotspot.md .agents/docs/issues/067-session-protobuf-frame-allocation-hotspot.md .agents/docs/issues/068-pnet-frame-creation-allocation-hotspot.md .agents/docs/issues/069-udp-loopback-macro-allocation-hotspot.md` passed.
+- `git diff --check` passed.
+
+## Resolving Commits
+
+- `720e48a25d06d53af13d5a3f66345d67daf443f9` - issues: add benchmark optimization backlog

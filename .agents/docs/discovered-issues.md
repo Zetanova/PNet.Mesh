@@ -2,7 +2,7 @@
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
 last-entry: 2026-07-02
 last-opened: 2026-07-02-069
-open-count: 13
+open-count: 12
 last-completed: 2026-07-02
 ---
 
@@ -15,7 +15,6 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | # | Date | Source | Summary | Priority | Status | File |
 |---|------|--------|---------|----------|--------|------|
 | 051 | 2026-07-01 | nuget/audit | Review transitive NuGet package updates reported by the dependency audit. | medium | gated | [051-review-transitive-nuget-package-updates](issues/051-review-transitive-nuget-package-updates.md) |
-| 058 | 2026-07-02 | benchmark/phase-5 | Fan out optimization issues only from measured benchmark hotspots. | medium | ready | [058-post-baseline-benchmark-optimization-backlog](issues/058-post-baseline-benchmark-optimization-backlog.md) |
 | 066 | 2026-07-02 | benchmark/hotspot | Reduce WireGuard hash/MAC allocation pressure measured in handshake and rejection benchmarks. | medium | ready | [066-wireguard-hash-mac-allocation-hotspot](issues/066-wireguard-hash-mac-allocation-hotspot.md) |
 | 067 | 2026-07-02 | benchmark/hotspot | Reduce session protobuf/frame allocation pressure measured in session and in-memory macro benchmarks. | medium | ready | [067-session-protobuf-frame-allocation-hotspot](issues/067-session-protobuf-frame-allocation-hotspot.md) |
 | 068 | 2026-07-02 | benchmark/hotspot | Add non-allocating or pooled PNet frame creation path for payload framing hotspots. | medium | ready | [068-pnet-frame-creation-allocation-hotspot](issues/068-pnet-frame-creation-allocation-hotspot.md) |
@@ -47,6 +46,7 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 
 | # | Date | Completed | Summary | Commits | File |
 |---|------|-----------|---------|---------|------|
+| 058 | 2026-07-02 | 2026-07-02 | Fan out optimization issues only from measured benchmark hotspots. | 720e48a | [058-post-baseline-benchmark-optimization-backlog](issues/058-post-baseline-benchmark-optimization-backlog.md) |
 | 057 | 2026-07-02 | 2026-07-02 | Capture benchmark baselines and define report-only performance/allocation regression policy. | 8af78e0 | [057-benchmark-baseline-and-regression-policy](issues/057-benchmark-baseline-and-regression-policy.md) |
 | 056 | 2026-07-02 | 2026-07-02 | Add Release macro harnesses for in-memory session and UDP loopback throughput/latency JSON. | 64aa683 | [056-macro-throughput-and-latency-benchmarks](issues/056-macro-throughput-and-latency-benchmarks.md) |
 | 055 | 2026-07-02 | 2026-07-02 | Benchmark handshake, transport, framing, rejection, and session hot paths with allocations. | 15537b4 | [055-core-protocol-microbenchmarks](issues/055-core-protocol-microbenchmarks.md) |
