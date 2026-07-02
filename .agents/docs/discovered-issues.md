@@ -2,7 +2,7 @@
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
 last-entry: 2026-07-02
 last-opened: 2026-07-02-079
-open-count: 8
+open-count: 6
 last-completed: 2026-07-02
 ---
 
@@ -20,8 +20,6 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | 075 | 2026-07-02 | performance/analysis | TUN packet ownership transfer and no-copy channel enqueue. | medium | ready | [075-tun-packet-ownership-transfer-and-no-copy-channel-enqueue](issues/075-tun-packet-ownership-transfer-and-no-copy-channel-enqueue.md) |
 | 076 | 2026-07-02 | performance/analysis | ACK bitmap processing and packet tracker cleanup. | medium | ready | [076-ack-bitmap-processing-and-packet-tracker-cleanup](issues/076-ack-bitmap-processing-and-packet-tracker-cleanup.md) |
 | 077 | 2026-07-02 | performance/refactor | PNetMeshSession single-owner mailbox refactor. | high | ready | [077-pnetmeshsession-single-owner-mailbox-refactor](issues/077-pnetmeshsession-single-owner-mailbox-refactor.md) |
-| 078 | 2026-07-02 | performance/refactor | PNetMeshChannel relay-state atomic signaling. | high | ready | [078-pnetmeshchannel-relay-state-atomic-signaling](issues/078-pnetmeshchannel-relay-state-atomic-signaling.md) |
-| 079 | 2026-07-02 | performance/refactor | PNetMeshTunBridge peer connect memoization. | high | ready | [079-pnetmeshtunbridge-peer-connect-memoization](issues/079-pnetmeshtunbridge-peer-connect-memoization.md) |
 
 ## Outgoing MRs
 
@@ -42,6 +40,8 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 
 | # | Date | Completed | Summary | Commits | File |
 |---|------|-----------|---------|---------|------|
+| 079 | 2026-07-02 | 2026-07-02 | PNetMeshTunBridge peer connect memoization. | c89ada0 | [079-pnetmeshtunbridge-peer-connect-memoization](issues/079-pnetmeshtunbridge-peer-connect-memoization.md) |
+| 078 | 2026-07-02 | 2026-07-02 | PNetMeshChannel relay-state atomic signaling. | a8c2a6b | [078-pnetmeshchannel-relay-state-atomic-signaling](issues/078-pnetmeshchannel-relay-state-atomic-signaling.md) |
 | 074 | 2026-07-02 | 2026-07-02 | Span-based byte-key and IP-byte helper optimizations. | 0433a9e | [074-span-based-byte-key-and-ip-byte-helper-optimizations](issues/074-span-based-byte-key-and-ip-byte-helper-optimizations.md) |
 | 071 | 2026-07-02 | 2026-07-02 | Stabilize sustained PNet.Mesh.Tun OS traffic before ping and iperf3 benchmarks can pass. | d667db3 | [071-stabilize-pnet-mesh-tun-os-traffic](issues/071-stabilize-pnet-mesh-tun-os-traffic.md) |
 | 061 | 2026-07-02 | 2026-07-02 | Add PNet.Mesh.Tun ping and iperf3 IPv4/IPv6 benchmark scenario. | 53ca5bb, d667db3 | [061-pnet-mesh-tun-iperf3-benchmark-scenario](issues/061-pnet-mesh-tun-iperf3-benchmark-scenario.md) |
