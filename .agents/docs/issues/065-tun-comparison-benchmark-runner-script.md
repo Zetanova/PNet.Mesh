@@ -3,8 +3,11 @@ issue: 065
 date: 2026-07-02
 source: benchmark/integration-script
 priority: medium
-status: ready
-terminal-state: ready
+status: completed
+terminal-state: completed
+completed-date: 2026-07-02
+completed-commits:
+  - e5e0c8d7b0bc24a20d6acae2da2fa41cafb048d6
 gate-depends: [063]
 gate-reason: "Requires the comparison result schema before the runner script can be implemented safely."
 gate-last-checked: 2026-07-02
@@ -75,6 +78,28 @@ Cleared on 2026-07-02: #063 is complete, so this issue is ready. The privileged 
 
 - 2026-07-02: dependency gates cleared by #061 and #062; #063 kept #065 gated until completion.
 - 2026-07-02: dependency gates cleared by #061, #062, and #063; #065 is now ready.
+
+## Completion Report
+
+Implemented in `e5e0c8d7b0bc24a20d6acae2da2fa41cafb048d6`.
+
+- Added `scripts/bench-tun-comparison.sh` as the single-command wrapper for PNet.Mesh.Tun versus `wireguard-go` comparison runs.
+- The wrapper builds Release, runs preflight checks, executes both scenarios with shared settings, writes deterministic raw and normalized artifacts, emits comparison JSON, and keeps cleanup bounded.
+- Added MTU and payload-mode settings through the benchmark runner and comparison schema, plus tests and docs.
+- Verification on 2026-07-02:
+  - `bash -n scripts/bench-tun-comparison.sh` passed.
+  - `scripts/bench-tun-comparison.sh --help` passed.
+  - `scripts/bench-tun-comparison.sh --dry-run --output-dir /tmp/pnet-tun-compare-dry-run --warmup 0ms --iperf-duration 1s --mtu 1420 --payload-mode mtu` passed.
+  - Script help path benchmark avg 13.3ms over 20 runs.
+  - `timeout 180s rtk dotnet build PNet.Mesh.sln -c Release --no-restore` passed, 9 projects, 0 warnings.
+  - `timeout 240s rtk dotnet run --project src/PNet.Mesh.Tun.UnitTests/PNet.Mesh.Tun.UnitTests.csproj -c Release --no-build -- -parallel none` passed, 17/17.
+  - `timeout 900s rtk scripts/bench-tun-comparison.sh --output-dir /tmp/codex-team-task.krDAde/test/tun-script-065-recheck --warmup 0ms --iperf-duration 3s --ping-count 1 --timeout 30s --run-timeout 420s --build-timeout 180s` passed.
+  - `timeout 120s rtk dotnet format whitespace scoped verify` passed.
+  - `git diff --check` passed.
+
+## Resolving Commits
+
+- `e5e0c8d7b0bc24a20d6acae2da2fa41cafb048d6` - `benchmarks: add tun comparison runner script`
 
 ## Assumptions
 

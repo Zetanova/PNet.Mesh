@@ -3,10 +3,12 @@ issue: 064
 date: 2026-07-02
 source: benchmark/integration-phase-5
 priority: medium
-status: gated
-terminal-state: gated
+status: ready
+terminal-state: ready
 gate-depends: [057, 063, 065]
 gate-reason: "Requires baseline policy, stable comparison result schema, and the single-command benchmark runner before workflow automation or reporting thresholds."
+gate-last-checked: 2026-07-02
+gate-status: cleared
 probeable: false
 research-status: complete
 research-date: 2026-07-02
@@ -54,7 +56,17 @@ Add the operator workflow for running TUN integration benchmarks manually or on 
 
 ## Gate
 
-This issue stays gated until #057 defines the baseline policy, #063 defines the comparison result schema, and #065 provides the benchmark runner script.
+Cleared on 2026-07-02: #057, #063, and #065 are complete, so this issue is ready.
+
+## Gate Validation
+
+| Date | Gate | Method | Result | Evidence |
+|------|------|--------|--------|----------|
+| 2026-07-02 | `gate-depends: [057, 063, 065]` | source | ready | #057, #063, and #065 are complete, so #064 is ready. |
+
+## Validation History
+
+- 2026-07-02: dependency gates cleared by #057, #063, and #065; #064 is now ready.
 
 ## Assumptions
 
