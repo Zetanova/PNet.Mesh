@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -56,8 +56,8 @@ internal static class TunBenchmarkTopologyRunner
             $"{name}-left",
             "left",
             "pnet0",
-            "10.80.0.1/32",
-            "fd80::1/128",
+            "10.80.0.1/24",
+            "fd80::1/64",
             new[] { "10.80.0.2/32", "fd80::2/128" },
             12401,
             51820);
@@ -66,8 +66,8 @@ internal static class TunBenchmarkTopologyRunner
             $"{name}-right",
             "right",
             "pnet0",
-            "10.80.0.2/32",
-            "fd80::2/128",
+            "10.80.0.2/24",
+            "fd80::2/64",
             new[] { "10.80.0.1/32", "fd80::1/128" },
             12402,
             51821);
@@ -85,7 +85,7 @@ internal static class TunBenchmarkTopologyRunner
                 new TunTopologyImplementationSlot(
                     "pnet-mesh-tun",
                     "Run PNet.Mesh.Tun.Cli inside each prepared container using the node address, peer route, MTU, and PNet UDP port.",
-                    "dotnet /app/PNet.Mesh.Tun.Cli.dll run --interface <node.interfaceName> --mtu <mtu> --address <node.ipv4Address> --address <node.ipv6Address> --route <node.peerRoutes...> --bind 0.0.0.0:<node.pnetUdpPort> --peer <peer-name:public-key@peer-host:peer-port> --allowed-ip <peer-name=peer-route>"),
+                    "dotnet /app/PNet.Mesh.Tun.Cli.dll run --interface <node.interfaceName> --mtu <mtu> --address <node.ipv4Address> --address <node.ipv6Address> --route <node.peerRoutes...> --bind 0.0.0.0:<node.pnetUdpPort> --public-key-file <container-secret> --private-key-file <container-secret> --psk-file <container-secret> --peer <peer-name:public-key@peer-host:peer-port> --allowed-ip <peer-name=peer-route>"),
                 new TunTopologyImplementationSlot(
                     "wireguard-go",
                     "Use the same prepared containers, MTU, TUN addresses, peer routes, and traffic endpoints for the wireguard-go comparison.",
@@ -167,7 +167,7 @@ internal static class TunBenchmarkTopologyRunner
         return CreateReport(options, "pass", "Privileged TUN benchmark topology preflight passed.", checks, commands, dockerServerVersion);
     }
 
-    static TunTopologyReport CreateTopology(TunTopologyOptions options, ITunTopologyCommandRunner commandRunner)
+    internal static TunTopologyReport CreateTopology(TunTopologyOptions options, ITunTopologyCommandRunner commandRunner)
     {
         var preflight = RunPreflight(options, commandRunner);
         if (preflight.Status != "pass")
@@ -250,7 +250,7 @@ internal static class TunBenchmarkTopologyRunner
         return CreateReport(options, "pass", "Topology containers and Docker network created.", checks, commands, preflight.Environment.ContainerEngineVersion);
     }
 
-    static TunTopologyReport TeardownTopology(TunTopologyOptions options, ITunTopologyCommandRunner commandRunner)
+    internal static TunTopologyReport TeardownTopology(TunTopologyOptions options, ITunTopologyCommandRunner commandRunner)
     {
         var commands = new List<TunTopologyCommandRecord>();
         var checks = new List<TunTopologyCheck>();

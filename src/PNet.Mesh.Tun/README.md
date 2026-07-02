@@ -38,6 +38,7 @@ dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Rel
 dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --tun-topology preflight
 dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --tun-topology create
 dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --tun-topology teardown
+dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --tun-benchmark pnet-mesh-tun --ping-count 1 --iperf-duration 3s
 ```
 
 All actions emit JSON. `preflight` is non-mutating and reports `pass`, `skip`, or `fail` for Linux, `/dev/net/tun`, Docker, the `localhost/pnet-mesh-tun:dev` image, and a privileged container probe. `create` starts two labeled Docker containers that sleep in isolated namespaces; `teardown` removes only containers and networks carrying the `pnet.mesh.benchmark.topology` label.
@@ -50,13 +51,15 @@ Default topology:
 | Host alias | `left` | `right` |
 | Interface | `pnet0` | `pnet0` |
 | MTU | `1280` | `1280` |
-| IPv4 | `10.80.0.1/32` | `10.80.0.2/32` |
-| IPv6 | `fd80::1/128` | `fd80::2/128` |
+| IPv4 | `10.80.0.1/24` | `10.80.0.2/24` |
+| IPv6 | `fd80::1/64` | `fd80::2/64` |
 | Peer routes | `10.80.0.2/32`, `fd80::2/128` | `10.80.0.1/32`, `fd80::1/128` |
 | PNet.Mesh.Tun UDP | `12401` | `12402` |
 | `wireguard-go` UDP | `51820` | `51821` |
 
-Traffic generation is intentionally outside this topology step. Later benchmark issues add ping, `iperf3`, warmup, packet-loss handling, result schema, and the single-command comparison runner.
+Traffic generation is intentionally outside the topology step. Use the scenario command below for PNet.Mesh.Tun traffic; later comparison issues add the `wireguard-go` baseline, shared result schema, and single-command comparison runner.
+
+`--tun-benchmark pnet-mesh-tun` is the current PNet.Mesh.Tun diagnostic traffic scenario. It creates the topology, starts one TUN CLI process per container, attempts IPv4/IPv6 ping and `iperf3`, records parsed latency/bandwidth/loss fields, snapshots RSS and CPU ticks from `/proc`, reports managed counters as unavailable when `dotnet-counters` is absent, and tears down the labeled topology. `.agents/docs/issues/071-stabilize-pnet-mesh-tun-os-traffic.md` tracks the remaining packet-delivery work required before this can serve as a passing benchmark.
 
 ## Container Smoke
 

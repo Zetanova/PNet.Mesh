@@ -1,4 +1,4 @@
-using PNet.Mesh.Benchmarks;
+﻿using PNet.Mesh.Benchmarks;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -25,15 +25,15 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             var left = Assert.Single(spec.Nodes, node => node.Role == "left");
             Assert.Equal("mesh-test-left", left.ContainerName);
             Assert.Equal("pnet0", left.InterfaceName);
-            Assert.Equal("10.80.0.1/32", left.Ipv4Address);
-            Assert.Equal("fd80::1/128", left.Ipv6Address);
+            Assert.Equal("10.80.0.1/24", left.Ipv4Address);
+            Assert.Equal("fd80::1/64", left.Ipv6Address);
             Assert.Equal(new[] { "10.80.0.2/32", "fd80::2/128" }, left.PeerRoutes);
             Assert.Equal(12401, left.PNetUdpPort);
             Assert.Equal(51820, left.WireGuardUdpPort);
 
             var right = Assert.Single(spec.Nodes, node => node.Role == "right");
-            Assert.Equal("10.80.0.2/32", right.Ipv4Address);
-            Assert.Equal("fd80::2/128", right.Ipv6Address);
+            Assert.Equal("10.80.0.2/24", right.Ipv4Address);
+            Assert.Equal("fd80::2/64", right.Ipv6Address);
             Assert.Equal(new[] { "10.80.0.1/32", "fd80::1/128" }, right.PeerRoutes);
             Assert.Equal(12402, right.PNetUdpPort);
             Assert.Equal(51821, right.WireGuardUdpPort);
@@ -62,28 +62,37 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
         }
 
         [Fact]
-        public void preflight_passes_when_docker_image_and_privileged_probe_pass()
+        public void preflight_reports_linux_skip_or_privileged_probe_pass()
         {
-            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-                return;
-
             Assert.True(TunBenchmarkTopologyRunner.TunTopologyOptions.TryParse(
                 new[] { "preflight" },
                 TextWriter.Null,
                 out var options));
 
             var runner = new FakeCommandRunner(fileExists: true);
-            runner.Enqueue(0, "27.0.0\n", string.Empty);
-            runner.Enqueue(0, "[]\n", string.Empty);
-            runner.Enqueue(0, string.Empty, string.Empty);
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                runner.Enqueue(0, "27.0.0\n", string.Empty);
+                runner.Enqueue(0, "[]\n", string.Empty);
+                runner.Enqueue(0, string.Empty, string.Empty);
 
-            var report = TunBenchmarkTopologyRunner.RunPreflight(options, runner);
+                var linuxReport = TunBenchmarkTopologyRunner.RunPreflight(options, runner);
 
-            Assert.Equal("pass", report.Status);
-            Assert.Equal("27.0.0", report.Environment.ContainerEngineVersion);
-            Assert.Equal(3, report.Commands.Count);
-            Assert.Contains(report.Checks, check => check.Name == "privileged-container" && check.Status == "pass");
-            Assert.Equal(new[] { "version", "--format", "{{.Server.Version}}" }, runner.Calls[0].Arguments);
+                Assert.Equal("pass", linuxReport.Status);
+                Assert.Equal("27.0.0", linuxReport.Environment.ContainerEngineVersion);
+                Assert.Equal(3, linuxReport.Commands.Count);
+                Assert.Contains(linuxReport.Checks, check => check.Name == "privileged-container" && check.Status == "pass");
+                Assert.Equal(new[] { "version", "--format", "{{.Server.Version}}" }, runner.Calls[0].Arguments);
+            }
+            else
+            {
+                var nonLinuxReport = TunBenchmarkTopologyRunner.RunPreflight(options, runner);
+
+                Assert.Equal("skip", nonLinuxReport.Status);
+                Assert.Empty(nonLinuxReport.Commands);
+                Assert.Empty(runner.Calls);
+                Assert.Contains(nonLinuxReport.Checks, check => check.Name == "linux" && check.Status == "skip");
+            }
         }
 
         sealed class FakeCommandRunner : ITunTopologyCommandRunner

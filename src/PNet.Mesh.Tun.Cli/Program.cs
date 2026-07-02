@@ -1,4 +1,4 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PNet.Mesh;
 using PNet.Mesh.Tun;
@@ -6,6 +6,7 @@ using PNet.Mesh.Tun.Linux;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -113,8 +114,11 @@ namespace PNet.Mesh.Tun.Cli
             Console.Error.WriteLine("  --route <prefix>            Kernel route to add via the interface. Repeatable.");
             Console.Error.WriteLine("  --bind <ip:port>            UDP bind endpoint. Repeatable.");
             Console.Error.WriteLine("  --public-key <base64>       Local WireGuard public key.");
+            Console.Error.WriteLine("  --public-key-file <path>    Read the local WireGuard public key from a file.");
             Console.Error.WriteLine("  --private-key <base64>      Local WireGuard private key.");
+            Console.Error.WriteLine("  --private-key-file <path>   Read the local WireGuard private key from a file.");
             Console.Error.WriteLine("  --psk <base64>              Mesh pre-shared key.");
+            Console.Error.WriteLine("  --psk-file <path>           Read the mesh pre-shared key from a file.");
             Console.Error.WriteLine("  --peer <name:key@endpoint>  Remote peer identity and endpoint. Repeatable.");
             Console.Error.WriteLine("  --allowed-ip <name=prefix>  Allowed source/destination prefix for a peer. Repeatable.");
             Console.Error.WriteLine("  --verbose                   Enable debug logging.");
@@ -198,11 +202,26 @@ namespace PNet.Mesh.Tun.Cli
                         case "--public-key":
                             options.PublicKey = NextValue(args, ref index, option, ref error);
                             break;
+                        case "--public-key-file":
+                            if (!TryReadKeyFile(NextValue(args, ref index, option, ref error), option, out var publicKey, ref error))
+                                return false;
+                            options.PublicKey = publicKey;
+                            break;
                         case "--private-key":
                             options.PrivateKey = NextValue(args, ref index, option, ref error);
                             break;
+                        case "--private-key-file":
+                            if (!TryReadKeyFile(NextValue(args, ref index, option, ref error), option, out var privateKey, ref error))
+                                return false;
+                            options.PrivateKey = privateKey;
+                            break;
                         case "--psk":
                             options.Psk = NextValue(args, ref index, option, ref error);
+                            break;
+                        case "--psk-file":
+                            if (!TryReadKeyFile(NextValue(args, ref index, option, ref error), option, out var psk, ref error))
+                                return false;
+                            options.Psk = psk;
                             break;
                         case "--peer":
                             if (!PeerSpec.TryParse(NextValue(args, ref index, option, ref error), out var peer, out error))
@@ -344,6 +363,28 @@ namespace PNet.Mesh.Tun.Cli
                 }
 
                 return args[index++];
+            }
+
+            static bool TryReadKeyFile(string path, string option, out string value, ref string error)
+            {
+                value = string.Empty;
+                if (error != null)
+                    return false;
+
+                try
+                {
+                    value = File.ReadAllText(path).Trim();
+                    if (!string.IsNullOrWhiteSpace(value))
+                        return true;
+
+                    error = $"{option} file is empty.";
+                    return false;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+                {
+                    error = $"{option} could not be read: {ex.Message}";
+                    return false;
+                }
             }
 
             static bool IsHelp(string value)
