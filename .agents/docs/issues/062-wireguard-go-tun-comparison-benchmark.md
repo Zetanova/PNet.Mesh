@@ -3,8 +3,8 @@ issue: 062
 date: 2026-07-02
 source: benchmark/integration-phase-3
 priority: medium
-status: ready
-terminal-state: ready
+status: completed
+terminal-state: completed
 gate-last-checked: 2026-07-02
 research-status: complete
 research-date: 2026-07-02
@@ -14,6 +14,8 @@ views:
   enrich: "description+playbook+scope+gate+assumptions"
   fix: "description+playbook+scope+acceptance-criteria+gate+assumptions"
   complete: "description+completion-report+resolving-commits"
+completed-commits: efecd4ad74c85688ba2836a390eb55e902f18040
+completed-date: 2026-07-02
 ---
 
 # 062 - wireguard-go TUN Comparison Benchmark
@@ -68,3 +70,25 @@ Cleared. #061 added and stabilized the PNet.Mesh.Tun benchmark scenario in `53ca
 | 1 | F | The user wants PNet.Mesh performance compared with `wireguard-go`. | verified | source | The user asked how to compare allocation, performance, latency, and bandwidth with `wireguard-go`. |
 | 2 | R | A fair comparison needs the same topology, MTU, traffic profile, and environment metadata. | verified | logical | Changing any of those variables would mix benchmark target differences with test setup differences. |
 | 3 | F | Runtime-specific allocation counters are only meaningful for PNet.Mesh/.NET runs. | verified | source | Existing benchmark issues define .NET allocation and GC counters for PNet.Mesh benchmark output. |
+
+## Completion Report
+
+Implemented in `efecd4a`.
+
+- Added the `wireguard-go` benchmark baseline on the shared TUN topology from #060.
+- The benchmark uses the same traffic profile as PNet.Mesh.Tun and records version, configuration, MTU, addresses, environment metadata, and process metrics.
+- The final `wireguard-go` and `pnet-mesh-tun` benchmark runs both passed with clean teardown.
+
+Verification:
+
+- `dotnet build PNet.Mesh.sln -c Release --no-restore` passed.
+- `PNet.Mesh.Tun.UnitTests` passed 12/12.
+- Docker image build passed.
+- `wireguard-go` benchmark status passed with IPv4/IPv6 ping and `iperf3` plus process metrics.
+- `pnet-mesh-tun` benchmark status passed after the shared runner change.
+- Format and diff check passed.
+- Docker labeled cleanup was empty.
+
+## Resolving Commits
+
+- `efecd4ad74c85688ba2836a390eb55e902f18040` - benchmarks: add wireguard-go TUN baseline

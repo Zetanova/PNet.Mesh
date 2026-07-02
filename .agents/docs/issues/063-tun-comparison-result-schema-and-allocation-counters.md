@@ -3,10 +3,12 @@ issue: 063
 date: 2026-07-02
 source: benchmark/integration-phase-4
 priority: medium
-status: gated
-terminal-state: gated
+status: ready
+terminal-state: ready
 gate-depends: [057, 061, 062]
 gate-reason: "Requires baseline policy and both TUN benchmark scenarios before comparison schema can be finalized."
+gate-last-checked: 2026-07-02
+gate-status: cleared
 probeable: false
 research-status: complete
 research-date: 2026-07-02
@@ -54,7 +56,17 @@ Define and implement the result schema for PNet.Mesh.Tun versus `wireguard-go` b
 
 ## Gate
 
-This issue stays gated until #057 defines the baseline policy and #061/#062 produce both benchmark scenarios.
+Cleared on 2026-07-02: #057, #061, and #062 are complete, so #063 is ready.
+
+## Gate Validation
+
+| Date | Gate | Method | Result | Evidence |
+|------|------|--------|--------|----------|
+| 2026-07-02 | `gate-depends: [057, 061, 062]` | source | ready | #057 and #061 are complete; #062 completed in `efecd4a`, so #063 is ready. |
+
+## Validation History
+
+- 2026-07-02: dependency gates cleared by #057, #061, and #062; #063 is now ready.
 
 ## Assumptions
 
