@@ -6,18 +6,20 @@ P2P protocol to use inside managed dotnet application
 
 ## Features
 
+.) WireGuard-compatible UDP protocol for managed .NET applications
+.) IPv4/IPv6 packet plaintext support for WireGuard transport payloads; TUN/TAP device integration and OS route injection are excluded
 .) no extended OS permission required for covered container flows: ordinary UDP sockets, no TUN/TAP device, no raw-socket capability, no `CAP_NET_ADMIN`, and no privileged container mode
 .) communiction over data fragments (UDP)
 .) packet ordering and flow control
 .) low overhead: 32 bytes encrypted payload encapsulation per data packet (16-byte transport header + 16-byte AEAD tag; excludes outer UDP/IP and padding)
-.) Noise IKpsk2 handshake and encrypted transport coverage; see Security coverage below. This is not a full WireGuard-equivalence claim
+.) WireGuard Noise IKpsk2 handshake, BLAKE2s MAC/KDF, cookie reply, replay tracking, and encrypted transport coverage; see Security coverage below
 .) crypto routing and crypto discovery
 .) neighbor endpoint detection and relay candidate exchange for covered container flows; full ICE/STUN/TURN NAT traversal is not implemented
 .) compression protocol fields are reserved; runtime compression negotiation and compressed payload handling are not implemented
 
 ## Used Protocols
 
-WireGuard protocol reference; PNet.Mesh does not claim full WireGuard behavior or equivalence
+WireGuard protocol reference; PNet.Mesh targets WireGuard-equivalent UDP handshake and transport packet behavior for IPv4/IPv6 packet payloads, excluding kernel/device integration such as TUN/TAP interfaces, OS routing, and route injection.
 https://www.wireguard.com/protocol/
 
 Noise Protocol Framework

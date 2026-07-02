@@ -174,7 +174,12 @@ namespace PNet.Mesh
             return frame;
         }
 
-        static int CalculatePNetPaddingLength(int payloadLength)
+        internal static int CalculatePNetFrameSize(int payloadLength)
+        {
+            return payloadLength + 1 + CalculatePNetPaddingLength(payloadLength);
+        }
+
+        internal static int CalculatePNetPaddingLength(int payloadLength)
         {
             return (16 - ((payloadLength + 1) & 0x0f)) & 0x0f;
         }

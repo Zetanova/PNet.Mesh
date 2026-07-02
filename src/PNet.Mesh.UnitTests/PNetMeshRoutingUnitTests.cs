@@ -432,8 +432,8 @@ namespace PNet.Actor.UnitTests.Mesh
             var psk = new byte[32];
             RandomNumberGenerator.Fill(psk);
 
-            var senderProtocol = new PNetMeshProtocol(senderKey.PrivateKey, senderKey.PublicKey, psk, PNetMeshTransportMode.WireGuard);
-            var receiverProtocol = new PNetMeshProtocol(receiverKey.PrivateKey, receiverKey.PublicKey, psk, PNetMeshTransportMode.WireGuard);
+            var senderProtocol = new PNetMeshProtocol(senderKey.PrivateKey, senderKey.PublicKey, psk);
+            var receiverProtocol = new PNetMeshProtocol(receiverKey.PrivateKey, receiverKey.PublicKey, psk);
 
             var senderOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
             var receiverOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
@@ -525,9 +525,9 @@ namespace PNet.Actor.UnitTests.Mesh
             var psk = new byte[32];
             RandomNumberGenerator.Fill(psk);
 
-            var senderProtocol = new PNetMeshProtocol(senderKey.PrivateKey, senderKey.PublicKey, psk, PNetMeshTransportMode.WireGuard);
-            var otherSenderProtocol = new PNetMeshProtocol(otherSenderKey.PrivateKey, otherSenderKey.PublicKey, psk, PNetMeshTransportMode.WireGuard);
-            var receiverProtocol = new PNetMeshProtocol(receiverKey.PrivateKey, receiverKey.PublicKey, psk, PNetMeshTransportMode.WireGuard);
+            var senderProtocol = new PNetMeshProtocol(senderKey.PrivateKey, senderKey.PublicKey, psk);
+            var otherSenderProtocol = new PNetMeshProtocol(otherSenderKey.PrivateKey, otherSenderKey.PublicKey, psk);
+            var receiverProtocol = new PNetMeshProtocol(receiverKey.PrivateKey, receiverKey.PublicKey, psk);
 
             var senderOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
             var otherSenderOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
@@ -1461,7 +1461,7 @@ namespace PNet.Actor.UnitTests.Mesh
                 AckSeqNumber = GetReceiveCounter(sender) + 1,
                 OutOfSeqPackets = ByteString.Empty
             };
-            var exactPacketSize = packet.CalculateSize();
+            var exactPacketSize = PNetMeshPayloadFraming.CalculatePNetFrameSize(packet.CalculateSize());
 
             var exactLimit = WriteSynPacket(receiver, maxOutstandingSeq: 4, maxPacketSize: exactPacketSize);
             sender.ReadMessage(exactLimit.Span);
@@ -1843,7 +1843,7 @@ namespace PNet.Actor.UnitTests.Mesh
         }
 
         [Fact]
-        public async Task channel_relay_async_propagates_deferred_packet_size_error()
+        public async Task channel_relay_async_rejects_framed_packet_size_before_flush()
         {
             var psk = new byte[32];
             RandomNumberGenerator.Fill(psk);
@@ -1895,21 +1895,15 @@ namespace PNet.Actor.UnitTests.Mesh
 
             var syn = WriteSynPacket(receiver,
                 maxOutstandingSeq: 1,
-                maxPacketSize: CalculateRelayPacketSize(secondPacket),
+                maxPacketSize: PNetMeshPayloadFraming.CalculatePNetFrameSize(CalculateRelayPacketSize(secondPacket)) - 1,
                 maxCumAck: 100);
             sender.ReadMessage(syn.Span);
 
             var secondRelay = channel.RelayAsync(secondPacket, cancellationToken: TestContext.Current.CancellationToken)
                 .WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
 
-            await Task.Yield();
-            Assert.False(secondRelay.IsCompleted);
-
-            var ack = WriteAckPacket(receiver, ackSeqNumber: 1, outOfSeqPackets: Array.Empty<byte>());
-            sender.ReadMessage(ack.Span);
-
             await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => secondRelay);
-            Assert.Equal(PNetMeshSessionStatus.Closed, sender.Status);
+            Assert.Equal(PNetMeshSessionStatus.Open, sender.Status);
             Assert.False(senderOutbound.Reader.TryRead(out _));
         }
 
@@ -2468,11 +2462,7 @@ namespace PNet.Actor.UnitTests.Mesh
                     OutOfSeqPackets = ByteString.CopyFrom(outOfSeqPackets)
                 }
             };
-            var payload = packet.ToByteArray();
-            var buffer = new byte[payload.Length + 64];
-            var transport = GetTransport(session);
-            transport.WriteMessage(payload, buffer, out var bytesWritten, out _);
-            return buffer.AsMemory(0, bytesWritten);
+            return WritePNetPacket(session, packet);
         }
 
         static ReadOnlyMemory<byte> WriteAckPayloadPacket(PNetMeshSession session, ulong ackSeqNumber, string payload)
@@ -2508,11 +2498,7 @@ namespace PNet.Actor.UnitTests.Mesh
                 Raw = ByteString.CopyFrom(Encoding.UTF8.GetBytes(payload))
             });
 
-            var bytes = packet.ToByteArray();
-            var buffer = new byte[bytes.Length + 64];
-            var transport = GetTransport(session);
-            transport.WriteMessage(bytes, buffer, out var bytesWritten, out _);
-            return buffer.AsMemory(0, bytesWritten);
+            return WritePNetPacket(session, packet);
         }
 
         static ReadOnlyMemory<byte> WriteSynPacket(
@@ -2536,10 +2522,16 @@ namespace PNet.Actor.UnitTests.Mesh
                     CumulativeAckTimeout = cumulativeAckTimeout
                 }
             };
+            return WritePNetPacket(session, packet);
+        }
+
+        static ReadOnlyMemory<byte> WritePNetPacket(PNetMeshSession session, PNet.Actor.Mesh.Protos.Packet packet)
+        {
             var payload = packet.ToByteArray();
-            var buffer = new byte[payload.Length + 64];
+            var frame = PNetMeshPayloadFraming.CreatePNet(payload);
+            var buffer = new byte[frame.Length + 48];
             var transport = GetTransport(session);
-            transport.WriteMessage(payload, buffer, out var bytesWritten, out _);
+            transport.WriteMessage(frame, buffer, out var bytesWritten, out _);
             return buffer.AsMemory(0, bytesWritten);
         }
 

@@ -89,13 +89,11 @@ namespace PNet.Actor.UnitTests.Mesh
             var remoteProtocol = new PNetMeshProtocol(
                 remoteStatic.PrivateKey,
                 remoteStatic.PublicKey,
-                psk,
-                PNetMeshTransportMode.WireGuard);
+                psk);
             var relayProtocol = new PNetMeshProtocol(
                 relayStatic.PrivateKey,
                 relayStatic.PublicKey,
-                psk,
-                PNetMeshTransportMode.WireGuard);
+                psk);
             using var initiator = remoteProtocol.CreateInitiator(42, registeredStatic.PublicKey);
             Span<byte> packet = stackalloc byte[PNetMeshHandshake.WireGuardInitiationMessageSize];
             initiator.WriteInitiationMessage(packet, out var bytesWritten);

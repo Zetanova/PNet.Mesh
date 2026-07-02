@@ -29,8 +29,7 @@ namespace PNet.Actor.UnitTests.Mesh
 
             var protocol = new PNetMeshProtocol(
                 localPrivateKey,
-                localPublicKey,
-                mode: PNetMeshTransportMode.WireGuard);
+                localPublicKey);
 
             Assert.Equal("Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s", protocol.ProtocolName);
             Assert.Equal("WireGuard v1 zx2c4 Jason@zx2c4.com", Encoding.ASCII.GetString(protocol.Prologue));
@@ -55,13 +54,11 @@ namespace PNet.Actor.UnitTests.Mesh
             var initiator_protocol = new PNetMeshProtocol(
                 initiator_static.PrivateKey,
                 initiator_static.PublicKey,
-                psk,
-                PNetMeshTransportMode.WireGuard);
+                psk);
             var responder_protocol = new PNetMeshProtocol(
                 responder_static.PrivateKey,
                 responder_static.PublicKey,
-                psk,
-                PNetMeshTransportMode.WireGuard);
+                psk);
 
             using var initiator = initiator_protocol.CreateInitiator(1, responder_static.PublicKey);
             using var responder = responder_protocol.CreateResponder(2);
@@ -95,13 +92,11 @@ namespace PNet.Actor.UnitTests.Mesh
             var initiator_protocol = new PNetMeshProtocol(
                 initiator_static.PrivateKey,
                 initiator_static.PublicKey,
-                psk,
-                PNetMeshTransportMode.WireGuard);
+                psk);
             var responder_protocol = new PNetMeshProtocol(
                 responder_static.PrivateKey,
                 responder_static.PublicKey,
-                psk,
-                PNetMeshTransportMode.WireGuard);
+                psk);
 
             using var initiator = initiator_protocol.CreateInitiator(1, responder_static.PublicKey);
             using var responder = responder_protocol.CreateResponder(2);
@@ -141,13 +136,11 @@ namespace PNet.Actor.UnitTests.Mesh
             var initiator_protocol = new PNetMeshProtocol(
                 initiator_static.PrivateKey,
                 initiator_static.PublicKey,
-                psk,
-                PNetMeshTransportMode.WireGuard);
+                psk);
             var responder_protocol = new PNetMeshProtocol(
                 responder_static.PrivateKey,
                 responder_static.PublicKey,
-                psk,
-                PNetMeshTransportMode.WireGuard);
+                psk);
 
             using var initiator = initiator_protocol.CreateInitiator(1, responder_static.PublicKey);
             using var responder = responder_protocol.CreateResponder(2);
@@ -208,13 +201,11 @@ namespace PNet.Actor.UnitTests.Mesh
             var initiator_protocol = new PNetMeshProtocol(
                 initiator_static.PrivateKey,
                 initiator_static.PublicKey,
-                psk,
-                PNetMeshTransportMode.WireGuard);
+                psk);
             var responder_protocol = new PNetMeshProtocol(
                 responder_static.PrivateKey,
                 responder_static.PublicKey,
-                psk,
-                PNetMeshTransportMode.WireGuard);
+                psk);
 
             using var initiator = initiator_protocol.CreateInitiator(1, responder_static.PublicKey);
             using var responder = responder_protocol.CreateResponder(2);
@@ -280,13 +271,11 @@ namespace PNet.Actor.UnitTests.Mesh
             var initiator_protocol = new PNetMeshProtocol(
                 initiator_static.PrivateKey,
                 initiator_static.PublicKey,
-                psk,
-                PNetMeshTransportMode.WireGuard);
+                psk);
             var responder_protocol = new PNetMeshProtocol(
                 responder_static.PrivateKey,
                 responder_static.PublicKey,
-                psk,
-                PNetMeshTransportMode.WireGuard);
+                psk);
 
             using var initiator = initiator_protocol.CreateInitiator(1, responder_static.PublicKey);
             using var firstResponder = responder_protocol.CreateResponder(2);
@@ -306,8 +295,7 @@ namespace PNet.Actor.UnitTests.Mesh
             var localPublicKey = Enumerable.Range(0, 32).Select(i => (byte)(0x40 + i)).ToArray();
             var protocol = new PNetMeshProtocol(
                 localPrivateKey,
-                localPublicKey,
-                mode: PNetMeshTransportMode.WireGuard);
+                localPublicKey);
 
             var badType = new byte[32];
             badType[0] = (byte)PNetMeshMessageType.PacketData;
@@ -368,14 +356,12 @@ namespace PNet.Actor.UnitTests.Mesh
             initiator_transport.WriteMessage(initiatorPayload, buffer1, out bytesWritten, out counter);
             r = responder_transport.TryReadMessage(buffer1.Slice(0, bytesWritten), buffer2, out bytesWritten, out counter);
             Assert.True(r);
-            Assert.Equal(initiatorPayload.Length, bytesWritten);
-            Assert.Equal("initiator payload", Encoding.UTF8.GetString(buffer2.Slice(0, bytesWritten)));
+            AssertWireGuardPlaintext(buffer2, bytesWritten, "initiator payload");
 
             responder_transport.WriteMessage(responderPayload, buffer1, out bytesWritten, out counter);
             r = initiator_transport.TryReadMessage(buffer1.Slice(0, bytesWritten), buffer2, out bytesWritten, out counter);
             Assert.True(r);
-            Assert.Equal(responderPayload.Length, bytesWritten);
-            Assert.Equal("responder payload", Encoding.UTF8.GetString(buffer2.Slice(0, bytesWritten)));
+            AssertWireGuardPlaintext(buffer2, bytesWritten, "responder payload");
         }
 
         [Theory]
@@ -408,8 +394,9 @@ namespace PNet.Actor.UnitTests.Mesh
             var plaintext = new byte[expectedPacketLength];
             Assert.True(transports.Responder.TryReadMessage(packet, plaintext, out var bytesRead, out var readCounter));
             Assert.Equal(counter, readCounter);
-            Assert.Equal(payloadLength, bytesRead);
-            Assert.True(payload.AsSpan().SequenceEqual(plaintext.AsSpan(0, bytesRead)));
+            Assert.Equal(payloadLength + expectedPadding, bytesRead);
+            Assert.True(payload.AsSpan().SequenceEqual(plaintext.AsSpan(0, payloadLength)));
+            Assert.All(plaintext.AsSpan(payloadLength, expectedPadding).ToArray(), b => Assert.Equal((byte)0, b));
         }
 
         [Fact]
@@ -599,7 +586,7 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.Equal(0, bytesWritten);
 
             Assert.True(responder_transport.TryReadMessage(authentic, buffer2, out bytesWritten, out _));
-            Assert.Equal("authentic", Encoding.UTF8.GetString(buffer2.Slice(0, bytesWritten)));
+            AssertWireGuardPlaintext(buffer2, bytesWritten, "authentic");
         }
 
         [Fact]
@@ -670,7 +657,7 @@ namespace PNet.Actor.UnitTests.Mesh
 
             Assert.True(responder_transport.TryReadMessage(replayed, buffer2, out bytesWritten, out readCounter));
             Assert.Equal(1ul, readCounter);
-            Assert.Equal("second", Encoding.UTF8.GetString(buffer2.Slice(0, bytesWritten)));
+            AssertWireGuardPlaintext(buffer2, bytesWritten, "second");
 
             buffer2.Slice(0, 32).Fill(0x5a);
 
@@ -733,15 +720,13 @@ namespace PNet.Actor.UnitTests.Mesh
 
                 r = responder_transport.TryReadMessage(buffer1.Slice(0, bytesWritten), buffer2, out bytesWritten, out counter);
                 Assert.True(r);
-                Assert.Equal(5, bytesWritten);
-                Assert.Equal("Hallo", Encoding.UTF8.GetString(buffer2.Slice(0, bytesWritten)));
+                AssertWireGuardPlaintext(buffer2, bytesWritten, "Hallo");
 
                 //test response
                 responder_transport.WriteMessage(Encoding.UTF8.GetBytes("World"), buffer1, out bytesWritten, out counter);
                 r = initiator_transport.TryReadMessage(buffer1.Slice(0, bytesWritten), buffer2, out bytesWritten, out counter);
                 Assert.True(r);
-                Assert.Equal(5, bytesWritten);
-                Assert.Equal("World", Encoding.UTF8.GetString(buffer2.Slice(0, bytesWritten)));
+                AssertWireGuardPlaintext(buffer2, bytesWritten, "World");
             }
         }
 
@@ -757,7 +742,7 @@ namespace PNet.Actor.UnitTests.Mesh
             var psk = new byte[32];
             RandomNumberGenerator.Fill(psk);
 
-            var cookieValue = new byte[32];
+            var cookieValue = new byte[16];
             RandomNumberGenerator.Fill(cookieValue);
             var cookie = new PNetMeshCookie(cookieValue, DateTime.UtcNow.AddMinutes(2));
 
@@ -788,8 +773,8 @@ namespace PNet.Actor.UnitTests.Mesh
             var psk = new byte[32];
             RandomNumberGenerator.Fill(psk);
 
-            var expectedCookieValue = new byte[32];
-            var wrongCookieValue = new byte[32];
+            var expectedCookieValue = new byte[16];
+            var wrongCookieValue = new byte[16];
             RandomNumberGenerator.Fill(expectedCookieValue);
             expectedCookieValue.CopyTo(wrongCookieValue, 0);
             wrongCookieValue[0] ^= 0xff;
@@ -827,8 +812,8 @@ namespace PNet.Actor.UnitTests.Mesh
             var psk = new byte[32];
             RandomNumberGenerator.Fill(psk);
 
-            var expectedCookieValue = new byte[32];
-            var wrongCookieValue = new byte[32];
+            var expectedCookieValue = new byte[16];
+            var wrongCookieValue = new byte[16];
             RandomNumberGenerator.Fill(expectedCookieValue);
             expectedCookieValue.CopyTo(wrongCookieValue, 0);
             wrongCookieValue[0] ^= 0xff;
@@ -880,7 +865,7 @@ namespace PNet.Actor.UnitTests.Mesh
             var psk = new byte[32];
             RandomNumberGenerator.Fill(psk);
 
-            var cookieValue = new byte[32];
+            var cookieValue = new byte[16];
             RandomNumberGenerator.Fill(cookieValue);
             var cookie = new PNetMeshCookie(cookieValue, DateTime.UtcNow.AddMinutes(2));
 
@@ -920,15 +905,13 @@ namespace PNet.Actor.UnitTests.Mesh
 
             r = responder_transport.TryReadMessage(buffer1.Slice(0, bytesWritten), buffer2, out bytesWritten, out counter);
             Assert.True(r);
-            Assert.Equal(5, bytesWritten);
-            Assert.Equal("Hallo", Encoding.UTF8.GetString(buffer2.Slice(0, bytesWritten)));
+            AssertWireGuardPlaintext(buffer2, bytesWritten, "Hallo");
 
             //test response
             responder_transport.WriteMessage(Encoding.UTF8.GetBytes("World"), buffer1, out bytesWritten, out counter);
             r = initiator_transport.TryReadMessage(buffer1.Slice(0, bytesWritten), buffer2, out bytesWritten, out counter);
             Assert.True(r);
-            Assert.Equal(5, bytesWritten);
-            Assert.Equal("World", Encoding.UTF8.GetString(buffer2.Slice(0, bytesWritten)));
+            AssertWireGuardPlaintext(buffer2, bytesWritten, "World");
         }
 
         [Fact]
@@ -983,34 +966,21 @@ namespace PNet.Actor.UnitTests.Mesh
 
             r = responder_transport.TryReadMessage(messages.First(), buffer2, out bytesWritten, out counter);
             Assert.True(r);
-            Assert.Equal(7, bytesWritten);
-            Assert.Equal("Hallo 0", Encoding.UTF8.GetString(buffer2.Slice(0, bytesWritten)));
+            AssertWireGuardPlaintext(buffer2, bytesWritten, "Hallo 0");
 
             for (int i = messages.Count - 2; i > 0; i--)
             {
                 r = responder_transport.TryReadMessage(messages[i], buffer2, out bytesWritten, out counter);
                 Assert.True(r);
-                Assert.Equal(7, bytesWritten);
-                Assert.Equal($"Hallo {i}", Encoding.UTF8.GetString(buffer2.Slice(0, bytesWritten)));
+                AssertWireGuardPlaintext(buffer2, bytesWritten, $"Hallo {i}");
             }
 
             r = responder_transport.TryReadMessage(messages.Last(), buffer2, out bytesWritten, out counter);
             Assert.True(r);
-            Assert.Equal(7, bytesWritten);
-            Assert.Equal($"Hallo 4", Encoding.UTF8.GetString(buffer2.Slice(0, bytesWritten)));
+            AssertWireGuardPlaintext(buffer2, bytesWritten, "Hallo 4");
         }
 
         static EstablishedTransportPair CreateEstablishedTransports()
-        {
-            return CreateEstablishedTransports(PNetMeshTransportMode.PNet);
-        }
-
-        static EstablishedTransportPair CreateEstablishedWireGuardTransports()
-        {
-            return CreateEstablishedTransports(PNetMeshTransportMode.WireGuard);
-        }
-
-        static EstablishedTransportPair CreateEstablishedTransports(PNetMeshTransportMode mode)
         {
             var psk = new byte[32];
             RandomNumberGenerator.Fill(psk);
@@ -1018,8 +988,8 @@ namespace PNet.Actor.UnitTests.Mesh
             var initiatorStatic = KeyPair.Generate();
             var responderStatic = KeyPair.Generate();
 
-            var initiatorProtocol = new PNetMeshProtocol(initiatorStatic.PrivateKey, initiatorStatic.PublicKey, psk, mode);
-            var responderProtocol = new PNetMeshProtocol(responderStatic.PrivateKey, responderStatic.PublicKey, psk, mode);
+            var initiatorProtocol = new PNetMeshProtocol(initiatorStatic.PrivateKey, initiatorStatic.PublicKey, psk);
+            var responderProtocol = new PNetMeshProtocol(responderStatic.PrivateKey, responderStatic.PublicKey, psk);
 
             var initiator = initiatorProtocol.CreateInitiator(1, responderStatic.PublicKey);
             var responder = responderProtocol.CreateResponder(2);
@@ -1039,6 +1009,11 @@ namespace PNet.Actor.UnitTests.Mesh
                 responder,
                 initiatorStatic,
                 responderStatic);
+        }
+
+        static EstablishedTransportPair CreateEstablishedWireGuardTransports()
+        {
+            return CreateEstablishedTransports();
         }
 
         static void AssertPNetProtobufFrameExchange(
@@ -1111,8 +1086,15 @@ namespace PNet.Actor.UnitTests.Mesh
 
         static int CalculatePacketDataPadding(int payloadLength)
         {
-            var remainder = payloadLength % 16;
-            return remainder == 0 ? 16 : 16 - remainder;
+            return (16 - (payloadLength % 16)) % 16;
+        }
+
+        static void AssertWireGuardPlaintext(Span<byte> buffer, int bytesWritten, string expected)
+        {
+            var expectedBytes = Encoding.UTF8.GetBytes(expected);
+            Assert.True(bytesWritten >= expectedBytes.Length);
+            Assert.True(expectedBytes.AsSpan().SequenceEqual(buffer.Slice(0, expectedBytes.Length)));
+            Assert.All(buffer.Slice(expectedBytes.Length, bytesWritten - expectedBytes.Length).ToArray(), b => Assert.Equal((byte)0, b));
         }
 
         sealed class EstablishedTransportPair : IDisposable

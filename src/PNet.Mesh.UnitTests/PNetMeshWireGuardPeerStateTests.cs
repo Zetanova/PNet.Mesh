@@ -94,13 +94,11 @@ namespace PNet.Actor.UnitTests.Mesh
             var initiatorProtocol = new PNetMeshProtocol(
                 initiatorStatic.PrivateKey,
                 initiatorStatic.PublicKey,
-                psk,
-                PNetMeshTransportMode.WireGuard);
+                psk);
             var responderProtocol = new PNetMeshProtocol(
                 responderStatic.PrivateKey,
                 responderStatic.PublicKey,
-                psk,
-                PNetMeshTransportMode.WireGuard);
+                psk);
 
             using var initiator = initiatorProtocol.CreateInitiator(1, responderStatic.PublicKey);
             using var responder = responderProtocol.CreateResponder(2);

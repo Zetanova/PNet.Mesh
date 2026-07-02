@@ -1030,8 +1030,7 @@ namespace PNet.Mesh
             SocketAsyncEventArgs args,
             ReadOnlySpan<byte> data)
         {
-            if (item.Protocol.Mode == PNetMeshTransportMode.WireGuard
-                && PNetMeshPacketFraming.TryReadMessageType(data, out var messageType)
+            if (PNetMeshPacketFraming.TryReadMessageType(data, out var messageType)
                 && (messageType == PNetMeshMessageType.HandshakeInitiation
                     || messageType == PNetMeshMessageType.HandshakeResponse))
             {

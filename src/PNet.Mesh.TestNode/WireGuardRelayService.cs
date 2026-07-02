@@ -53,8 +53,7 @@ namespace PNet.Mesh.TestNode
             var protocol = new PNetMeshProtocol(
                 Convert.FromBase64String(options.PrivateKey),
                 Convert.FromBase64String(options.PublicKey),
-                Convert.FromBase64String(options.Psk),
-                PNetMeshTransportMode.WireGuard);
+                Convert.FromBase64String(options.Psk));
             _registry = new PNetMeshWireGuardRelayRegistry(protocol);
             _registry.RegisterOrRenew(
                 Convert.FromBase64String(peer.PublicKey),

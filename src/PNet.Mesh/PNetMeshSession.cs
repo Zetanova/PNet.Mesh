@@ -88,7 +88,7 @@ namespace PNet.Mesh
 
         internal EndPoint PendingDirectEndpoint => _endpointDiscovery.CandidateEndpoint;
 
-        internal bool SupportsDirectEndpointDiscovery => _protocol.Mode == PNetMeshTransportMode.WireGuard;
+        internal bool SupportsDirectEndpointDiscovery => true;
 
         internal bool TryApplyDirectEndpointHint(EndPoint endpoint, DateTimeOffset now)
         {
@@ -423,7 +423,7 @@ namespace PNet.Mesh
 
                     try
                     {
-                        EnsurePacketSize(_openPacket.CalculateSize(), nameof(payload));
+                        EnsurePacketSize(CalculatePNetFrameSize(_openPacket), nameof(payload));
 
                         if (HasSendWindow())
                         {
@@ -523,7 +523,7 @@ namespace PNet.Mesh
 
                     try
                     {
-                        EnsurePacketSize(_openPacket.CalculateSize(), nameof(packet));
+                        EnsurePacketSize(CalculatePNetFrameSize(_openPacket), nameof(packet));
 
                         if (HasSendWindow())
                         {
@@ -660,6 +660,7 @@ namespace PNet.Mesh
             var payload = packetBuffer.Memory.Span.Slice(0, packetSize);
 
             packet.WriteTo(payload);
+            var frame = PNetMeshPayloadFraming.CreatePNet(payload);
 
             if (trackForRetransmit)
             {
@@ -670,7 +671,7 @@ namespace PNet.Mesh
                     {
                         var buffer = _retransBuffer.Rent(packetSize);
                         rented = true;
-                        _transport.WriteMessage(payload, buffer.Span, out var byteWritten, out var counter);
+                        _transport.WriteMessage(frame, buffer.Span, out var byteWritten, out var counter);
                         Debug.Assert(counter == _retransBuffer.Current);
 
                         var item = new PNetMeshOutboundMessages.Packet
@@ -708,7 +709,7 @@ namespace PNet.Mesh
                 try
                 {
                     var buffer = bufferOwner.Memory;
-                    _transport.WriteMessage(payload, buffer.Span, out var byteWritten, out var counter);
+                    _transport.WriteMessage(frame, buffer.Span, out var byteWritten, out var counter);
 
                     var item = new PNetMeshOutboundMessages.Packet
                     {
@@ -865,7 +866,8 @@ namespace PNet.Mesh
                 packet.DoNotAck = packet.Payload.Count == 0 && packet.Relay.Count == 0;
 
                 var packetSize = packet.CalculateSize();
-                EnsurePacketSize(packetSize, sizeParamName);
+                var frameSize = PNetMeshPayloadFraming.CalculatePNetFrameSize(packetSize);
+                EnsurePacketSize(frameSize, sizeParamName);
 
                 if (receiveAck.HasValue)
                 {
@@ -976,9 +978,11 @@ namespace PNet.Mesh
                 Status = PNetMeshSessionStatus.Open;
             }
 
-            var bufferSeq = new ReadOnlySequence<byte>(buffer.Slice(0, bytesWritten));
+            if (!PNetMeshPayloadFraming.TryRead(buffer.Span.Slice(0, bytesWritten), out var frame, out _)
+                || frame.Kind != PNetMeshPayloadFrameKind.PNet)
+                return false;
 
-            var packet = Protos.Packet.Parser.ParseFrom(bufferSeq);
+            var packet = Protos.Packet.Parser.ParseFrom(frame.Payload.ToArray());
             ProcessAck(packet);
 
             if (Status != PNetMeshSessionStatus.Open)
@@ -1365,6 +1369,11 @@ namespace PNet.Mesh
                 return;
 
             throw new ArgumentOutOfRangeException(paramName, "Packet exceeds negotiated max packet size.");
+        }
+
+        static int CalculatePNetFrameSize(Protos.Packet packet)
+        {
+            return PNetMeshPayloadFraming.CalculatePNetFrameSize(packet.CalculateSize());
         }
     }
 }

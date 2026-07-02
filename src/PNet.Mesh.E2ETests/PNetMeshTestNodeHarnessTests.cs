@@ -110,8 +110,7 @@ public sealed class PNetMeshTestNodeHarnessTests
         var protocol = new PNetMeshProtocol(
             localStatic.PrivateKey,
             localStatic.PublicKey,
-            psk,
-            PNetMeshTransportMode.WireGuard);
+            psk);
         using var handshake = protocol.CreateInitiator(0x1001, Convert.FromBase64String(peer.PublicKey));
         using var udp = new UdpClient(AddressFamily.InterNetwork);
         udp.Connect(peerEndpoint);
@@ -172,8 +171,7 @@ public sealed class PNetMeshTestNodeHarnessTests
         var protocol = new PNetMeshProtocol(
             localStatic.PrivateKey,
             localStatic.PublicKey,
-            psk,
-            PNetMeshTransportMode.WireGuard);
+            psk);
         using var handshake = protocol.CreateInitiator(0x3001, Convert.FromBase64String(peer.PublicKey));
         using var udp = new UdpClient(AddressFamily.InterNetwork);
         udp.Connect(relayEndpoint);
@@ -425,8 +423,7 @@ public sealed class PNetMeshTestNodeHarnessTests
         var protocol = new PNetMeshProtocol(
             localStatic.PrivateKey,
             localStatic.PublicKey,
-            psk,
-            PNetMeshTransportMode.WireGuard);
+            psk);
         using var handshake = protocol.CreateInitiator(0x4701, Convert.FromBase64String(peer.PublicKey));
         var discovery = new PNetMeshWireGuardEndpointDiscovery(
             relayEndpoint,

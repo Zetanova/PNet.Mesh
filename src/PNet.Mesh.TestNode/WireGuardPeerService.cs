@@ -49,8 +49,7 @@ namespace PNet.Mesh.TestNode
             _protocol = new PNetMeshProtocol(
                 Convert.FromBase64String(options.PrivateKey),
                 Convert.FromBase64String(options.PublicKey),
-                Convert.FromBase64String(options.Psk),
-                PNetMeshTransportMode.WireGuard);
+                Convert.FromBase64String(options.Psk));
 
             _logger.LogInformation("WireGuardPeer[{nodeName}] starting...", _name);
             await base.StartAsync(cancellationToken);

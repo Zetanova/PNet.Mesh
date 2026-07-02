@@ -1,5 +1,4 @@
 ﻿using Noise;
-using NSec.Cryptography;
 using Org.BouncyCastle.Crypto.Digests;
 using System;
 using System.Buffers;
@@ -78,23 +77,13 @@ namespace PNet.Mesh
     {
         readonly static string Mac1Label = "mac1----"; //8 bytes
 
-        static readonly PNetMeshProtocolProfile PNetProfile = new PNetMeshProtocolProfile(
-            PNetMeshTransportMode.PNet,
-            "Noise_IKpsk2_25519_ChaChaPoly_BLAKE2b",
-            "PNet.Actor.Mesh v1 akka",
-            PNetMeshMacAlgorithm.Blake2b128,
-            PNetMeshHandshake.PNetInitiationMessageSize,
-            sizeof(ulong));
-
         static readonly PNetMeshProtocolProfile WireGuardProfile = new PNetMeshProtocolProfile(
-            PNetMeshTransportMode.WireGuard,
             "Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s",
             "WireGuard v1 zx2c4 Jason@zx2c4.com",
-            PNetMeshMacAlgorithm.Blake2s128,
             PNetMeshHandshake.WireGuardInitiationMessageSize,
             PNetMeshTai64n.TimestampSize);
 
-        readonly PNetMeshProtocolProfile _profile;
+        readonly PNetMeshProtocolProfile _profile = WireGuardProfile;
 
         readonly PNetMeshHandshakeReplayTracker _handshakeReplayTracker = new PNetMeshHandshakeReplayTracker();
 
@@ -107,15 +96,9 @@ namespace PNet.Mesh
 
         readonly byte[][] _psk;
 
-        readonly Key _mac1Key; //packet mac
         readonly byte[] _mac1KeyBytes;
 
-        Key _mac2Key; //cookie mac
-        byte[] _mac2KeyBytes;
-
         PNetMeshCookie _cookie = PNetMeshCookie.Empty;
-
-        public PNetMeshTransportMode Mode => _profile.Mode;
 
         public string ProtocolName => _profile.ProtocolName;
 
@@ -149,33 +132,14 @@ namespace PNet.Mesh
                 //proof of EP ownership
 
                 _cookie = value;
-                _mac2Key?.Dispose();
-                _mac2Key = null;
-                _mac2KeyBytes = null;
-
-                if (_cookie.IsValid)
-                {
-                    if (_profile.MacAlgorithm == PNetMeshMacAlgorithm.Blake2b128)
-                        _mac2Key = Key.Import(MacAlgorithm.Blake2b_128, _cookie.Value, KeyBlobFormat.RawSymmetricKey);
-                    else
-                        _mac2KeyBytes = (byte[])_cookie.Value.Clone();
-                }
             }
         }
 
         public PNetMeshProtocol(
             byte[] localStaticPrivKey,
             byte[] localStaticPubKey,
-            byte[] psk = null,
-            PNetMeshTransportMode mode = PNetMeshTransportMode.PNet)
+            byte[] psk = null)
         {
-            _profile = mode switch
-            {
-                PNetMeshTransportMode.PNet => PNetProfile,
-                PNetMeshTransportMode.WireGuard => WireGuardProfile,
-                _ => throw new ArgumentOutOfRangeException(nameof(mode))
-            };
-
             _localStaticPrivKey = localStaticPrivKey ?? throw new ArgumentNullException(nameof(localStaticPrivKey));
             _localStaticPubKey = localStaticPubKey ?? throw new ArgumentNullException(nameof(localStaticPrivKey));
             _psk = psk != null ? new byte[][] { psk } : null;
@@ -183,9 +147,6 @@ namespace PNet.Mesh
             //init mac1 hash
             //mac1 = MAC(HASH(LABEL_MAC1 || responder.static_public), msg[0:offsetof(msg.mac1)])
             _mac1KeyBytes = CreateMac1Key(_localStaticPubKey);
-
-            if (_profile.MacAlgorithm == PNetMeshMacAlgorithm.Blake2b128)
-                _mac1Key = Key.Import(MacAlgorithm.Blake2b_128, _mac1KeyBytes, KeyBlobFormat.RawSymmetricKey);
 
             _cookieGate = new PNetMeshCookieGate(this);
         }
@@ -219,22 +180,22 @@ namespace PNet.Mesh
                 case PNetMeshMessageType.HandshakeInitiation
                     when payload.Length == _profile.HandshakeInitiationMessageSize:
 
-                    ComputeMac(_mac1Key, _mac1KeyBytes, payload[0..^32], mac);
+                    ComputeMac(_mac1KeyBytes, payload[0..^32], mac);
                     if (!payload[^32..^16].SequenceEqual(mac))
                         return false;
                     if (!_cookie.IsValid)
                         return true;
-                    ComputeMac(_mac2Key, _mac2KeyBytes, payload[0..^16], mac);
+                    ComputeMac(_cookie.Value, payload[0..^16], mac);
                     return payload[^16..].SequenceEqual(mac);
                 case PNetMeshMessageType.HandshakeResponse
                     when payload.Length == PNetMeshHandshake.ResponseMessageSize:
 
-                    ComputeMac(_mac1Key, _mac1KeyBytes, payload[0..^32], mac);
+                    ComputeMac(_mac1KeyBytes, payload[0..^32], mac);
                     if (!payload[^32..^16].SequenceEqual(mac))
                         return false;
                     if (!_cookie.IsValid)
                         return true;
-                    ComputeMac(_mac2Key, _mac2KeyBytes, payload[0..^16], mac);
+                    ComputeMac(_cookie.Value, payload[0..^16], mac);
                     return payload[^16..].SequenceEqual(mac);
                 case PNetMeshMessageType.PacketCookieReply:
                     return payload.Length == PNetMeshPacketFraming.CookieReplyMessageSize;
@@ -274,7 +235,7 @@ namespace PNet.Mesh
                 return false;
 
             Span<byte> mac = stackalloc byte[16];
-            ComputeMac(_mac1Key, _mac1KeyBytes, payload[..mac1Offset], mac);
+            ComputeMac(_mac1KeyBytes, payload[..mac1Offset], mac);
             return payload[mac1Offset..mac2Offset].SequenceEqual(mac);
         }
 
@@ -295,7 +256,7 @@ namespace PNet.Mesh
 
             //mac2 = MAC(responder.last_received_cookie, msg[0:offsetof(msg.mac2)])
             if (_cookie.IsValid)
-                ComputeMac(_mac2Key, _mac2KeyBytes, payload, mac);
+                ComputeMac(_cookie.Value, payload, mac);
             else
                 mac.Clear();
         }
@@ -338,10 +299,7 @@ namespace PNet.Mesh
             if (destination.Length != _profile.HandshakeInitiationTimestampSize)
                 throw new ArgumentOutOfRangeException(nameof(destination));
 
-            if (_profile.Mode == PNetMeshTransportMode.WireGuard)
-                PNetMeshTai64n.WriteNow(destination);
-            else
-                BinaryPrimitives.WriteUInt64LittleEndian(destination, PNetMeshUtils.GetTimestamp());
+            PNetMeshTai64n.WriteNow(destination);
         }
 
         internal long ReadInitiationTimestamp(ReadOnlySpan<byte> timestamp)
@@ -349,15 +307,12 @@ namespace PNet.Mesh
             if (timestamp.Length != _profile.HandshakeInitiationTimestampSize)
                 throw new ArgumentOutOfRangeException(nameof(timestamp));
 
-            return _profile.Mode == PNetMeshTransportMode.WireGuard
-                ? PNetMeshTai64n.ToUnixNanoseconds(timestamp)
-                : BinaryPrimitives.ReadInt64LittleEndian(timestamp);
+            return PNetMeshTai64n.ToUnixNanoseconds(timestamp);
         }
 
         internal bool TryAddHandshakeInitiationTimestamp(ReadOnlySpan<byte> peerPublicKey, ReadOnlySpan<byte> timestamp)
         {
-            return _profile.Mode != PNetMeshTransportMode.WireGuard
-                || _handshakeReplayTracker.TryAdd(peerPublicKey, timestamp);
+            return _handshakeReplayTracker.TryAdd(peerPublicKey, timestamp);
         }
 
         internal void RegisterWireGuardKeypair(
@@ -365,9 +320,6 @@ namespace PNet.Mesh
             PNetMeshTransport2 transport,
             PNetMeshWireGuardKeypairRole role)
         {
-            if (_profile.Mode != PNetMeshTransportMode.WireGuard)
-                return;
-
             var keypair = _wireGuardPeers.SetCurrentKeypair(
                 remotePublicKey,
                 new PNetMeshWireGuardKeypair(
@@ -393,23 +345,12 @@ namespace PNet.Mesh
 
         void ComputeHash(ReadOnlySpan<byte> payload, Span<byte> hash)
         {
-            switch (_profile.MacAlgorithm)
-            {
-                case PNetMeshMacAlgorithm.Blake2b128:
-                    if (hash.Length != 32) throw new ArgumentOutOfRangeException(nameof(hash));
-                    HashAlgorithm.Blake2b_256.Hash(payload, hash);
-                    break;
-                case PNetMeshMacAlgorithm.Blake2s128:
-                    var digest = new Blake2sDigest(hash.Length * 8);
-                    var payloadBytes = payload.ToArray();
-                    var hashBytes = new byte[hash.Length];
-                    digest.BlockUpdate(payloadBytes, 0, payloadBytes.Length);
-                    digest.DoFinal(hashBytes, 0);
-                    hashBytes.CopyTo(hash);
-                    break;
-                default:
-                    throw new InvalidOperationException("invalid mac algorithm");
-            }
+            var digest = new Blake2sDigest(hash.Length * 8);
+            var payloadBytes = payload.ToArray();
+            var hashBytes = new byte[hash.Length];
+            digest.BlockUpdate(payloadBytes, 0, payloadBytes.Length);
+            digest.DoFinal(hashBytes, 0);
+            hashBytes.CopyTo(hash);
         }
 
         internal void ComputeHash(ReadOnlySpan<byte> payload, byte[] hash)
@@ -424,77 +365,35 @@ namespace PNet.Mesh
 
         void ComputeMac(ReadOnlySpan<byte> key, ReadOnlySpan<byte> payload, Span<byte> mac)
         {
-            if (_profile.MacAlgorithm == PNetMeshMacAlgorithm.Blake2b128)
-            {
-                using var macKey = Key.Import(MacAlgorithm.Blake2b_128, key, KeyBlobFormat.RawSymmetricKey);
-                ComputeMac(macKey, null, payload, mac);
-                return;
-            }
-
-            ComputeMac(null, key.ToArray(), payload, mac);
+            var digest = new Blake2sDigest(key.ToArray(), mac.Length, null, null);
+            var payloadBytes = payload.ToArray();
+            var macBytes = new byte[mac.Length];
+            digest.BlockUpdate(payloadBytes, 0, payloadBytes.Length);
+            digest.DoFinal(macBytes, 0);
+            macBytes.CopyTo(mac);
         }
-
-        void ComputeMac(Key key, byte[] keyBytes, ReadOnlySpan<byte> payload, Span<byte> mac)
-        {
-            switch (_profile.MacAlgorithm)
-            {
-                case PNetMeshMacAlgorithm.Blake2b128:
-                    MacAlgorithm.Blake2b_128.Mac(key, payload, mac);
-                    break;
-                case PNetMeshMacAlgorithm.Blake2s128:
-                    var digest = new Blake2sDigest(keyBytes, mac.Length, null, null);
-                    var payloadBytes = payload.ToArray();
-                    var macBytes = new byte[mac.Length];
-                    digest.BlockUpdate(payloadBytes, 0, payloadBytes.Length);
-                    digest.DoFinal(macBytes, 0);
-                    macBytes.CopyTo(mac);
-                    break;
-                default:
-                    throw new InvalidOperationException("invalid mac algorithm");
-            }
-        }
-    }
-
-    public enum PNetMeshTransportMode
-    {
-        PNet = 0,
-        WireGuard = 1
-    }
-
-    enum PNetMeshMacAlgorithm
-    {
-        Blake2b128,
-        Blake2s128
     }
 
     sealed class PNetMeshProtocolProfile
     {
         public PNetMeshProtocolProfile(
-            PNetMeshTransportMode mode,
             string protocolName,
             string prologue,
-            PNetMeshMacAlgorithm macAlgorithm,
             int handshakeInitiationMessageSize,
             int handshakeInitiationTimestampSize)
         {
-            Mode = mode;
             ProtocolName = protocolName;
             Prologue = Encoding.UTF8.GetBytes(prologue);
             Protocol = Protocol.Parse(protocolName);
-            MacAlgorithm = macAlgorithm;
             HandshakeInitiationMessageSize = handshakeInitiationMessageSize;
             HandshakeInitiationTimestampSize = handshakeInitiationTimestampSize;
         }
-
-        public PNetMeshTransportMode Mode { get; }
 
         public string ProtocolName { get; }
 
         public byte[] Prologue { get; }
 
         public Protocol Protocol { get; }
-
-        public PNetMeshMacAlgorithm MacAlgorithm { get; }
 
         public int HandshakeInitiationMessageSize { get; }
 
@@ -642,11 +541,9 @@ namespace PNet.Mesh
 
         //public const int MinBufferSize = 116;
 
-        public const int PNetInitiationMessageSize = 144;
-
         public const int WireGuardInitiationMessageSize = 148;
 
-        public const int InitiationMessageSize = PNetInitiationMessageSize;
+        public const int InitiationMessageSize = WireGuardInitiationMessageSize;
 
         public const int ResponseMessageSize = 92;
 
@@ -857,11 +754,11 @@ namespace PNet.Mesh
 
         public readonly DateTime ValidTo;
 
-        public bool IsValid => (Value?.Length == 16 || Value?.Length == 32) && DateTime.UtcNow < ValidTo;
+        public bool IsValid => Value?.Length == 16 && DateTime.UtcNow < ValidTo;
 
         public PNetMeshCookie(byte[] value, DateTime validTo)
         {
-            if (value != null && value.Length != 0 && value.Length != 16 && value.Length != 32)
+            if (value != null && value.Length != 0 && value.Length != 16)
                 throw new ArgumentException(nameof(value));
 
             Value = value ?? Array.Empty<byte>();
@@ -918,8 +815,6 @@ namespace PNet.Mesh
 
         public PNetMeshWireGuardKeypair WireGuardKeypair => _wireGuardKeypair;
 
-        bool IsWireGuard => _wireGuardKeypair != null;
-
         public PNetMeshTransport2(uint senderIndex, uint receiverIndex, Transport transport)
         {
             _senderIndex = senderIndex;
@@ -936,16 +831,8 @@ namespace PNet.Mesh
 
         public void WriteMessage(ReadOnlySpan<byte> payload, Span<byte> buffer, out int bytesWritten, out ulong counter)
         {
-            var padding = IsWireGuard
-                ? (16 - (payload.Length % 16)) % 16
-                : 16 - (payload.Length % 16);
+            var padding = (16 - (payload.Length % 16)) % 16;
             var paddedSize = payload.Length + padding;
-            if (!IsWireGuard && padding == 0 && !payload.IsEmpty && payload[^1] < 16)
-            {
-                //require padding length encoding
-                padding = 16;
-                paddedSize += 16;
-            }
 
             if (buffer.Length < (8 + 8 + 16 + paddedSize))
                 throw new ArgumentOutOfRangeException(nameof(buffer));
@@ -974,15 +861,7 @@ namespace PNet.Mesh
                     : stackalloc byte[paddedSize];
 
                 payload.CopyTo(padded_payload);
-                if (IsWireGuard)
-                {
-                    padded_payload.Slice(payload.Length, padding).Clear();
-                }
-                else
-                {
-                    padded_payload.Slice(payload.Length, padding - 1).Clear();
-                    padded_payload[paddedSize - 1] = (byte)(padding - 1); //padding length
-                }
+                padded_payload.Slice(payload.Length, padding).Clear();
 
                 counter = _sendCounter;
                 _setWriteNonce(counter);
@@ -1010,19 +889,7 @@ namespace PNet.Mesh
 
         public bool TryReadMessage(ReadOnlySpan<byte> payload, Span<byte> buffer, out int bytesWritten, out ulong counter)
         {
-            if (!TryReadRawMessage(payload, buffer, out bytesWritten, out counter))
-                return false;
-
-            if (!IsWireGuard && bytesWritten > 1)
-            {
-                //padding length
-                int padding = buffer[bytesWritten - 1];
-
-                if (padding < 16)
-                    bytesWritten -= padding + 1;
-            }
-
-            return true;
+            return TryReadRawMessage(payload, buffer, out bytesWritten, out counter);
         }
 
         public bool TryReadPlaintext(

@@ -41,7 +41,7 @@ namespace PNet.Mesh
             if (remoteEndPoint == null) throw new ArgumentNullException(nameof(remoteEndPoint));
 
             var endpoint = GetEndpointBytes(remoteEndPoint);
-            var cookie = new byte[_protocol.Mode == PNetMeshTransportMode.WireGuard ? WireGuardCookieSize : 32];
+            var cookie = new byte[WireGuardCookieSize];
             _protocol.ComputeKeyedMac(GetSecret(now), endpoint, cookie);
             return new PNetMeshCookie(cookie, DateTime.UtcNow.Add(PNetMeshWireGuardLifecycle.CookieRefreshTime));
         }
@@ -75,8 +75,6 @@ namespace PNet.Mesh
             bytesWritten = 0;
             if (destination.Length < PNetMeshPacketFraming.CookieReplyMessageSize)
                 throw new ArgumentOutOfRangeException(nameof(destination));
-            if (_protocol.Mode != PNetMeshTransportMode.WireGuard)
-                return false;
             if (!_protocol.TryGetHandshakeMacOffsets(triggeringPacket, out var mac1Offset, out _)
                 || !_protocol.TryValidatePacketMac1(triggeringPacket))
                 return false;

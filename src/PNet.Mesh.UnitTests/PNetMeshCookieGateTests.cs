@@ -16,8 +16,7 @@ namespace PNet.Actor.UnitTests.Mesh
             using var localStatic = KeyPair.Generate();
             var protocol = new PNetMeshProtocol(
                 localStatic.PrivateKey,
-                localStatic.PublicKey,
-                mode: PNetMeshTransportMode.WireGuard);
+                localStatic.PublicKey);
             var now = DateTimeOffset.UnixEpoch;
             var endpoint1 = new IPEndPoint(IPAddress.Parse("203.0.113.10"), 51820);
             var endpoint2 = new IPEndPoint(IPAddress.Parse("203.0.113.11"), 51820);
@@ -49,13 +48,11 @@ namespace PNet.Actor.UnitTests.Mesh
             var initiatorProtocol = new PNetMeshProtocol(
                 initiatorStatic.PrivateKey,
                 initiatorStatic.PublicKey,
-                psk,
-                PNetMeshTransportMode.WireGuard);
+                psk);
             var responderProtocol = new PNetMeshProtocol(
                 responderStatic.PrivateKey,
                 responderStatic.PublicKey,
-                psk,
-                PNetMeshTransportMode.WireGuard);
+                psk);
 
             using var initiator = initiatorProtocol.CreateInitiator(11, responderStatic.PublicKey);
             initiator.WriteInitiationMessage(initiationBuffer, out var bytesWritten);
@@ -103,13 +100,11 @@ namespace PNet.Actor.UnitTests.Mesh
             var initiatorProtocol = new PNetMeshProtocol(
                 initiatorStatic.PrivateKey,
                 initiatorStatic.PublicKey,
-                psk,
-                PNetMeshTransportMode.WireGuard);
+                psk);
             var responderProtocol = new PNetMeshProtocol(
                 responderStatic.PrivateKey,
                 responderStatic.PublicKey,
-                psk,
-                PNetMeshTransportMode.WireGuard);
+                psk);
 
             responderProtocol.CookieGate.RateLimitPacketCount = 1;
             responderProtocol.CookieGate.RateLimitWindow = TimeSpan.FromSeconds(10);

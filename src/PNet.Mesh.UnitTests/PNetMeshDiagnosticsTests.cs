@@ -86,8 +86,7 @@ namespace PNet.Actor.UnitTests.Mesh
             var protocol = new PNetMeshProtocol(
                 localKey.PrivateKey,
                 localKey.PublicKey,
-                psk,
-                PNetMeshTransportMode.WireGuard);
+                psk);
             var candidate = Endpoint("203.0.113.77", 51820);
 
             using var session = new PNetMeshSession(protocol, outbound.Writer, logger)
@@ -122,8 +121,7 @@ namespace PNet.Actor.UnitTests.Mesh
             var protocol = new PNetMeshProtocol(
                 serverKey.PrivateKey,
                 serverKey.PublicKey,
-                psk,
-                PNetMeshTransportMode.WireGuard);
+                psk);
             var settings = new PNetMeshServerSettings
             {
                 PublicKey = serverKey.PublicKey,
