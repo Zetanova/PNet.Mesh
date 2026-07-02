@@ -158,6 +158,51 @@ namespace PNet.Actor.UnitTests.Mesh
         }
 
         [Fact]
+        public void server_authenticated_endpoint_update_is_idempotent_for_confirmed_remote_endpoint()
+        {
+            using var serverKey = KeyPair.Generate();
+            using var remoteKey = KeyPair.Generate();
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+            var logger = new CaptureLogger<PNetMeshServer>();
+            var outbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+            var protocol = new PNetMeshProtocol(
+                serverKey.PrivateKey,
+                serverKey.PublicKey,
+                psk);
+            var settings = new PNetMeshServerSettings
+            {
+                PublicKey = serverKey.PublicKey,
+                PrivateKey = serverKey.PrivateKey,
+                Psk = psk,
+                BindTo = Array.Empty<string>()
+            };
+            using var server = new PNetMeshServer(settings, logger: logger);
+            using var session = new PNetMeshSession(protocol, outbound.Writer, logger)
+            {
+                RemoteEndPoint = Endpoint("203.0.113.78", 51821)
+            };
+            var observed = Endpoint("203.0.113.77", 51820);
+
+            session.WriteInitialize(8, remoteKey.PublicKey);
+            Assert.True(outbound.Reader.TryRead(out var initialize));
+            Assert.IsType<PNetMeshOutboundMessages.Packet>(initialize).MemoryOwner.Dispose();
+
+            ApplyAuthenticatedEndpointUpdate(server, session, new PNetMeshControlCommands.Receive
+            {
+                RemoteEndPoint = observed
+            });
+            ApplyAuthenticatedEndpointUpdate(server, session, new PNetMeshControlCommands.Receive
+            {
+                RemoteEndPoint = observed
+            });
+
+            var joined = logger.JoinedEntries;
+            Assert.Equal(observed, session.RemoteEndPoint);
+            Assert.Equal(1, joined.Split("event=wireguard_direct_fallback").Length - 1);
+        }
+
+        [Fact]
         public async Task server_relay_delivery_log_is_redacted()
         {
             using var localKey = KeyPair.Generate();

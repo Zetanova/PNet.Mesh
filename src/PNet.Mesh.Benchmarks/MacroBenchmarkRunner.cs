@@ -242,6 +242,7 @@ internal static class MacroBenchmarkRunner
         readonly byte[] _payload;
         readonly byte[] _frame;
         readonly byte[] _sendBuffer = new byte[BenchmarkProtocolHarness.BufferSize];
+        readonly byte[] _receiveBuffer = new byte[BenchmarkProtocolHarness.BufferSize];
         readonly byte[] _replyBuffer = new byte[BenchmarkProtocolHarness.BufferSize];
         readonly byte[] _plaintextBuffer = new byte[BenchmarkProtocolHarness.BufferSize];
         readonly EstablishedTransportPair _transports;
@@ -259,6 +260,9 @@ internal static class MacroBenchmarkRunner
             _right = CreateClient(receiveTimeout);
             _leftEndpoint = (IPEndPoint)_left.Client.LocalEndPoint!;
             _rightEndpoint = (IPEndPoint)_right.Client.LocalEndPoint!;
+            // Connect the loopback peers so the hot receive path can reuse a buffer.
+            _left.Connect(_rightEndpoint);
+            _right.Connect(_leftEndpoint);
         }
 
         public string Name => MacroBenchmarkOptions.UdpLoopbackScenario;
@@ -266,20 +270,18 @@ internal static class MacroBenchmarkRunner
         public MacroOperationResult Execute()
         {
             _transports.Initiator.WriteMessage(_frame, _sendBuffer, out var requestBytes, out _);
-            _left.Send(_sendBuffer, requestBytes, _rightEndpoint);
+            _left.Send(_sendBuffer, requestBytes);
 
-            var remote = new IPEndPoint(IPAddress.Any, 0);
-            var request = _right.Receive(ref remote);
-            if (!_transports.Responder.TryReadMessage(request, _plaintextBuffer, out var plaintextBytes, out _))
+            var requestBytesReceived = _right.Client.Receive(_receiveBuffer, 0, _receiveBuffer.Length, SocketFlags.None);
+            if (!_transports.Responder.TryReadMessage(_receiveBuffer.AsSpan(0, requestBytesReceived), _plaintextBuffer, out var plaintextBytes, out _))
                 throw new InvalidOperationException("Responder rejected UDP loopback packet.");
             ValidateFrame(_plaintextBuffer.AsSpan(0, plaintextBytes));
 
             _transports.Responder.WriteMessage(_plaintextBuffer.AsSpan(0, plaintextBytes), _replyBuffer, out var replyBytes, out _);
-            _right.Send(_replyBuffer, replyBytes, _leftEndpoint);
+            _right.Send(_replyBuffer, replyBytes);
 
-            remote = new IPEndPoint(IPAddress.Any, 0);
-            var reply = _left.Receive(ref remote);
-            if (!_transports.Initiator.TryReadMessage(reply, _plaintextBuffer, out plaintextBytes, out _))
+            var replyBytesReceived = _left.Client.Receive(_receiveBuffer, 0, _receiveBuffer.Length, SocketFlags.None);
+            if (!_transports.Initiator.TryReadMessage(_receiveBuffer.AsSpan(0, replyBytesReceived), _plaintextBuffer, out plaintextBytes, out _))
                 throw new InvalidOperationException("Initiator rejected UDP loopback reply.");
             ValidateFrame(_plaintextBuffer.AsSpan(0, plaintextBytes));
 

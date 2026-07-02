@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -29,7 +29,11 @@ namespace PNet.Mesh.Tun.Linux
 
             foreach (var address in configuration.Addresses)
             {
-                await RunIpAsync(new[] { "addr", "replace", address.ToString(), "dev", configuration.InterfaceName }, timeout, cancellationToken);
+                var arguments = address.Address.AddressFamily == AddressFamily.InterNetworkV6
+                    ? new[] { "addr", "replace", address.ToString(), "dev", configuration.InterfaceName, "nodad" }
+                    : new[] { "addr", "replace", address.ToString(), "dev", configuration.InterfaceName };
+
+                await RunIpAsync(arguments, timeout, cancellationToken);
             }
 
             await RunIpAsync(new[] { "link", "set", "dev", configuration.InterfaceName, "mtu", configuration.Mtu.ToString() }, timeout, cancellationToken);

@@ -1,4 +1,4 @@
-using Noise;
+﻿using Noise;
 using PNet.Mesh;
 using PNet.Mesh.Tun;
 using System;
@@ -75,6 +75,73 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
                 tun2.QueueRead(ipv6);
                 var receivedIpv6 = await tun1.ReadWrittenAsync("node1 waiting for IPv6 packet", TestContext.Current.CancellationToken);
                 Assert.Equal(ipv6, receivedIpv6);
+            }
+            finally
+            {
+                runCancellation.Cancel();
+                await IgnoreCancellationAsync(bridge1Task);
+                await IgnoreCancellationAsync(bridge2Task);
+                await Task.WhenAll(
+                    server1.ShutdownAsync(TestContext.Current.CancellationToken),
+                    server2.ShutdownAsync(TestContext.Current.CancellationToken));
+            }
+        }
+
+        [Fact]
+        public async Task bridge_preserves_tun_packet_bursts()
+        {
+            using var key1 = KeyPair.Generate();
+            using var key2 = KeyPair.Generate();
+
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            var bind1 = $"127.0.0.1:{NextPort()}";
+            var bind2 = $"127.0.0.1:{NextPort()}";
+
+            var settings1 = CreateSettings(key1.PublicKey, key1.PrivateKey, psk, bind1, key2.PublicKey, bind2);
+            var settings2 = CreateSettings(key2.PublicKey, key2.PrivateKey, psk, bind2, key1.PublicKey, bind1);
+
+            using var server1 = new PNetMeshServer(settings1);
+            using var server2 = new PNetMeshServer(settings2);
+            await using var tun1 = new FakeTunDevice("pnet-test1");
+            await using var tun2 = new FakeTunDevice("pnet-test2");
+
+            server1.Start();
+            server2.Start();
+
+            var bridge1 = new PNetMeshTunBridge(server1, tun1, new[]
+            {
+                CreateRoute("node2", key2.PublicKey, bind2, "10.80.0.2/32")
+            });
+            var bridge2 = new PNetMeshTunBridge(server2, tun2, new[]
+            {
+                CreateRoute("node1", key1.PublicKey, bind1, "10.80.0.1/32")
+            });
+
+            using var runCancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+            var bridge1Task = bridge1.RunAsync(runCancellation.Token);
+            var bridge2Task = bridge2.RunAsync(runCancellation.Token);
+
+            try
+            {
+                const int packetCount = 128;
+                var packets = Enumerable.Range(0, packetCount)
+                    .Select(index => PNetMeshIpPacket.CreateIPv4(
+                        IPAddress.Parse("10.80.0.1"),
+                        IPAddress.Parse("10.80.0.2"),
+                        BitConverter.GetBytes(index),
+                        protocol: 17))
+                    .ToArray();
+
+                foreach (var packet in packets)
+                    tun1.QueueRead(packet);
+
+                var received = await tun2.ReadWrittenAsync(packetCount, "node2 waiting for IPv4 packet burst", TestContext.Current.CancellationToken);
+
+                Assert.Equal(packetCount, received.Length);
+                for (var i = 0; i < packetCount; i++)
+                    Assert.Equal(packets[i], received[i]);
             }
             finally
             {
@@ -186,6 +253,24 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
                 catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
                 {
                     throw new TimeoutException($"{operation}: timed out waiting for a TUN write", ex);
+                }
+            }
+
+            public async Task<byte[][]> ReadWrittenAsync(int count, string operation, CancellationToken cancellationToken)
+            {
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeout.CancelAfter(TimeSpan.FromSeconds(30));
+
+                var packets = new byte[count][];
+                try
+                {
+                    for (var i = 0; i < packets.Length; i++)
+                        packets[i] = await _writes.Reader.ReadAsync(timeout.Token);
+                    return packets;
+                }
+                catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+                {
+                    throw new TimeoutException($"{operation}: timed out waiting for {count} TUN writes", ex);
                 }
             }
 

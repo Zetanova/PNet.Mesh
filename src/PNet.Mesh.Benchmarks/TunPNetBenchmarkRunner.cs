@@ -85,7 +85,8 @@ internal static class TunPNetBenchmarkRunner
             else
             {
                 Thread.Sleep(options.Warmup);
-                WarmupTunnel(commandRunner, options, left, right, commands);
+                WarmupTunnel(commandRunner, options, left, "ipv4", "10.80.0.2", false, commands);
+                WarmupTunnel(commandRunner, options, left, "ipv6", "fd80::2", true, commands);
 
                 traffic.Add(RunPing(commandRunner, options, left, right, "ipv4", "10.80.0.2", false, commands));
                 traffic.Add(RunPing(commandRunner, options, left, right, "ipv6", "fd80::2", true, commands));
@@ -97,7 +98,7 @@ internal static class TunPNetBenchmarkRunner
                 processes.Add(ReadProcessMetrics(commandRunner, options, left, commands));
                 processes.Add(ReadProcessMetrics(commandRunner, options, right, commands));
 
-                status = traffic.All(result => result.ExitCode == 0) && processes.All(process => process.Available)
+                status = traffic.All(IsSuccessfulTrafficResult) && processes.All(process => process.Available)
                     ? "pass"
                     : "fail";
                 message = status == "pass"
@@ -468,6 +469,19 @@ internal static class TunPNetBenchmarkRunner
         bool ipv6,
         List<TunTopologyCommandRecord> commands)
     {
+        var arguments = CreatePingArguments(source, targetAddress, ipv6, options.PingCount, timeoutSeconds: 5);
+        var command = RunCommand(commandRunner, "docker", arguments, options.CommandTimeout);
+        commands.Add(command);
+        return ParsePingResult(protocol, source.Role, target.Role, targetAddress, command);
+    }
+
+    static List<string> CreatePingArguments(
+        TunTopologyNode source,
+        string targetAddress,
+        bool ipv6,
+        int count,
+        int timeoutSeconds)
+    {
         var arguments = new List<string>
         {
             "exec",
@@ -480,47 +494,37 @@ internal static class TunPNetBenchmarkRunner
         arguments.AddRange(new[]
         {
             "-c",
-            options.PingCount.ToString(CultureInfo.InvariantCulture),
-            "-w",
-            "10",
+            count.ToString(CultureInfo.InvariantCulture),
             "-W",
-            "5",
+            timeoutSeconds.ToString(CultureInfo.InvariantCulture),
+            "-w",
+            Math.Max(timeoutSeconds, (count * timeoutSeconds) + 1).ToString(CultureInfo.InvariantCulture),
             targetAddress
         });
-
-        var command = RunCommand(commandRunner, "docker", arguments, options.CommandTimeout);
-        commands.Add(command);
-        return ParsePingResult(protocol, source.Role, target.Role, targetAddress, command);
+        return arguments;
     }
 
     static void WarmupTunnel(
         ITunTopologyCommandRunner commandRunner,
         TunPNetBenchmarkOptions options,
         TunTopologyNode source,
-        TunTopologyNode target,
+        string protocol,
+        string targetAddress,
+        bool ipv6,
         List<TunTopologyCommandRecord> commands)
     {
-        for (var attempt = 0; attempt < 3; attempt++)
+        var deadline = DateTimeOffset.UtcNow + options.ProcessStartTimeout + options.CommandTimeout;
+        do
         {
-            var command = RunCommand(commandRunner, "docker", new[]
-            {
-                "exec",
-                source.ContainerName,
-                "ping",
-                "-c",
-                "3",
-                "-w",
-                "10",
-                "-W",
-                "5",
-                "10.80.0.2"
-            }, options.CommandTimeout);
+            var arguments = CreatePingArguments(source, targetAddress, ipv6, count: 1, timeoutSeconds: 5);
+            var command = RunCommand(commandRunner, "docker", arguments, options.CommandTimeout);
             commands.Add(command);
-            if (command.ExitCode == 0)
+            if (IsSuccessfulPing(ParsePingResult(protocol, source.Role, string.Empty, targetAddress, command)))
                 return;
 
             Thread.Sleep(TimeSpan.FromMilliseconds(500));
         }
+        while (DateTimeOffset.UtcNow < deadline);
     }
 
     static TunBenchmarkTrafficResult RunIperf(
@@ -593,6 +597,10 @@ internal static class TunPNetBenchmarkRunner
     {
         var deadline = DateTimeOffset.UtcNow + options.ProcessStartTimeout;
         var timeout = options.CommandTimeout < TimeSpan.FromSeconds(2) ? options.CommandTimeout : TimeSpan.FromSeconds(2);
+        var port = options.IperfPort.ToString(CultureInfo.InvariantCulture);
+        var listenAddress = ipv6 ? $"[{targetAddress}]:{port}" : $"{targetAddress}:{port}";
+        var family = ipv6 ? "-6" : "-4";
+        var readinessCommand = $"ss {family} -H -ltn sport = :{port} | awk '{{print $4}}' | grep -Fx -- {ShellQuote(listenAddress)}";
         while (DateTimeOffset.UtcNow < deadline)
         {
             var command = RunCommand(commandRunner, "docker", new[]
@@ -601,7 +609,7 @@ internal static class TunPNetBenchmarkRunner
                 target.ContainerName,
                 "sh",
                 "-c",
-                $"nc -z -w 1 {(ipv6 ? "-6 " : string.Empty)}{ShellQuote(targetAddress)} {options.IperfPort.ToString(CultureInfo.InvariantCulture)}"
+                readinessCommand
             }, timeout);
             commands.Add(command);
             if (command.ExitCode == 0)
@@ -612,12 +620,30 @@ internal static class TunPNetBenchmarkRunner
 
         commands.Add(new TunTopologyCommandRecord(
             "docker",
-            new[] { "exec", target.ContainerName, "nc", "-z", protocol, "<target-address>", options.IperfPort.ToString(CultureInfo.InvariantCulture) },
+            new[] { "exec", target.ContainerName, "sh", "-c", readinessCommand },
             -1,
             string.Empty,
             "iperf3 server readiness check timed out.",
             false));
         return false;
+    }
+
+    static bool IsSuccessfulTrafficResult(TunBenchmarkTrafficResult result)
+    {
+        return result.Tool switch
+        {
+            "ping" => IsSuccessfulPing(result),
+            "iperf3" => result.ExitCode == 0 && result.BitsPerSecond > 0,
+            _ => result.ExitCode == 0
+        };
+    }
+
+    static bool IsSuccessfulPing(TunBenchmarkTrafficResult result)
+    {
+        return result.ExitCode == 0
+               && result.PacketsTransmitted > 0
+               && result.PacketsReceived == result.PacketsTransmitted
+               && result.PacketLossPercent == 0;
     }
 
     static TunBenchmarkTrafficResult CreateIperfFailure(

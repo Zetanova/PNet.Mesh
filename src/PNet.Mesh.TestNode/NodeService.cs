@@ -4,7 +4,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading;
@@ -183,12 +182,9 @@ namespace PNet.Mesh.TestNode
                     var sendsPings = _pingNodes == null || _pingNodes.Contains(entry.Name);
 
                     ReadOnlyMemory<byte> payload;
-                    bool r;
-
                     if (sendsPings)
                     {
-                        r = channel.TryWrite(_pingPayload);
-                        Debug.Assert(r);
+                        await channel.EnqueueWriteAsync(_pingPayload, stoppingToken);
                     }
 
                     do
@@ -200,8 +196,7 @@ namespace PNet.Mesh.TestNode
                                 _logger.LogInformation("ping from {remoteName} to {nodeName}", entry.Name, _name);
                                 if (payload.Length != PingPayloadPrefix.Length)
                                     _logger.LogInformation("ping payload {payloadBytes} bytes from {remoteName} to {nodeName}", payload.Length, entry.Name, _name);
-                                r = channel.TryWrite(PongPayload);
-                                Debug.Assert(r);
+                                await channel.EnqueueWriteAsync(PongPayload, stoppingToken);
                             }
                             else if (IsPongPayload(payload))
                             {
@@ -209,8 +204,7 @@ namespace PNet.Mesh.TestNode
                                 pongs[index] = true;
                                 if (sendsPings)
                                 {
-                                    r = channel.TryWrite(_pingPayload);
-                                    Debug.Assert(r);
+                                    await channel.EnqueueWriteAsync(_pingPayload, stoppingToken);
                                 }
                             }
                         }

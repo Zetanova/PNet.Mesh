@@ -346,11 +346,8 @@ namespace PNet.Mesh
         void ComputeHash(ReadOnlySpan<byte> payload, Span<byte> hash)
         {
             var digest = new Blake2sDigest(hash.Length * 8);
-            var payloadBytes = payload.ToArray();
-            var hashBytes = new byte[hash.Length];
-            digest.BlockUpdate(payloadBytes, 0, payloadBytes.Length);
-            digest.DoFinal(hashBytes, 0);
-            hashBytes.CopyTo(hash);
+            digest.BlockUpdate(payload);
+            digest.DoFinal(hash);
         }
 
         internal void ComputeHash(ReadOnlySpan<byte> payload, byte[] hash)
@@ -358,19 +355,16 @@ namespace PNet.Mesh
             ComputeHash(payload, hash.AsSpan());
         }
 
-        internal void ComputeKeyedMac(ReadOnlySpan<byte> key, ReadOnlySpan<byte> payload, Span<byte> mac)
+        internal void ComputeKeyedMac(byte[] key, ReadOnlySpan<byte> payload, Span<byte> mac)
         {
             ComputeMac(key, payload, mac);
         }
 
-        void ComputeMac(ReadOnlySpan<byte> key, ReadOnlySpan<byte> payload, Span<byte> mac)
+        void ComputeMac(byte[] key, ReadOnlySpan<byte> payload, Span<byte> mac)
         {
-            var digest = new Blake2sDigest(key.ToArray(), mac.Length, null, null);
-            var payloadBytes = payload.ToArray();
-            var macBytes = new byte[mac.Length];
-            digest.BlockUpdate(payloadBytes, 0, payloadBytes.Length);
-            digest.DoFinal(macBytes, 0);
-            macBytes.CopyTo(mac);
+            var digest = new Blake2sDigest(key, mac.Length, null, null);
+            digest.BlockUpdate(payload);
+            digest.DoFinal(mac);
         }
     }
 

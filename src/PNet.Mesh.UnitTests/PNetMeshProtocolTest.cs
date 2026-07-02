@@ -40,6 +40,37 @@ namespace PNet.Actor.UnitTests.Mesh
         }
 
         [Fact]
+        public void wireguard_blake2s_helper_allocations_do_not_scale_with_payload_size()
+        {
+            var protocol = new PNetMeshProtocol(new byte[32], new byte[32]);
+            var key = Enumerable.Range(0, 32).Select(i => (byte)(0x20 + i)).ToArray();
+            var hash = new byte[32];
+            var mac = new byte[16];
+
+            var smallPayload = Enumerable.Range(0, 64).Select(i => (byte)i).ToArray();
+            var largePayload = Enumerable.Range(0, 8192).Select(i => (byte)i).ToArray();
+            var payloadGrowth = largePayload.Length - smallPayload.Length;
+
+            var smallAllocated = MeasureHelperAllocation(smallPayload);
+            var largeAllocated = MeasureHelperAllocation(largePayload);
+
+            Assert.True(
+                largeAllocated - smallAllocated < payloadGrowth,
+                $"Expected hash/MAC helper allocation not to scale with payload size, but small allocated {smallAllocated} bytes and large allocated {largeAllocated} bytes.");
+
+            long MeasureHelperAllocation(byte[] payload)
+            {
+                protocol.ComputeHash(payload, hash);
+                protocol.ComputeKeyedMac(key, payload, mac);
+
+                var before = GC.GetAllocatedBytesForCurrentThread();
+                protocol.ComputeHash(payload, hash);
+                protocol.ComputeKeyedMac(key, payload, mac);
+                return GC.GetAllocatedBytesForCurrentThread() - before;
+            }
+        }
+
+        [Fact]
         public void wireguard_transport_mode_completes_blake2s_noise_handshake_and_transport_exchange()
         {
             Span<byte> buffer1 = new byte[4098];

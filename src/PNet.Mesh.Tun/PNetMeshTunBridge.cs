@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PNet.Mesh;
 using System;
@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace PNet.Mesh.Tun
@@ -33,13 +34,14 @@ namespace PNet.Mesh.Tun
 
         public async Task RunAsync(CancellationToken cancellationToken = default)
         {
-            var workers = new List<Task>(_peers.Length + 1)
+            var workers = new List<Task>(_peers.Length * 2 + 1)
             {
                 RunTunReaderAsync(cancellationToken)
             };
 
             foreach (var peer in _peers)
             {
+                workers.Add(RunPeerWriterAsync(peer, cancellationToken));
                 workers.Add(RunPeerReaderAsync(peer, cancellationToken));
             }
 
@@ -69,16 +71,15 @@ namespace PNet.Mesh.Tun
                     continue;
                 }
 
-                var channel = await peer.GetChannelAsync(_server, cancellationToken);
                 var packetBytes = buffer.AsSpan(0, packet.TotalLength).ToArray();
-                if (!channel.TryWrite(packetBytes.AsMemory()))
+                if (!peer.TryQueuePacket(packetBytes))
                 {
-                    _logger.LogWarning("dropping packet to {peerName} because the mesh channel is backpressured", peer.Route.Name);
+                    _logger.LogWarning("dropping packet to {peerName} because the peer send queue is full", peer.Route.Name);
                     continue;
                 }
 
                 _logger.LogDebug(
-                    "forwarded {packetLength} byte packet from TUN {interfaceName} to peer {peerName}: {sourceAddress} -> {destinationAddress}",
+                    "queued {packetLength} byte packet from TUN {interfaceName} to peer {peerName}: {sourceAddress} -> {destinationAddress}",
                     packet.TotalLength,
                     _tunDevice.Name,
                     peer.Route.Name,
@@ -87,13 +88,32 @@ namespace PNet.Mesh.Tun
             }
         }
 
+        async Task RunPeerWriterAsync(PeerState peer, CancellationToken cancellationToken)
+        {
+            while (await peer.WaitToSendAsync(cancellationToken))
+            {
+                while (peer.TryTakePacket(out var payload))
+                {
+                    try
+                    {
+                        var channel = await peer.GetChannelAsync(_server, cancellationToken);
+                        await channel.EnqueueUnreliableWriteAsync(payload, cancellationToken);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "dropping packet to {peerName} because the mesh channel did not accept it", peer.Route.Name);
+                    }
+                }
+            }
+        }
+
         async Task RunPeerReaderAsync(PeerState peer, CancellationToken cancellationToken)
         {
             var channel = await peer.GetChannelAsync(_server, cancellationToken);
-            if (!channel.TryWrite(ReadOnlyMemory<byte>.Empty))
-            {
-                _logger.LogWarning("warmup payload to peer {peerName} was dropped because the mesh channel is backpressured", peer.Route.Name);
-            }
 
             while (await channel.WaitToReadAsync(cancellationToken))
             {
@@ -179,6 +199,13 @@ namespace PNet.Mesh.Tun
         {
             // multi-threading: the TUN reader and peer reader startup loops can both open the same peer channel; serialize first connect and cache one channel.
             readonly SemaphoreSlim _connectLock = new SemaphoreSlim(1, 1);
+            readonly Channel<ReadOnlyMemory<byte>> _sendQueue = Channel.CreateBounded<ReadOnlyMemory<byte>>(new BoundedChannelOptions(256)
+            {
+                AllowSynchronousContinuations = true,
+                SingleReader = true,
+                SingleWriter = false,
+                FullMode = BoundedChannelFullMode.Wait
+            });
             PNetMeshChannel _channel;
 
             public PeerState(PNetMeshTunPeerRoute route)
@@ -191,6 +218,21 @@ namespace PNet.Mesh.Tun
             public bool AllowsSource(IPAddress sourceAddress)
             {
                 return Route.AllowedIPs.Any(prefix => prefix.Contains(sourceAddress));
+            }
+
+            public bool TryQueuePacket(ReadOnlyMemory<byte> packet)
+            {
+                return _sendQueue.Writer.TryWrite(packet);
+            }
+
+            public ValueTask<bool> WaitToSendAsync(CancellationToken cancellationToken)
+            {
+                return _sendQueue.Reader.WaitToReadAsync(cancellationToken);
+            }
+
+            public bool TryTakePacket(out ReadOnlyMemory<byte> packet)
+            {
+                return _sendQueue.Reader.TryRead(out packet);
             }
 
             public async ValueTask<PNetMeshChannel> GetChannelAsync(PNetMeshServer server, CancellationToken cancellationToken)

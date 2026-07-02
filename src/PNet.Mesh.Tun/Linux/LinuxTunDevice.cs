@@ -1,4 +1,4 @@
-using Microsoft.Win32.SafeHandles;
+﻿using Microsoft.Win32.SafeHandles;
 using System;
 using System.IO;
 using System.Threading;
@@ -42,7 +42,9 @@ namespace PNet.Mesh.Tun.Linux
                     FileOptions.Asynchronous);
 
                 var actualName = LinuxTunInterop.ConfigureTun(handle, interfaceName, exclusive);
-                var stream = new FileStream(handle, FileAccess.ReadWrite, mtu, isAsync: true);
+                // TUN is a packet device; buffering writes in FileStream batches packets until
+                // the buffer fills, which turns small ping/iperf probes into delayed bursts.
+                var stream = new FileStream(handle, FileAccess.ReadWrite, bufferSize: 1, isAsync: true);
                 handle = null;
                 return ValueTask.FromResult(new LinuxTunDevice(actualName, mtu, stream));
             }

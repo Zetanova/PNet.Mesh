@@ -182,5 +182,54 @@ namespace PNet.Actor.UnitTests.Mesh
 
             Assert.Equal(new byte[] { 0x87 }.Concat(payload).Concat(new byte[7]), frame);
         }
+
+        [Fact]
+        public void try_write_pnet_copies_payload_and_clears_padding()
+        {
+            var payload = Encoding.ASCII.GetBytes("protobuf");
+            var buffer = Enumerable.Repeat((byte)0xcc, 32).ToArray();
+
+            Assert.True(PNetMeshPayloadFraming.TryWritePNet(
+                payload,
+                buffer,
+                out var bytesWritten,
+                hasExtendedHeaderSignal: true));
+
+            Assert.Equal(16, bytesWritten);
+            Assert.Equal(new byte[] { 0x87 }.Concat(payload).Concat(new byte[7]), buffer.AsSpan(0, bytesWritten).ToArray());
+            Assert.All(buffer.Skip(bytesWritten), b => Assert.Equal(0xcc, b));
+        }
+
+        [Fact]
+        public void try_write_pnet_reports_required_size_without_writing_short_destination()
+        {
+            var buffer = Enumerable.Repeat((byte)0xcc, 15).ToArray();
+
+            Assert.False(PNetMeshPayloadFraming.TryWritePNet(
+                ReadOnlySpan<byte>.Empty,
+                buffer,
+                out var bytesWritten));
+
+            Assert.Equal(16, bytesWritten);
+            Assert.All(buffer, b => Assert.Equal(0xcc, b));
+        }
+
+        [Fact]
+        public void try_write_pnet_in_place_preserves_payload_and_clears_padding()
+        {
+            var payload = Encoding.ASCII.GetBytes("protobuf");
+            var buffer = Enumerable.Repeat((byte)0xcc, 32).ToArray();
+            payload.CopyTo(buffer.AsSpan(1));
+
+            Assert.True(PNetMeshPayloadFraming.TryWritePNet(
+                buffer,
+                payload.Length,
+                out var bytesWritten,
+                hasExtendedHeaderSignal: true));
+
+            Assert.Equal(16, bytesWritten);
+            Assert.Equal(new byte[] { 0x87 }.Concat(payload).Concat(new byte[7]), buffer.AsSpan(0, bytesWritten).ToArray());
+            Assert.All(buffer.Skip(bytesWritten), b => Assert.Equal(0xcc, b));
+        }
     }
 }

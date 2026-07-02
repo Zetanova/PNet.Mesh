@@ -81,6 +81,16 @@ public class WireGuardTransportBenchmarks
         return PNetMeshPayloadFraming.CreatePNet(_payload.AsSpan(0, PayloadSize));
     }
 
+    [Benchmark(Description = "PNet frame write")]
+    [BenchmarkCategory("framing")]
+    public int TryWritePNetFrame()
+    {
+        if (!PNetMeshPayloadFraming.TryWritePNet(_payload.AsSpan(0, PayloadSize), _plaintext, out var bytesWritten))
+            throw new InvalidOperationException("PNet frame buffer was too small.");
+
+        return bytesWritten;
+    }
+
     [Benchmark(Description = "PNet frame read")]
     [BenchmarkCategory("framing")]
     public int TryReadPNetFrame()

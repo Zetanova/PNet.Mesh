@@ -88,6 +88,10 @@ namespace PNet.Mesh
 
         internal EndPoint PendingDirectEndpoint => _endpointDiscovery.CandidateEndpoint;
 
+        internal bool AllowOutOfOrderPayloadDelivery { get; set; }
+
+        internal bool UnreliablePayloadDelivery { get; set; }
+
         internal bool SupportsDirectEndpointDiscovery => true;
 
         internal bool TryApplyDirectEndpointHint(EndPoint endpoint, DateTimeOffset now)
@@ -155,6 +159,8 @@ namespace PNet.Mesh
 
         public event EventHandler StatusChanged;
 
+        internal event EventHandler MessageReceived;
+
         //public PNetMeshChannel Channel { get; set; }
 
         ChannelWriter<ReadOnlyMemory<byte>> _inboundWriter;
@@ -178,7 +184,9 @@ namespace PNet.Mesh
         readonly object _receiveStateLock = new object();
         ulong _receiveCounter = 0;
         ulong _receiveAck = 0;
+        ulong _receiveAckRequired = 0;
         readonly SortedDictionary<ulong, Protos.Packet> _pendingPackets = new SortedDictionary<ulong, Protos.Packet>();
+        readonly HashSet<ulong> _deliveredOutOfOrderPackets = new HashSet<ulong>();
         int _cumAck_max = 2;
         //int _cumAck_count = 0;
         int _cumAck_timeout = 100;
@@ -186,7 +194,7 @@ namespace PNet.Mesh
         int _outOfOrder_max = 2;
         int _outOfOrder_count = 0;
         // multi-threading: SYN negotiation publishes send-side limits on the receive thread while the channel control/timer loop reads them for outbound gating.
-        int _outstanding_max = 1;
+        int _outstanding_max = 32;
         int _packetSize_max = ushort.MaxValue - 8;
 
         int _retrans_timeout = 250;
@@ -347,6 +355,21 @@ namespace PNet.Mesh
             Debug.Assert(bytesWritten == PNetMeshHandshake.ResponseMessageSize);
 
             Status = PNetMeshSessionStatus.Opening;
+            var openAfterResponse = RemoteEndPoint is not null;
+            if (openAfterResponse)
+            {
+                lock (_openPacketLock)
+                {
+                    if (_disposing || Status == PNetMeshSessionStatus.Disposed || Status == PNetMeshSessionStatus.Closed)
+                    {
+                        buffer.Dispose();
+                        _transport?.Dispose();
+                        return;
+                    }
+
+                    _openPacket = new Protos.Packet();
+                }
+            }
 
             //send response message
             var item = new PNetMeshOutboundMessages.Packet
@@ -367,6 +390,9 @@ namespace PNet.Mesh
                 Status = PNetMeshSessionStatus.Closed;
                 return;
             }
+
+            if (openAfterResponse)
+                Status = PNetMeshSessionStatus.Open;
         }
 
         public void ReadResponse(ReadOnlySpan<byte> payload)
@@ -405,6 +431,11 @@ namespace PNet.Mesh
 
         public void WritePayload(ReadOnlySpan<byte> payload, TaskCompletionSource result)
         {
+            WritePayload(payload, result, UnreliablePayloadDelivery);
+        }
+
+        internal void WritePayload(ReadOnlySpan<byte> payload, TaskCompletionSource result, bool unreliablePayloadDelivery)
+        {
             TaskCompletionSource[] results = null;
             Exception resultException = null;
             try
@@ -425,9 +456,14 @@ namespace PNet.Mesh
                     {
                         EnsurePacketSize(CalculatePNetFrameSize(_openPacket), nameof(payload));
 
-                        if (HasSendWindow())
+                        if (unreliablePayloadDelivery || HasSendWindow())
                         {
-                            WriteOpenPacketOrFail(nameof(payload), failBatchOnSizeError: false, out results, out resultException);
+                            WriteOpenPacketOrFail(
+                                nameof(payload),
+                                failBatchOnSizeError: false,
+                                trackForRetransmit: !unreliablePayloadDelivery,
+                                out results,
+                                out resultException);
                         }
                     }
                     catch (Exception ex)
@@ -527,7 +563,12 @@ namespace PNet.Mesh
 
                         if (HasSendWindow())
                         {
-                            WriteOpenPacketOrFail(nameof(packet), failBatchOnSizeError: false, out results, out resultException);
+                            WriteOpenPacketOrFail(
+                                nameof(packet),
+                                failBatchOnSizeError: false,
+                                trackForRetransmit: true,
+                                out results,
+                                out resultException);
                         }
                     }
                     catch (Exception ex)
@@ -560,7 +601,12 @@ namespace PNet.Mesh
                 lock (_openPacketLock)
                 {
                     if (HasOpenPacket() && HasSendWindow())
-                        WriteOpenPacketOrFail("packet", failBatchOnSizeError: true, out results, out resultException);
+                        WriteOpenPacketOrFail(
+                            "packet",
+                            failBatchOnSizeError: true,
+                            trackForRetransmit: true,
+                            out results,
+                            out resultException);
                 }
             }
             finally
@@ -597,7 +643,12 @@ namespace PNet.Mesh
 
                     if (HasSendWindow())
                     {
-                        WriteOpenPacketOrFail("packet", failBatchOnSizeError: true, out results, out resultException);
+                        WriteOpenPacketOrFail(
+                            "packet",
+                            failBatchOnSizeError: true,
+                            trackForRetransmit: true,
+                            out results,
+                            out resultException);
                         return;
                     }
 
@@ -628,7 +679,12 @@ namespace PNet.Mesh
             try
             {
                 lock (_openPacketLock)
-                    WriteOpenPacketOrFail("packet", failBatchOnSizeError: true, out results, out resultException);
+                    WriteOpenPacketOrFail(
+                        "packet",
+                        failBatchOnSizeError: true,
+                        trackForRetransmit: true,
+                        out results,
+                        out resultException);
             }
             finally
             {
@@ -638,7 +694,12 @@ namespace PNet.Mesh
 
         TaskCompletionSource[] WritePacket(string sizeParamName)
         {
-            return WritePacket(_openPacket.Clone(), clearOpenPacket: true, sizeParamName);
+            return WritePacket(sizeParamName, trackForRetransmit: true);
+        }
+
+        TaskCompletionSource[] WritePacket(string sizeParamName, bool trackForRetransmit)
+        {
+            return WritePacket(_openPacket.Clone(), clearOpenPacket: true, sizeParamName, trackForRetransmit);
         }
 
         void WriteControlPacket()
@@ -652,15 +713,18 @@ namespace PNet.Mesh
             if (Status != PNetMeshSessionStatus.Open)
                 throw new InvalidOperationException("session not open");
 
-            var packetSize = PreparePacketForWrite(packet, sizeParamName);
+            var packetSize = PreparePacketForWrite(packet, sizeParamName, trackForRetransmit);
             TryGetDirectProbeEndpoint(DateTimeOffset.UtcNow, out var directProbeEndPoint);
 
-            using var packetBuffer = MemoryPool<byte>.Shared.Rent(packetSize);
+            var frameSize = PNetMeshPayloadFraming.CalculatePNetFrameSize(packetSize);
+            using var frameBuffer = MemoryPool<byte>.Shared.Rent(frameSize);
 
-            var payload = packetBuffer.Memory.Span.Slice(0, packetSize);
-
-            packet.WriteTo(payload);
-            var frame = PNetMeshPayloadFraming.CreatePNet(payload);
+            var frame = frameBuffer.Memory.Span.Slice(0, frameSize);
+            packet.WriteTo(frame.Slice(1, packetSize));
+            if (!PNetMeshPayloadFraming.TryWritePNet(frame, packetSize, out var frameBytesWritten))
+                throw new InvalidOperationException("Unable to write PNet frame.");
+            Debug.Assert(frameBytesWritten == frameSize);
+            frame = frame.Slice(0, frameBytesWritten);
 
             if (trackForRetransmit)
             {
@@ -673,7 +737,6 @@ namespace PNet.Mesh
                         rented = true;
                         _transport.WriteMessage(frame, buffer.Span, out var byteWritten, out var counter);
                         Debug.Assert(counter == _retransBuffer.Current);
-
                         var item = new PNetMeshOutboundMessages.Packet
                         {
                             MemoryOwner = null,
@@ -693,6 +756,7 @@ namespace PNet.Mesh
                             throw new InvalidOperationException("Unable to queue outbound packet.");
                         }
 
+                        UpdateRetransmissionTimer();
                         rented = false;
                     }
                     catch
@@ -775,6 +839,7 @@ namespace PNet.Mesh
         void WriteOpenPacketOrFail(
             string sizeParamName,
             bool failBatchOnSizeError,
+            bool trackForRetransmit,
             out TaskCompletionSource[] results,
             out Exception resultException)
         {
@@ -782,7 +847,7 @@ namespace PNet.Mesh
             resultException = null;
             try
             {
-                results = WritePacket(sizeParamName);
+                results = WritePacket(sizeParamName, trackForRetransmit);
             }
             catch (ArgumentOutOfRangeException) when (!failBatchOnSizeError)
             {
@@ -841,10 +906,15 @@ namespace PNet.Mesh
 
         int PreparePacketForWrite(Protos.Packet packet, string sizeParamName)
         {
+            return PreparePacketForWrite(packet, sizeParamName, trackForRetransmit: true);
+        }
+
+        int PreparePacketForWrite(Protos.Packet packet, string sizeParamName, bool trackForRetransmit)
+        {
             lock (_receiveStateLock)
             {
                 ulong? receiveAck = null;
-                if (_receiveAck < _receiveCounter || _pendingPackets.Count > 0)
+                if (_receiveAck < _receiveAckRequired || _pendingPackets.Count > 0)
                 {
                     var ackSeqNumber = _receiveCounter;
 
@@ -863,7 +933,7 @@ namespace PNet.Mesh
                     receiveAck = ackSeqNumber;
                 }
 
-                packet.DoNotAck = packet.Payload.Count == 0 && packet.Relay.Count == 0;
+                packet.DoNotAck = !trackForRetransmit || (packet.Payload.Count == 0 && packet.Relay.Count == 0);
 
                 var packetSize = packet.CalculateSize();
                 var frameSize = PNetMeshPayloadFraming.CalculatePNetFrameSize(packetSize);
@@ -918,6 +988,8 @@ namespace PNet.Mesh
                             return;
                         }
                     }
+
+                    UpdateRetransmissionTimer();
                 }
             }
         }
@@ -930,6 +1002,8 @@ namespace PNet.Mesh
         public bool TryReadMessage(ReadOnlySpan<byte> payload)
         {
             using var buffer = MemoryPool<byte>.Shared.Rent(payload.Length);
+            bool result;
+            bool payloadReceived;
 
             if (Status == PNetMeshSessionStatus.Opening)
             {
@@ -939,19 +1013,28 @@ namespace PNet.Mesh
                         return false;
 
                     lock (_receiveStateLock)
-                        return ReadMessage(payload, buffer.Memory, openResponderSession: true);
+                        result = ReadMessage(payload, buffer.Memory, openResponderSession: true, out payloadReceived);
                 }
             }
+            else
+            {
+                lock (_receiveStateLock)
+                    result = ReadMessage(payload, buffer.Memory, openResponderSession: false, out payloadReceived);
+            }
 
-            lock (_receiveStateLock)
-                return ReadMessage(payload, buffer.Memory, openResponderSession: false);
+            if (result && payloadReceived)
+                MessageReceived?.Invoke(this, EventArgs.Empty);
+
+            return result;
         }
 
         bool ReadMessage(
             ReadOnlySpan<byte> payload,
             Memory<byte> buffer,
-            bool openResponderSession)
+            bool openResponderSession,
+            out bool payloadReceived)
         {
+            payloadReceived = false;
             if (!_transport.TryReadMessage(payload, buffer.Span, out var bytesWritten, out var counter))
             {
                 //buffer.Dispose();
@@ -982,7 +1065,7 @@ namespace PNet.Mesh
                 || frame.Kind != PNetMeshPayloadFrameKind.PNet)
                 return false;
 
-            var packet = Protos.Packet.Parser.ParseFrom(frame.Payload.ToArray());
+            var packet = Protos.Packet.Parser.ParseFrom(frame.Payload);
             ProcessAck(packet);
 
             if (Status != PNetMeshSessionStatus.Open)
@@ -990,8 +1073,21 @@ namespace PNet.Mesh
 
             if (counter > _receiveCounter)
             {
+                if (packet.DoNotAck && HasPayload(packet))
+                {
+                    payloadReceived |= ProcessPacket(packet);
+                    UpdateAckTimer(packet);
+                    return true;
+                }
+
+                MarkAckRequired(packet, counter);
                 _pendingPackets[counter] = packet;
                 _outOfOrder_count = _pendingPackets.Count;
+                if (AllowOutOfOrderPayloadDelivery && HasPayload(packet))
+                {
+                    payloadReceived |= ProcessPacket(packet);
+                    _deliveredOutOfOrderPackets.Add(counter);
+                }
                 UpdateAckTimer(packet);
                 return true;
             }
@@ -999,13 +1095,15 @@ namespace PNet.Mesh
             if (counter < _receiveCounter)
                 return false;
 
-            ProcessPacket(packet);
+            MarkAckRequired(packet, counter);
+            payloadReceived |= ProcessPacket(packet);
             _receiveCounter++;
 
             while (_pendingPackets.TryGetValue(_receiveCounter, out var pendingPacket))
             {
                 _pendingPackets.Remove(_receiveCounter);
-                ProcessPacket(pendingPacket);
+                if (!_deliveredOutOfOrderPackets.Remove(_receiveCounter))
+                    payloadReceived |= ProcessPacket(pendingPacket);
                 _receiveCounter++;
             }
 
@@ -1017,10 +1115,13 @@ namespace PNet.Mesh
         void UpdateAckTimer(Protos.Packet packet)
         {
             var ackTimeout = _cumAck_timeout;
-            //todo use donotack field
-            if (packet.DoNotAck && _receiveCounter - _receiveAck <= 1 && _pendingPackets.Count == 0)
+            var pendingAckCount = _receiveAckRequired > _receiveAck
+                ? _receiveAckRequired - _receiveAck
+                : 0;
+
+            if (packet.DoNotAck && pendingAckCount == 0 && _pendingPackets.Count == 0)
                 ackTimeout = Timeout.Infinite;
-            if ((int)(_receiveCounter - _receiveAck) >= _cumAck_max)
+            if ((int)pendingAckCount >= _cumAck_max)
                 ackTimeout = 0;
             if (_outOfOrder_count >= _outOfOrder_max || _pendingPackets.Count > 0)
                 ackTimeout = 0;
@@ -1028,8 +1129,15 @@ namespace PNet.Mesh
             _cumAckTimer?.Change(ackTimeout, Timeout.Infinite);
         }
 
-        void ProcessPacket(Protos.Packet packet)
+        void MarkAckRequired(Protos.Packet packet, ulong counter)
         {
+            if (!packet.DoNotAck)
+                _receiveAckRequired = Math.Max(_receiveAckRequired, counter + 1);
+        }
+
+        bool ProcessPacket(Protos.Packet packet)
+        {
+            var payloadReceived = false;
             if (packet.Syn is not null)
             {
                 var syn = packet.Syn;
@@ -1167,7 +1275,11 @@ namespace PNet.Mesh
                 switch (p.DataCase)
                 {
                     case Protos.Payload.DataOneofCase.Raw:
-                        if (!_inboundWriter.TryWrite(p.Raw.Memory))
+                        if (_inboundWriter.TryWrite(p.Raw.Memory))
+                        {
+                            payloadReceived = true;
+                        }
+                        else
                         {
                             //log write inbound error
                         }
@@ -1177,6 +1289,13 @@ namespace PNet.Mesh
                         break;
                 }
             }
+
+            return payloadReceived;
+        }
+
+        static bool HasPayload(Protos.Packet packet)
+        {
+            return packet.Payload.Count > 0;
         }
 
         void ProcessAck(Protos.Packet packet)
@@ -1194,7 +1313,6 @@ namespace PNet.Mesh
                 OutOfOrder = outOfOrder
             };
 
-            var retransTimeout = _retrans_timeout;
             ulong retransmitBase;
             lock (_remoteAckLock)
             {
@@ -1212,6 +1330,8 @@ namespace PNet.Mesh
 
                     if (remoteAck.SeqNumber > 0)
                         _retransBuffer.RemoveUntil(remoteAck.SeqNumber - 1);
+                    if (remoteAck.OutOfOrder.Length > 0)
+                        _retransBuffer.RemoveSequence(remoteAck.OutOfOrder);
                     retransmitBase = _retransBuffer.Latest;
                 }
 
@@ -1227,8 +1347,7 @@ namespace PNet.Mesh
                 });
             }
 
-            //todo start retransTimer on send and disable when no unconfirmed packets
-            _retransTimer?.Change(retransTimeout, Timeout.Infinite);
+            UpdateRetransmissionTimer();
 
             QueueControl(new PNetMeshChannelCommands.Invoke
             {
@@ -1360,7 +1479,25 @@ namespace PNet.Mesh
         bool HasPendingAck()
         {
             lock (_receiveStateLock)
-                return _receiveAck < _receiveCounter || _pendingPackets.Count > 0;
+                return _receiveAck < _receiveAckRequired || _pendingPackets.Count > 0;
+        }
+
+        void UpdateRetransmissionTimer()
+        {
+            var dueTime = Timeout.Infinite;
+            lock (_retransBufferLock)
+            {
+                if (!_disposing && Status == PNetMeshSessionStatus.Open && _retransBuffer.Count > 0)
+                    dueTime = _retrans_timeout;
+            }
+
+            try
+            {
+                _retransTimer?.Change(dueTime, Timeout.Infinite);
+            }
+            catch (ObjectDisposedException)
+            {
+            }
         }
 
         void EnsurePacketSize(int packetSize, string paramName)

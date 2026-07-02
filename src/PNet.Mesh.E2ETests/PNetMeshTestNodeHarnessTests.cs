@@ -2,6 +2,7 @@
 using PNet.Mesh;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Net;
@@ -663,14 +664,7 @@ public sealed class PNetMeshTestNodeHarnessTests
             containers[node.Name] = await harness.StartNodeAsync(node, timeout.Token);
         }
 
-        var logsByNode = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var node in nodes)
-        {
-            logsByNode[node.Name] = await PNetMeshTestNodeHarness.WaitForLogsAsync(
-                containers[node.Name],
-                expectedLogsByNode[node.Name],
-                timeout.Token);
-        }
+        var logsByNode = await WaitForTopologyLogsAsync(containers, expectedLogsByNode, timeout.Token);
 
         foreach (var entry in logsByNode.OrderBy(n => n.Key, StringComparer.Ordinal))
         {
@@ -694,11 +688,18 @@ public sealed class PNetMeshTestNodeHarnessTests
         DateTime? sinceUtc = null)
     {
         var logsByNode = new Dictionary<string, string>(StringComparer.Ordinal);
+        var currentWait = new Stopwatch();
+        var currentNode = string.Empty;
+        var currentExpectedLogs = Array.Empty<string>();
 
         try
         {
             foreach (var entry in expectedLogsByNode)
             {
+                currentNode = entry.Key;
+                currentExpectedLogs = entry.Value;
+                currentWait.Restart();
+
                 logsByNode[entry.Key] = sinceUtc.HasValue
                     ? await PNetMeshTestNodeHarness.WaitForLogsAsync(
                         containers[entry.Key],
@@ -720,13 +721,16 @@ public sealed class PNetMeshTestNodeHarnessTests
                 logsByNode[entry.Key] = await GetLogsForFailureAsync(entry.Value);
             }
 
+            var waitContext = string.IsNullOrEmpty(currentNode)
+                ? "before waiting for any node."
+                : $"while waiting for node '{currentNode}' after {currentWait.Elapsed:c}. Expected logs: {string.Join(" | ", currentExpectedLogs)}.";
             var message = string.Join(
                 Environment.NewLine,
                 logsByNode
                     .OrderBy(n => n.Key, StringComparer.Ordinal)
                     .Select(n => $"===== {n.Key} ====={Environment.NewLine}{n.Value}"));
 
-            throw new InvalidOperationException($"Topology did not emit expected logs. All container logs:{Environment.NewLine}{message}", ex);
+            throw new InvalidOperationException($"Topology did not emit expected logs {waitContext}{Environment.NewLine}All container logs:{Environment.NewLine}{message}", ex);
         }
     }
 

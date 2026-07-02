@@ -309,7 +309,9 @@ namespace PNet.Mesh
                                                 sessions.Add(senderIndex, session);
 
                                                 session.WriteResponse();
-                                                Debug.Assert(session.Status == PNetMeshSessionStatus.Opening);
+                                                Debug.Assert(session.RemoteEndPoint is null
+                                                    ? session.Status == PNetMeshSessionStatus.Opening
+                                                    : session.Status == PNetMeshSessionStatus.Open);
 
                                                 if (session.RemoteEndPoint is not null)
                                                     _router.SetEntry(session.RemoteAddress, session.RemoteEndPoint);
@@ -410,12 +412,7 @@ namespace PNet.Mesh
                                             .Select(n => PNetMeshUtils.ParseEndPoint(n));
                                     }
 
-                                    //todo async dns lookup
-                                    endpoints = endpoints.SelectMany(n => n switch
-                                    {
-                                        DnsEndPoint ep => Dns.GetHostAddresses(ep.Host).Select(p => (EndPoint)new IPEndPoint(p, ep.Port)),
-                                        EndPoint ep => new[] { ep }
-                                    });
+                                    endpoints = ResolveRemoteEndPoints(endpoints);
 
                                     //todo check multi session support
                                     foreach (var ep in endpoints)
@@ -735,7 +732,8 @@ namespace PNet.Mesh
                                     Result = null
                                 };
 
-                                if (!_controlChannel.Writer.TryWrite(cmd))
+                                var controlWriter = _controlChannel?.Writer;
+                                if (controlWriter is null || !controlWriter.TryWrite(cmd))
                                 {
                                     _logger.LogWarning(
                                         "event=relay_packet_enqueue_failed destination_id={destinationId}",
@@ -754,7 +752,8 @@ namespace PNet.Mesh
                                     Result = null
                                 };
 
-                                if (!_controlChannel.Writer.TryWrite(cmd))
+                                var controlWriter = _controlChannel?.Writer;
+                                if (controlWriter is null || !controlWriter.TryWrite(cmd))
                                 {
                                     _logger.LogWarning(
                                         "event=relay_packet_enqueue_failed destination_id={destinationId}",
@@ -768,8 +767,6 @@ namespace PNet.Mesh
                 }
             }
             while (await reader.WaitToReadAsync());
-
-            sendChannel.Writer.Complete();
 
             _logger.LogDebug("outbound process completed");
         }
@@ -811,20 +808,27 @@ namespace PNet.Mesh
             if (cmd.RemoteEndPoint is null)
                 return;
 
-            if (session.TryPromoteDirectEndpoint(cmd.RemoteEndPoint, DateTimeOffset.UtcNow))
+            var remoteEndPoint = NormalizeRemoteEndPoint(cmd.RemoteEndPoint);
+            if (EndPointsEqual(session.RemoteEndPoint, remoteEndPoint))
+            {
+                _router.SetEntry(session.RemoteAddress, session.RemoteEndPoint);
+                return;
+            }
+
+            if (session.TryPromoteDirectEndpoint(remoteEndPoint, DateTimeOffset.UtcNow))
             {
                 _logger.LogInformation(
                     "event=wireguard_direct_promoted session={sessionIndex} endpoint_id={endpointId}",
                     session.SenderIndex,
-                    PNetMeshDiagnosticRedactor.EndpointId(cmd.RemoteEndPoint));
+                    PNetMeshDiagnosticRedactor.EndpointId(remoteEndPoint));
             }
             else
             {
                 _logger.LogInformation(
                     "event=wireguard_direct_fallback session={sessionIndex} endpoint_id={endpointId}",
                     session.SenderIndex,
-                    PNetMeshDiagnosticRedactor.EndpointId(cmd.RemoteEndPoint));
-                session.ConfirmRemoteEndpoint(cmd.RemoteEndPoint);
+                    PNetMeshDiagnosticRedactor.EndpointId(remoteEndPoint));
+                session.ConfirmRemoteEndpoint(remoteEndPoint);
             }
 
             _router.SetEntry(session.RemoteAddress, session.RemoteEndPoint);
@@ -940,16 +944,70 @@ namespace PNet.Mesh
             };
         }
 
+        internal static IEnumerable<EndPoint> ResolveRemoteEndPoints(IEnumerable<EndPoint> endpoints)
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var endpoint in endpoints)
+            {
+                var resolved = endpoint switch
+                {
+                    DnsEndPoint dns => Dns.GetHostAddresses(dns.Host).Select(address => (EndPoint)new IPEndPoint(address, dns.Port)),
+                    null => Array.Empty<EndPoint>(),
+                    _ => new[] { endpoint }
+                };
+
+                foreach (var candidate in resolved.Select(NormalizeRemoteEndPoint))
+                {
+                    if (seen.Add(GetEndPointKey(candidate)))
+                        yield return candidate;
+                }
+            }
+        }
+
+        internal static EndPoint NormalizeRemoteEndPoint(EndPoint endpoint)
+        {
+            return endpoint switch
+            {
+                IPEndPoint ip when ip.Address.IsIPv4MappedToIPv6 => new IPEndPoint(ip.Address.MapToIPv4(), ip.Port),
+                _ => endpoint
+            };
+        }
+
+        internal static PNetMeshControlCommands.Receive CreateReceiveCommand(
+            IMemoryOwner<byte> memoryOwner,
+            EndPoint localEndPoint,
+            EndPoint remoteEndPoint,
+            ReadOnlyMemory<byte> memoryBuffer)
+        {
+            return new PNetMeshControlCommands.Receive
+            {
+                MemoryOwner = memoryOwner,
+                LocalEndPoint = localEndPoint,
+                RemoteEndPoint = NormalizeRemoteEndPoint(remoteEndPoint),
+                MemoryBuffer = memoryBuffer
+            };
+        }
+
+        static string GetEndPointKey(EndPoint endpoint)
+        {
+            return endpoint switch
+            {
+                IPEndPoint ip => $"ip:{ip.AddressFamily}:{ip.Address}:{ip.Port}",
+                DnsEndPoint dns => $"dns:{dns.Host}:{dns.Port}",
+                null => "null",
+                _ => endpoint.ToString()
+            };
+        }
+
+        static bool EndPointsEqual(EndPoint left, EndPoint right)
+        {
+            return string.Equals(GetEndPointKey(left), GetEndPointKey(right), StringComparison.OrdinalIgnoreCase);
+        }
+
         static void ProcessSend(object sender, SocketAsyncEventArgs args)
         {
-            //var socket = sender as Socket;
             var item = args.UserToken as PNetMeshSocketSendWorkItem;
-
-            if (args.SocketError != SocketError.Success)
-            {
-                //todo error
-                //_logger.LogError("socket error");
-            }
 
             item.MemoryOwner?.Dispose();
             item.Writer.TryWrite(args);
@@ -976,13 +1034,11 @@ namespace PNet.Mesh
                     if (ShouldAcceptReceivedPacket(socket, item, args, data))
                     {
                         //try write packet to channel
-                        var cmd = new PNetMeshControlCommands.Receive
-                        {
-                            MemoryOwner = item.MemoryOwner,
-                            LocalEndPoint = socket.LocalEndPoint,
-                            RemoteEndPoint = args.RemoteEndPoint,
-                            MemoryBuffer = args.MemoryBuffer.Slice(args.Offset, args.BytesTransferred)
-                        };
+                        var cmd = CreateReceiveCommand(
+                            item.MemoryOwner,
+                            socket.LocalEndPoint,
+                            args.RemoteEndPoint,
+                            args.MemoryBuffer.Slice(args.Offset, args.BytesTransferred));
 
                         if (!item.Writer.TryWrite(cmd))
                         {
@@ -1094,16 +1150,10 @@ namespace PNet.Mesh
 
     internal sealed class PNetMeshSocketSendWorkItem
     {
-        public EndPoint RemoteEndPoint { get; set; }
-
         public IMemoryOwner<byte> MemoryOwner { get; set; }
-
-        public Memory<byte> MemoryBuffer { get; set; }
 
         public ChannelWriter<SocketAsyncEventArgs> Writer { get; set; }
     }
-
-
 
     public sealed class PNetMeshRelayPacket
     {

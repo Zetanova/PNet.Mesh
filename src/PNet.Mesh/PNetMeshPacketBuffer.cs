@@ -10,7 +10,7 @@ namespace PNet.Mesh
     {
         sealed class BufferEntry
         {
-            public IMemoryOwner<byte> MemoryOwner { get; init; }
+            public IMemoryOwner<byte> MemoryOwner { get; set; }
 
             public Memory<byte> Memory { get; set; }
 
@@ -168,6 +168,25 @@ namespace PNet.Mesh
                 .Take(bits.Length)
                 .Where((n, i) => n.IsTracked && !bits[i])
                 .Select(n => n.Memory);
+        }
+
+        public void RemoveSequence(byte[] receivedBitmap)
+        {
+            var bits = new BitArray(receivedBitmap);
+            var index = 0;
+            foreach (var entry in _items)
+            {
+                if (index >= bits.Length)
+                    break;
+
+                if (!bits[index++] || !entry.IsTracked)
+                    continue;
+
+                entry.MemoryOwner.Dispose();
+                entry.MemoryOwner = null;
+                entry.Memory = Memory<byte>.Empty;
+                _trackedCount--;
+            }
         }
 
         public IEnumerable<Memory<byte>> GetSequence()

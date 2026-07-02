@@ -125,6 +125,25 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             Assert.DoesNotContain(actualShellCommands[0], reportedArguments);
         }
 
+        [Fact]
+        public void run_benchmark_fails_when_final_ping_has_partial_packet_loss()
+        {
+            Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
+                new[] { "pnet-mesh-tun", "--warmup", "0ms", "--iperf-duration", "1ms", "--timeout", "1s" },
+                TextWriter.Null,
+                out var options));
+
+            var runner = new FakeCommandRunner { PartialFinalIpv4Ping = true };
+
+            var report = TunPNetBenchmarkRunner.RunBenchmark(options, runner);
+
+            Assert.Equal("fail", report.Status);
+            var ipv4Ping = Assert.Single(report.Traffic, result => result.Tool == "ping" && result.Protocol == "ipv4");
+            Assert.Equal(2, ipv4Ping.PacketsTransmitted);
+            Assert.Equal(1, ipv4Ping.PacketsReceived);
+            Assert.Equal(50, ipv4Ping.PacketLossPercent);
+        }
+
         sealed class FakeCommandRunner : ITunTopologyCommandRunner
         {
             bool _networkCreated;
@@ -132,6 +151,8 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             public List<FakeCommandCall> Calls { get; } = new();
 
             public List<string> CopiedSensitiveContents { get; } = new();
+
+            public bool PartialFinalIpv4Ping { get; init; }
 
             public bool FileExists(string path)
             {
@@ -168,6 +189,26 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
 
                 if (arguments.Count >= 3 && arguments[0] == "exec" && arguments[2] == "sh" && arguments[^1].Contains("/proc/$pid/status", StringComparison.Ordinal))
                     return new TunTopologyCommandResult(fileName, arguments.ToArray(), 0, "pid=42\nVmRSS:\t1024 kB\nVmHWM:\t2048 kB\nThreads:\t8\nutime_ticks=10\nstime_ticks=5\n", string.Empty, false);
+
+                if (arguments.Count >= 4 && arguments[0] == "exec" && arguments[2] == "sh" && arguments[^1].Contains("ss ", StringComparison.Ordinal) && arguments[^1].Contains("-H -ltn", StringComparison.Ordinal))
+                    return new TunTopologyCommandResult(fileName, arguments.ToArray(), 0, "LISTEN 0 4096 10.80.0.2:5201 0.0.0.0:*\n", string.Empty, false);
+
+                if (arguments.Count >= 3 && arguments[0] == "exec" && arguments[2] == "ping")
+                {
+                    var countIndex = arguments.ToList().IndexOf("-c");
+                    var isFinalIpv4Ping = !arguments.Contains("-6")
+                                          && countIndex >= 0
+                                          && countIndex + 1 < arguments.Count
+                                          && arguments[countIndex + 1] == "1";
+
+                    var stdout = PartialFinalIpv4Ping && isFinalIpv4Ping
+                        ? "2 packets transmitted, 1 received, 50% packet loss, time 1000ms\nrtt min/avg/max/mdev = 0.100/0.100/0.100/0.000 ms\n"
+                        : "1 packets transmitted, 1 received, 0% packet loss, time 0ms\nrtt min/avg/max/mdev = 0.042/0.042/0.042/0.000 ms\n";
+                    return new TunTopologyCommandResult(fileName, arguments.ToArray(), 0, stdout, string.Empty, false);
+                }
+
+                if (arguments.Count >= 3 && arguments[0] == "exec" && arguments[2] == "iperf3")
+                    return new TunTopologyCommandResult(fileName, arguments.ToArray(), 0, "{\"end\":{\"sum_received\":{\"seconds\":1,\"bytes\":128,\"bits_per_second\":1024}}}", string.Empty, false);
 
                 return new TunTopologyCommandResult(fileName, arguments.ToArray(), 0, string.Empty, string.Empty, false);
             }

@@ -157,21 +157,71 @@ namespace PNet.Mesh
 
         public static byte[] CreatePNet(ReadOnlySpan<byte> payload, bool hasExtendedHeaderSignal = false)
         {
-            var paddingLength = CalculatePNetPaddingLength(payload.Length);
-            var headerByte = (byte)(paddingLength | (hasExtendedHeaderSignal ? 0x80 : 0));
-            return CreatePNet(payload, headerByte);
+            return CreatePNet(payload, CreatePNetHeaderByte(payload.Length, hasExtendedHeaderSignal));
         }
 
         public static byte[] CreatePNet(ReadOnlySpan<byte> payload, byte headerByte)
         {
-            if (!IsPNetHeader(headerByte))
-                throw new ArgumentOutOfRangeException(nameof(headerByte));
-
-            var paddingLength = headerByte & 0x0f;
-            var frame = new byte[payload.Length + 1 + paddingLength];
-            frame[0] = headerByte;
-            payload.CopyTo(frame.AsSpan(1));
+            var frame = new byte[CalculatePNetFrameSize(payload.Length, headerByte)];
+            TryWritePNet(payload, headerByte, frame, out _);
             return frame;
+        }
+
+        public static bool TryWritePNet(
+            ReadOnlySpan<byte> payload,
+            Span<byte> destination,
+            out int bytesWritten,
+            bool hasExtendedHeaderSignal = false)
+        {
+            return TryWritePNet(
+                payload,
+                CreatePNetHeaderByte(payload.Length, hasExtendedHeaderSignal),
+                destination,
+                out bytesWritten);
+        }
+
+        public static bool TryWritePNet(
+            ReadOnlySpan<byte> payload,
+            byte headerByte,
+            Span<byte> destination,
+            out int bytesWritten)
+        {
+            bytesWritten = CalculatePNetFrameSize(payload.Length, headerByte);
+            if (destination.Length < bytesWritten)
+                return false;
+
+            payload.CopyTo(destination.Slice(1, payload.Length));
+            destination[0] = headerByte;
+            ClearPNetPadding(destination, payload.Length, headerByte);
+            return true;
+        }
+
+        public static bool TryWritePNet(
+            Span<byte> destination,
+            int payloadLength,
+            out int bytesWritten,
+            bool hasExtendedHeaderSignal = false)
+        {
+            return TryWritePNet(
+                destination,
+                payloadLength,
+                CreatePNetHeaderByte(payloadLength, hasExtendedHeaderSignal),
+                out bytesWritten);
+        }
+
+        public static bool TryWritePNet(
+            Span<byte> destination,
+            int payloadLength,
+            byte headerByte,
+            out int bytesWritten)
+        {
+            bytesWritten = CalculatePNetFrameSize(payloadLength, headerByte);
+            if (destination.Length < bytesWritten)
+                return false;
+
+            destination[0] = headerByte;
+            ClearPNetPadding(destination, payloadLength, headerByte);
+            return true;
         }
 
         internal static int CalculatePNetFrameSize(int payloadLength)
@@ -179,9 +229,34 @@ namespace PNet.Mesh
             return payloadLength + 1 + CalculatePNetPaddingLength(payloadLength);
         }
 
+        static int CalculatePNetFrameSize(int payloadLength, byte headerByte)
+        {
+            if (payloadLength < 0)
+                throw new ArgumentOutOfRangeException(nameof(payloadLength));
+            if (!IsPNetHeader(headerByte))
+                throw new ArgumentOutOfRangeException(nameof(headerByte));
+
+            return checked(payloadLength + 1 + (headerByte & 0x0f));
+        }
+
         internal static int CalculatePNetPaddingLength(int payloadLength)
         {
             return (16 - ((payloadLength + 1) & 0x0f)) & 0x0f;
+        }
+
+        static byte CreatePNetHeaderByte(int payloadLength, bool hasExtendedHeaderSignal)
+        {
+            var paddingLength = CalculatePNetPaddingLength(payloadLength);
+            return (byte)(paddingLength | (hasExtendedHeaderSignal ? 0x80 : 0));
+        }
+
+        static void ClearPNetPadding(Span<byte> destination, int payloadLength, byte headerByte)
+        {
+            var paddingLength = headerByte & 0x0f;
+            if (paddingLength == 0)
+                return;
+
+            destination.Slice(1 + payloadLength, paddingLength).Clear();
         }
 
         public static byte[] CreateIPv4(ReadOnlySpan<byte> packet)

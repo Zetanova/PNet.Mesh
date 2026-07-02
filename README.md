@@ -51,7 +51,16 @@ dotnet restore PNet.Mesh.sln
 dotnet build PNet.Mesh.sln -c Release --no-restore
 dotnet run --project src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -parallel none
 dotnet run --project src/PNet.Mesh.Tun.UnitTests/PNet.Mesh.Tun.UnitTests.csproj -c Release --no-build -- -parallel none
-timeout 420s dotnet run --project src/PNet.Mesh.E2ETests/PNet.Mesh.E2ETests.csproj -c Release --no-build -- -parallel none
+```
+
+Run the Testcontainers e2e suite as bounded batches rather than one monolithic command:
+
+```bash
+timeout 300s dotnet run --project src/PNet.Mesh.E2ETests/PNet.Mesh.E2ETests.csproj -c Release --no-build -- -parallel none -method PNet.Actor.E2ETests.Mesh.PNetMeshTestNodeHarnessTests.test_node_image_name_is_shared_across_harness_instances -method PNet.Actor.E2ETests.Mesh.PNetMeshTestNodeHarnessTests.starts_single_test_node_container_and_waits_for_readiness -method PNet.Actor.E2ETests.Mesh.PNetMeshTestNodeHarnessTests.failed_startup_exception_includes_node_logs -method PNet.Actor.E2ETests.Mesh.PNetMeshTestNodeHarnessTests.test_node_runs_without_extended_network_permissions
+timeout 300s dotnet run --project src/PNet.Mesh.E2ETests/PNet.Mesh.E2ETests.csproj -c Release --no-build -- -parallel none -method PNet.Actor.E2ETests.Mesh.PNetMeshTestNodeHarnessTests.wireguard_peer_container_exchanges_encrypted_packets_with_pnet_mesh_protocol -method PNet.Actor.E2ETests.Mesh.PNetMeshTestNodeHarnessTests.wireguard_relay_container_forwards_opaque_exchange_to_peer_container -method PNet.Actor.E2ETests.Mesh.PNetMeshTestNodeHarnessTests.relay_assisted_endpoint_discovery_promotes_direct_after_authenticated_probe
+timeout 300s dotnet run --project src/PNet.Mesh.E2ETests/PNet.Mesh.E2ETests.csproj -c Release --no-build -- -parallel none -method PNet.Actor.E2ETests.Mesh.PNetMeshTestNodeHarnessTests.direct_peers_exchange_payloads_in_both_directions -method PNet.Actor.E2ETests.Mesh.PNetMeshTestNodeHarnessTests.direct_peers_exchange_non_trivial_payload_size -method PNet.Actor.E2ETests.Mesh.PNetMeshTestNodeHarnessTests.invalid_psk_peers_do_not_deliver_payloads -method PNet.Actor.E2ETests.Mesh.PNetMeshTestNodeHarnessTests.bootstrap_peer_discovery_exchanges_payloads_between_learned_peers
+timeout 300s dotnet run --project src/PNet.Mesh.E2ETests/PNet.Mesh.E2ETests.csproj -c Release --no-build -- -parallel none -method PNet.Actor.E2ETests.Mesh.PNetMeshTestNodeHarnessTests.multi_hop_route_crosses_separated_container_segments -method PNet.Actor.E2ETests.Mesh.PNetMeshTestNodeHarnessTests.restarted_node_rejoins_without_breaking_unrelated_peers
+timeout 300s dotnet run --project src/PNet.Mesh.E2ETests/PNet.Mesh.E2ETests.csproj -c Release --no-build -- -parallel none -method PNet.Actor.E2ETests.Mesh.PNetMeshTestNodeHarnessTests.six_node_topology_matches_compose_smoke_route_with_docker_dns_aliases
 ```
 
 Optional Linux TUN bridge:

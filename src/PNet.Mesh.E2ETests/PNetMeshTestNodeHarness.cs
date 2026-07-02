@@ -271,20 +271,51 @@ public sealed class PNetMeshTestNodeHarness : IAsyncDisposable
 
     static async Task<IFutureDockerImage> CreateSharedImageAsync(CancellationToken cancellationToken)
     {
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(ImageBuildTimeout);
+        Exception lastFailure = null;
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(ImageBuildTimeout);
 
+            var image = CreateSharedImage();
+
+            try
+            {
+                await image.CreateAsync(timeout.Token);
+                return image;
+            }
+            catch (Exception ex) when (attempt == 0 && IsTransientImageCreationFailure(ex))
+            {
+                lastFailure = ex;
+            }
+        }
+
+        throw new InvalidOperationException($"Docker image {SharedImageName} has not been created.", lastFailure);
+    }
+
+    static IFutureDockerImage CreateSharedImage()
+    {
         var repositoryRoot = FindRepositoryRoot();
-        var image = new ImageFromDockerfileBuilder()
+        return new ImageFromDockerfileBuilder()
             .WithName(SharedImageName)
             .WithContextDirectory(repositoryRoot)
             .WithDockerfileDirectory(repositoryRoot)
             .WithDockerfile("src/PNet.Mesh.TestNode/Dockerfile")
             .WithCleanUp(true)
             .Build();
+    }
 
-        await image.CreateAsync(timeout.Token);
-        return image;
+    static bool IsTransientImageCreationFailure(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current.Message.Contains("has not been created", StringComparison.Ordinal)
+                || current.Message.Contains("No such image", StringComparison.OrdinalIgnoreCase)
+                || current.Message.Contains("unable to find image", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 
     static async Task ClearFailedSharedImageTaskAsync(Task<IFutureDockerImage> imageTask)
