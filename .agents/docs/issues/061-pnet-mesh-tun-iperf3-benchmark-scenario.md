@@ -3,12 +3,13 @@ issue: 061
 date: 2026-07-02
 source: benchmark/integration-phase-2
 priority: medium
-status: gated
-terminal-state: gated
-gate-depends: [071]
-gate-reason: "The diagnostic runner exists, but sustained PNet.Mesh.Tun OS traffic currently fails ping and iperf3; #071 must stabilize traffic before this benchmark can meet acceptance."
+status: completed
+terminal-state: completed
+completed-date: 2026-07-02
+completed-commits:
+  - 53ca5bb
+  - d667db3
 gate-last-checked: 2026-07-02
-probeable: false
 research-status: complete
 research-date: 2026-07-02
 assumptions-date: 2026-07-02
@@ -30,7 +31,7 @@ Add the PNet.Mesh.Tun integration benchmark scenario that runs normal network to
 - `Traffic tools`: use `ping`/`ping6` or equivalent plus `iperf3` so the test follows normal OS networking behavior.
 - `Protocol coverage`: run both IPv4 and IPv6 paths through PNet.Mesh.Tun.
 - `Warmup`: separate topology startup and tunnel handshake from measured traffic windows.
-- `Current #059 smoke`: component-level Docker smoke can exchange IPv4 ping and IPv4/IPv6 UDP `nc` packets, but repeated ping and `iperf3` are not yet stable enough to use as a pass/fail benchmark gate.
+- `Current PNet.Mesh.Tun benchmark`: the diagnostic runner can exchange IPv4/IPv6 ping and UDP `iperf3` traffic, collect process metrics, and report managed counters as explicitly unavailable when `dotnet-counters` is absent.
 - `Output`: emit machine-readable latency, bandwidth, packet-loss, duration, payload, MTU, CPU, RSS, and allocation counters where available.
 
 ## Scope
@@ -56,7 +57,22 @@ Add the PNet.Mesh.Tun integration benchmark scenario that runs normal network to
 
 ## Gate
 
-The #060 gate is cleared by `1e079d2`, which added the privileged topology plan, preflight, create, and teardown commands. Traffic acceptance is now gated by #071: the current diagnostic runner can start both TUN processes and collect metrics, but IPv4/IPv6 ping and `iperf3` do not pass over the OS TUN path.
+Cleared. The #060 gate is cleared by `1e079d2`, which added the privileged topology plan, preflight, create, and teardown commands. The #071 traffic gate is cleared by `d667db3`, which stabilized IPv4/IPv6 ping and `iperf3` over the OS TUN path.
+
+## Completion Report
+
+Implemented in `53ca5bb` and stabilized in `d667db3`.
+
+- Added the PNet.Mesh.Tun benchmark runner for the privileged topology from #060.
+- The runner emits machine-readable IPv4/IPv6 ping latency and UDP `iperf3` bandwidth results.
+- The report includes runtime, OS, architecture, Docker engine version, topology, MTU, traffic profile, process RSS/CPU metrics, command records, and managed-counter availability.
+- The final #071 verification run returned `status: pass` for IPv4 ping, IPv6 ping, IPv4 `iperf3`, and IPv6 `iperf3`; process metrics were present and managed counters were explicitly unavailable because `dotnet-counters` is not installed in the TUN CLI image.
+- Labeled Docker cleanup left no `pnet.mesh.benchmark.topology=pnet-tun-bench` containers or networks after the benchmark.
+
+## Resolving Commits
+
+- `53ca5bb` - `benchmarks: add TUN diagnostic traffic runner`
+- `d667db3` - `benchmarks: stabilize PNet.Mesh.Tun traffic`
 
 ## Assumptions
 
@@ -72,7 +88,9 @@ The #060 gate is cleared by `1e079d2`, which added the privileged topology plan,
 |------|------|--------|--------|----------|
 | 2026-07-02 | `gate-depends: [056, 059, 060]` | source | passed | #056, #059, and #060 are complete; #061 is ready. |
 | 2026-07-02 | `gate-depends: [071]` | test | blocked | After rebuilding `localhost/pnet-mesh-tun:dev`, `timeout 180s dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release --no-build -- --tun-benchmark pnet-mesh-tun --ping-count 1 --warmup 0ms --iperf-duration 1s --timeout 15s` wrote `/tmp/pnet-tun-benchmark.json` with `status: fail`; IPv4 ping received 1/9 packets, IPv6 ping lost 10/10 packets, IPv4 `iperf3` exited 1, IPv6 `iperf3` failed readiness, both TUN processes had `/proc` metrics, teardown passed, and no labeled Docker resources remained. |
+| 2026-07-02 | `gate-depends: [071]` | test | passed | `d667db3` stabilized the TUN traffic path. The final `timeout 420s rtk dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release --no-build -- --tun-benchmark pnet-mesh-tun --ping-count 1 --iperf-duration 3s` run returned `status: pass` with IPv4/IPv6 ping, IPv4/IPv6 `iperf3`, process metrics, explicit managed-counter unavailability, and clean labeled Docker teardown. |
 
 ## Validation History
 
 - 2026-07-02: dependency gates cleared by #054, #056, #059, and #060.
+- 2026-07-02: traffic gate cleared by #071 completion in `d667db3`; #061 completed.

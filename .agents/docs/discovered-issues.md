@@ -2,7 +2,7 @@
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
 last-entry: 2026-07-02
 last-opened: 2026-07-02-071
-open-count: 6
+open-count: 5
 last-completed: 2026-07-02
 ---
 
@@ -15,8 +15,7 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | # | Date | Source | Summary | Priority | Status | File |
 |---|------|--------|---------|----------|--------|------|
 | 051 | 2026-07-01 | nuget/audit | Review transitive NuGet package updates reported by the dependency audit. | medium | gated | [051-review-transitive-nuget-package-updates](issues/051-review-transitive-nuget-package-updates.md) |
-| 061 | 2026-07-02 | benchmark/integration-phase-2 | Add PNet.Mesh.Tun ping and iperf3 IPv4/IPv6 benchmark scenario. | medium | gated | [061-pnet-mesh-tun-iperf3-benchmark-scenario](issues/061-pnet-mesh-tun-iperf3-benchmark-scenario.md) |
-| 062 | 2026-07-02 | benchmark/integration-phase-3 | Add wireguard-go TUN benchmark baseline using the same topology and traffic profile. | medium | gated | [062-wireguard-go-tun-comparison-benchmark](issues/062-wireguard-go-tun-comparison-benchmark.md) |
+| 062 | 2026-07-02 | benchmark/integration-phase-3 | Add wireguard-go TUN benchmark baseline using the same topology and traffic profile. | medium | ready | [062-wireguard-go-tun-comparison-benchmark](issues/062-wireguard-go-tun-comparison-benchmark.md) |
 | 063 | 2026-07-02 | benchmark/integration-phase-4 | Add comparison result schema for latency, bandwidth, CPU, RSS, GC, and allocations. | medium | gated | [063-tun-comparison-result-schema-and-allocation-counters](issues/063-tun-comparison-result-schema-and-allocation-counters.md) |
 | 064 | 2026-07-02 | benchmark/integration-phase-5 | Add manual or scheduled workflow for TUN benchmark runs and regression reporting. | medium | gated | [064-manual-scheduled-tun-benchmark-workflow](issues/064-manual-scheduled-tun-benchmark-workflow.md) |
 | 065 | 2026-07-02 | benchmark/integration-script | Create single-command PNet.Mesh.Tun vs wireguard-go latency, bandwidth, and RSS benchmark script. | medium | gated | [065-tun-comparison-benchmark-runner-script](issues/065-tun-comparison-benchmark-runner-script.md) |
@@ -41,6 +40,7 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | # | Date | Completed | Summary | Commits | File |
 |---|------|-----------|---------|---------|------|
 | 071 | 2026-07-02 | 2026-07-02 | Stabilize sustained PNet.Mesh.Tun OS traffic before ping and iperf3 benchmarks can pass. | d667db3 | [071-stabilize-pnet-mesh-tun-os-traffic](issues/071-stabilize-pnet-mesh-tun-os-traffic.md) |
+| 061 | 2026-07-02 | 2026-07-02 | Add PNet.Mesh.Tun ping and iperf3 IPv4/IPv6 benchmark scenario. | 53ca5bb, d667db3 | [061-pnet-mesh-tun-iperf3-benchmark-scenario](issues/061-pnet-mesh-tun-iperf3-benchmark-scenario.md) |
 | 070 | 2026-07-02 | 2026-07-02 | Stabilize the full Testcontainers e2e suite after renewed timeout and six-node flake. | d667db3, e4c0158 | [070-testcontainers-e2e-full-suite-timeout-recurrence](issues/070-testcontainers-e2e-full-suite-timeout-recurrence.md) |
 | 069 | 2026-07-02 | 2026-07-02 | Reduce UDP loopback macro harness receive allocation to isolate protocol cost. | d667db3 | [069-udp-loopback-macro-allocation-hotspot](issues/069-udp-loopback-macro-allocation-hotspot.md) |
 | 068 | 2026-07-02 | 2026-07-02 | Add non-allocating or pooled PNet frame creation path for payload framing hotspots. | d667db3 | [068-pnet-frame-creation-allocation-hotspot](issues/068-pnet-frame-creation-allocation-hotspot.md) |
