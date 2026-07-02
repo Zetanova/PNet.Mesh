@@ -1,8 +1,8 @@
 ---
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
 last-entry: 2026-07-02
-last-opened: 2026-07-02-065
-open-count: 9
+last-opened: 2026-07-02-069
+open-count: 13
 last-completed: 2026-07-02
 ---
 
@@ -16,6 +16,10 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 |---|------|--------|---------|----------|--------|------|
 | 051 | 2026-07-01 | nuget/audit | Review transitive NuGet package updates reported by the dependency audit. | medium | gated | [051-review-transitive-nuget-package-updates](issues/051-review-transitive-nuget-package-updates.md) |
 | 058 | 2026-07-02 | benchmark/phase-5 | Fan out optimization issues only from measured benchmark hotspots. | medium | ready | [058-post-baseline-benchmark-optimization-backlog](issues/058-post-baseline-benchmark-optimization-backlog.md) |
+| 066 | 2026-07-02 | benchmark/hotspot | Reduce WireGuard hash/MAC allocation pressure measured in handshake and rejection benchmarks. | medium | ready | [066-wireguard-hash-mac-allocation-hotspot](issues/066-wireguard-hash-mac-allocation-hotspot.md) |
+| 067 | 2026-07-02 | benchmark/hotspot | Reduce session protobuf/frame allocation pressure measured in session and in-memory macro benchmarks. | medium | ready | [067-session-protobuf-frame-allocation-hotspot](issues/067-session-protobuf-frame-allocation-hotspot.md) |
+| 068 | 2026-07-02 | benchmark/hotspot | Add non-allocating or pooled PNet frame creation path for payload framing hotspots. | medium | ready | [068-pnet-frame-creation-allocation-hotspot](issues/068-pnet-frame-creation-allocation-hotspot.md) |
+| 069 | 2026-07-02 | benchmark/hotspot | Reduce UDP loopback macro harness receive allocation to isolate protocol cost. | medium | ready | [069-udp-loopback-macro-allocation-hotspot](issues/069-udp-loopback-macro-allocation-hotspot.md) |
 | 059 | 2026-07-02 | tun/optional-component | Add optional PNet.Mesh.Tun component for OS TUN interface integration. | medium | ready | [059-add-optional-pnet-mesh-tun-component](issues/059-add-optional-pnet-mesh-tun-component.md) |
 | 060 | 2026-07-02 | benchmark/integration-phase-1 | Define privileged Linux namespace/container topology for PNet.Mesh.Tun benchmarks. | medium | gated | [060-privileged-tun-benchmark-topology](issues/060-privileged-tun-benchmark-topology.md) |
 | 061 | 2026-07-02 | benchmark/integration-phase-2 | Add PNet.Mesh.Tun ping and iperf3 IPv4/IPv6 benchmark scenario. | medium | gated | [061-pnet-mesh-tun-iperf3-benchmark-scenario](issues/061-pnet-mesh-tun-iperf3-benchmark-scenario.md) |
