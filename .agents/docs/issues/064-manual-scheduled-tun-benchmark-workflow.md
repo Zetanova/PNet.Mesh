@@ -3,8 +3,11 @@ issue: 064
 date: 2026-07-02
 source: benchmark/integration-phase-5
 priority: medium
-status: ready
-terminal-state: ready
+status: completed
+terminal-state: completed
+completed-date: 2026-07-02
+completed-commits:
+  - 5a5ce0c
 gate-depends: [057, 063, 065]
 gate-reason: "Requires baseline policy, stable comparison result schema, and the single-command benchmark runner before workflow automation or reporting thresholds."
 gate-last-checked: 2026-07-02
@@ -66,7 +69,27 @@ Cleared on 2026-07-02: #057, #063, and #065 are complete, so this issue is ready
 
 ## Validation History
 
-- 2026-07-02: dependency gates cleared by #057, #063, and #065; #064 is now ready.
+- 2026-07-02: dependency gates cleared by #057, #063, and #065; #064 was ready before completion.
+
+## Completion Report
+
+Implemented in `5a5ce0c`.
+
+- Added the manual and scheduled privileged TUN benchmark workflow, including artifact layout, runner expectations, and unsupported-environment skip behavior.
+- Wired report-only baseline regression output into the workflow so the comparison stays informational until repeated runs establish stable variance.
+- Recorded managed-runtime availability context in the regression output and synchronized the README / best-practices guidance with the workflow.
+
+Verification on 2026-07-02:
+
+- `bash -n scripts/bench-tun-comparison.sh` passed.
+- `scripts/bench-tun-comparison.sh --help` passed and showed `--baseline`.
+- `scripts/bench-tun-comparison.sh --dry-run --baseline` passed.
+- `scripts/bench-tun-comparison.sh --baseline` with no baseline returned rc=2 with a clear logfmt error.
+- `timeout 900s rtk scripts/bench-tun-comparison.sh --output-dir /tmp/codex-team-task.krDAde/test/tun-script-064c --baseline /tmp/codex-team-task.krDAde/test/tun-script-065-recheck/comparison.json --warmup 0ms --iperf-duration 3s --ping-count 1 --timeout 30s --run-timeout 420s --build-timeout 180s` passed.
+- `regression-report.json` reported `status: report-only` with 17 metrics and managedRuntime availability/reason metadata.
+- Docker cleanup checks found no resources for label `pnet.mesh.benchmark.topology=pnet-tun-bench`.
+- container/performance/doc-sync specialist reviews were CLEAR.
+- `git diff --check` passed.
 
 ## Assumptions
 
@@ -76,3 +99,7 @@ Cleared on 2026-07-02: #057, #063, and #065 are complete, so this issue is ready
 | 2 | F | Baseline and regression policy is tracked by #057. | verified | source | #057 defines benchmark baselines, environment metadata, allocation budgets, and report-only thresholds. |
 | 3 | F | Comparison result schema is tracked by #063. | verified | source | #063 defines normalized and raw result output for PNet.Mesh.Tun versus `wireguard-go`. |
 | 4 | F | The single-command benchmark runner script is tracked separately by #065. | verified | source | #065 defines the runner script scope and acceptance criteria. |
+
+## Resolving Commits
+
+- `5a5ce0c` - `benchmarks: add TUN workflow regression reporting`
