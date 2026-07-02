@@ -3,7 +3,11 @@ issue: 069
 date: 2026-07-02
 source: benchmark/hotspot
 priority: medium
-status: ready
+status: completed
+terminal-state: completed
+completed-date: 2026-07-02
+completed-commits:
+  - d667db3
 baseline: 057
 research-status: complete
 research-date: 2026-07-02
@@ -61,6 +65,15 @@ Relevant source evidence:
 - UDP loopback macro allocated bytes per packet decreases, or the issue closes with evidence that the receive allocation cannot be removed with supported APIs.
 - UDP loopback macro still reports packets/sec, payload bytes/sec, wire bytes/sec, p50/p95/p99 latency, allocated bytes, and GC counts.
 - The macro scenario still validates decrypted PNet frames and payload round trip.
+
+## Completion Report
+
+Implemented in `d667db3`.
+
+- Replaced allocation-heavy UDP macro receive handling with reusable receive buffers so the macro better isolates protocol cost.
+- Preserved the UDP loopback JSON metric schema and decrypted PNet frame/payload validation.
+- Benchmark evidence: baseline UDP loopback macro allocation was about 422 B/packet; post-change run reported `16777696` allocated bytes over `3242622` packets, about 5.17 B/packet.
+- Verification: Release build, 175/175 unit tests, 10/10 TUN unit tests, all five bounded Testcontainers e2e batches, and the final TUN benchmark smoke passed on 2026-07-02.
 
 ## Assumptions
 

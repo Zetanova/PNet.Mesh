@@ -3,7 +3,11 @@ issue: 066
 date: 2026-07-02
 source: benchmark/hotspot
 priority: medium
-status: ready
+status: completed
+terminal-state: completed
+completed-date: 2026-07-02
+completed-commits:
+  - d667db3
 baseline: 057
 research-status: complete
 research-date: 2026-07-02
@@ -58,6 +62,19 @@ Relevant source evidence:
 - Existing unit tests pass.
 - WireGuard packet/MAC behavior remains byte-for-byte compatible.
 - Completion report includes before/after `Allocated`, `Mean`, and verification commands.
+
+## Completion Report
+
+Implemented in `d667db3`.
+
+- Removed avoidable BLAKE2s helper array conversions from WireGuard hash/MAC paths while preserving packet/MAC behavior.
+- Added allocation regression coverage for the WireGuard BLAKE2s helper path.
+- Benchmark evidence improved allocation in the measured paths:
+  - `FullHandshakeSetup` payload 64: baseline 21394 B/op; post-change 19.98 KB/op.
+  - `FullHandshakeSetup` payload 1420: post-change 20.01 KB/op.
+  - `RejectInvalidTransportPackets` payload 1420: baseline 68955 B/op; post-change 64.69 KB/op.
+  - `RejectInvalidTransportPackets` payload 64: post-change 60.7 KB/op.
+- Verification: Release build, 175/175 unit tests, 10/10 TUN unit tests, all five bounded Testcontainers e2e batches, and the final TUN benchmark smoke passed on 2026-07-02.
 
 ## Assumptions
 

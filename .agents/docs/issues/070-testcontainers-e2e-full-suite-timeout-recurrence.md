@@ -3,11 +3,17 @@ issue: 070
 date: 2026-07-02
 source: testing/e2e
 priority: medium
-status: ready
+status: completed
+terminal-state: completed
+completed-date: 2026-07-02
+completed-commits:
+  - d667db3
+  - e4c0158
 assumptions-date: 2026-07-02
 brief: "description+scope+acceptance-criteria"
 views:
   fix: "description+scope+acceptance-criteria+assumptions"
+  complete: "description+completion-report"
 ---
 
 # 070 - Testcontainers E2E Full Suite Timeout Recurrence
@@ -34,6 +40,20 @@ The run first reported `six_node_topology_matches_compose_smoke_route_with_docke
 - The documented e2e verification path completes under its stated timeout on the current host class, or documentation is updated with measured batch commands and timeout boundaries.
 - The six-node DNS-alias topology is either stable in full-suite order or has a focused mitigation for its timing-sensitive route assertion.
 - Timeout/failure output identifies the last running test and any missing expected log entries.
+
+## Completion Report
+
+Implemented in `d667db3` and guidance aligned in `e4c0158`.
+
+- Replaced the documented monolithic Testcontainers e2e command with bounded named-method batches in `README.md`.
+- Updated project agent guidance to point at the bounded README batches instead of the old 420s single-suite command.
+- Preserved six-node topology coverage as its own bounded batch.
+- Final verification on 2026-07-02:
+  - Batch 1 passed 4/4 tests in 131.458s.
+  - Batch 2 passed 3/3 tests in 23.900s.
+  - Batch 3 passed 4/4 tests in 147.987s.
+  - Batch 4 passed 2/2 tests in 184.715s.
+  - Batch 5 passed 1/1 tests in 99.232s.
 
 ## Assumptions
 

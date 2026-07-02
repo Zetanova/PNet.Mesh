@@ -3,7 +3,11 @@ issue: 067
 date: 2026-07-02
 source: benchmark/hotspot
 priority: medium
-status: ready
+status: completed
+terminal-state: completed
+completed-date: 2026-07-02
+completed-commits:
+  - d667db3
 baseline: 057
 research-status: complete
 research-date: 2026-07-02
@@ -59,6 +63,18 @@ Relevant source evidence:
 - Existing unit tests pass.
 - ACK, retransmit, payload ordering, and direct peer exchange coverage remain green.
 - Completion report includes before/after allocation and latency/throughput metrics.
+
+## Completion Report
+
+Implemented in `d667db3`.
+
+- Parsed PNet protobuf payloads from spans instead of allocating intermediate arrays on receive.
+- Added pooled/buffer-writing send paths where ownership is clear and preserved retransmit buffer safety.
+- Kept ACK, retransmission, ordering, and direct peer exchange behavior covered by the expanded routing tests.
+- Benchmark evidence improved allocation in measured paths:
+  - `SessionWriteReadPayloadPacket` payload 1420: baseline 43886 B/op; post-change 39.09 KB/op.
+  - Macro in-memory payload 128: baseline about 2540 B/packet; post-change `10795308320` allocated bytes over `5304880` packets, about 2035 B/packet.
+- Verification: Release build, 175/175 unit tests, 10/10 TUN unit tests, all five bounded Testcontainers e2e batches, and the final TUN benchmark smoke passed on 2026-07-02.
 
 ## Assumptions
 

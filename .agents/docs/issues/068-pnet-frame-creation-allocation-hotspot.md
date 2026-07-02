@@ -3,7 +3,11 @@ issue: 068
 date: 2026-07-02
 source: benchmark/hotspot
 priority: medium
-status: ready
+status: completed
+terminal-state: completed
+completed-date: 2026-07-02
+completed-commits:
+  - d667db3
 baseline: 057
 research-status: complete
 research-date: 2026-07-02
@@ -57,6 +61,16 @@ Relevant source evidence:
 - A non-allocating or pooled PNet frame creation path exists and is used by at least one measured hot path, or the issue closes with rationale that current allocation is acceptable.
 - Existing frame parsing tests pass.
 - Benchmark evidence reports before/after `CreatePNetFrame` and any updated session/transport allocations.
+
+## Completion Report
+
+Implemented in `d667db3`.
+
+- Added buffer-writing `TryWritePNet` APIs while keeping `CreatePNet` as the compatibility allocation-returning helper.
+- Moved measured hot paths to the buffer-writing/pooled framing path where packet lifetime is owned by the caller.
+- Added framing tests for the new write path and preserved parser/property coverage.
+- Benchmark evidence: the new PNet frame write benchmark is allocation-free (`Allocated` reported as `-`), while compatibility `CreatePNet` remains intentionally allocation-returning and still reports 1448 B/op at payload 1420.
+- Verification: Release build, 175/175 unit tests, 10/10 TUN unit tests, all five bounded Testcontainers e2e batches, and the final TUN benchmark smoke passed on 2026-07-02.
 
 ## Assumptions
 
