@@ -3,7 +3,10 @@ issue: 061
 date: 2026-07-02
 source: benchmark/integration-phase-2
 priority: medium
-status: ready
+status: gated
+terminal-state: gated
+gate-depends: [071]
+gate-reason: "The diagnostic runner exists, but sustained PNet.Mesh.Tun OS traffic currently fails ping and iperf3; #071 must stabilize traffic before this benchmark can meet acceptance."
 gate-last-checked: 2026-07-02
 probeable: false
 research-status: complete
@@ -53,7 +56,7 @@ Add the PNet.Mesh.Tun integration benchmark scenario that runs normal network to
 
 ## Gate
 
-The #060 gate is cleared by `1e079d2`, which added the privileged topology plan, preflight, create, and teardown commands. This issue is ready to add traffic generation on top of that topology.
+The #060 gate is cleared by `1e079d2`, which added the privileged topology plan, preflight, create, and teardown commands. Traffic acceptance is now gated by #071: the current diagnostic runner can start both TUN processes and collect metrics, but IPv4/IPv6 ping and `iperf3` do not pass over the OS TUN path.
 
 ## Assumptions
 
@@ -68,6 +71,7 @@ The #060 gate is cleared by `1e079d2`, which added the privileged topology plan,
 | Date | Gate | Method | Result | Evidence |
 |------|------|--------|--------|----------|
 | 2026-07-02 | `gate-depends: [056, 059, 060]` | source | passed | #056, #059, and #060 are complete; #061 is ready. |
+| 2026-07-02 | `gate-depends: [071]` | test | blocked | After rebuilding `localhost/pnet-mesh-tun:dev`, `timeout 180s dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release --no-build -- --tun-benchmark pnet-mesh-tun --ping-count 1 --warmup 0ms --iperf-duration 1s --timeout 15s` wrote `/tmp/pnet-tun-benchmark.json` with `status: fail`; IPv4 ping received 1/9 packets, IPv6 ping lost 10/10 packets, IPv4 `iperf3` exited 1, IPv6 `iperf3` failed readiness, both TUN processes had `/proc` metrics, teardown passed, and no labeled Docker resources remained. |
 
 ## Validation History
 
