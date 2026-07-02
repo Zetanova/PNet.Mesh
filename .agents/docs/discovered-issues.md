@@ -2,7 +2,7 @@
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
 last-entry: 2026-07-02
 last-opened: 2026-07-02-071
-open-count: 12
+open-count: 11
 last-completed: 2026-07-02
 ---
 
@@ -20,7 +20,6 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | 068 | 2026-07-02 | benchmark/hotspot | Add non-allocating or pooled PNet frame creation path for payload framing hotspots. | medium | ready | [068-pnet-frame-creation-allocation-hotspot](issues/068-pnet-frame-creation-allocation-hotspot.md) |
 | 069 | 2026-07-02 | benchmark/hotspot | Reduce UDP loopback macro harness receive allocation to isolate protocol cost. | medium | ready | [069-udp-loopback-macro-allocation-hotspot](issues/069-udp-loopback-macro-allocation-hotspot.md) |
 | 070 | 2026-07-02 | testing/e2e | Stabilize the full Testcontainers e2e suite after renewed timeout and six-node flake. | medium | ready | [070-testcontainers-e2e-full-suite-timeout-recurrence](issues/070-testcontainers-e2e-full-suite-timeout-recurrence.md) |
-| 071 | 2026-07-02 | benchmark/tun-stability | Stabilize sustained PNet.Mesh.Tun OS traffic before ping and iperf3 benchmarks can pass. | medium | ready | [071-stabilize-pnet-mesh-tun-os-traffic](issues/071-stabilize-pnet-mesh-tun-os-traffic.md) |
 | 061 | 2026-07-02 | benchmark/integration-phase-2 | Add PNet.Mesh.Tun ping and iperf3 IPv4/IPv6 benchmark scenario. | medium | gated | [061-pnet-mesh-tun-iperf3-benchmark-scenario](issues/061-pnet-mesh-tun-iperf3-benchmark-scenario.md) |
 | 062 | 2026-07-02 | benchmark/integration-phase-3 | Add wireguard-go TUN benchmark baseline using the same topology and traffic profile. | medium | gated | [062-wireguard-go-tun-comparison-benchmark](issues/062-wireguard-go-tun-comparison-benchmark.md) |
 | 063 | 2026-07-02 | benchmark/integration-phase-4 | Add comparison result schema for latency, bandwidth, CPU, RSS, GC, and allocations. | medium | gated | [063-tun-comparison-result-schema-and-allocation-counters](issues/063-tun-comparison-result-schema-and-allocation-counters.md) |
@@ -46,6 +45,7 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 
 | # | Date | Completed | Summary | Commits | File |
 |---|------|-----------|---------|---------|------|
+| 071 | 2026-07-02 | 2026-07-02 | Stabilize sustained PNet.Mesh.Tun OS traffic before ping and iperf3 benchmarks can pass. | d667db3 | [071-stabilize-pnet-mesh-tun-os-traffic](issues/071-stabilize-pnet-mesh-tun-os-traffic.md) |
 | 060 | 2026-07-02 | 2026-07-02 | Add manual privileged Docker topology plan, preflight, create, and teardown for TUN benchmarks. | 1e079d2 | [060-privileged-tun-benchmark-topology](issues/060-privileged-tun-benchmark-topology.md) |
 | 059 | 2026-07-02 | 2026-07-02 | Add optional Linux PNet.Mesh.Tun bridge, CLI, container image, docs, and fake-device tests. | 781084d | [059-add-optional-pnet-mesh-tun-component](issues/059-add-optional-pnet-mesh-tun-component.md) |
 | 058 | 2026-07-02 | 2026-07-02 | Fan out optimization issues only from measured benchmark hotspots. | 720e48a | [058-post-baseline-benchmark-optimization-backlog](issues/058-post-baseline-benchmark-optimization-backlog.md) |
