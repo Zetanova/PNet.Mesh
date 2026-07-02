@@ -41,6 +41,7 @@ dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Rel
 dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --tun-topology teardown
 dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --tun-benchmark pnet-mesh-tun --ping-count 1 --iperf-duration 3s
 dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --tun-benchmark wireguard-go --ping-count 1 --iperf-duration 3s
+dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --tun-compare --pnet <pnet-json> --wireguard <wireguard-json>
 ```
 
 All actions emit JSON. `preflight` is non-mutating and reports `pass`, `skip`, or `fail` for Linux, `/dev/net/tun`, Docker, the `localhost/pnet-mesh-tun:dev` image, and a privileged container probe. `create` starts two labeled Docker containers that sleep in isolated namespaces; `teardown` removes only containers and networks carrying the `pnet.mesh.benchmark.topology` label.
@@ -61,7 +62,7 @@ Default topology:
 
 Traffic generation is intentionally outside the topology step. Use `--tun-benchmark pnet-mesh-tun` for PNet.Mesh.Tun traffic and `--tun-benchmark wireguard-go` for the userspace WireGuard baseline.
 
-`--tun-benchmark pnet-mesh-tun` starts one TUN CLI process per container. `--tun-benchmark wireguard-go` starts `wireguard-go` with the same interface name, MTU, addresses, peer routes, UDP endpoints, and traffic profile. Both scenarios attempt IPv4/IPv6 ping and `iperf3`, record parsed latency/bandwidth/loss fields, snapshot RSS and CPU ticks from `/proc`, and tear down the labeled topology. The `wireguard-go` report records the package/binary version source or a concrete unavailable reason and marks managed .NET counters unavailable because they do not apply.
+`--tun-benchmark pnet-mesh-tun` starts one TUN CLI process per container. `--tun-benchmark wireguard-go` starts `wireguard-go` with the same interface name, MTU, addresses, peer routes, UDP endpoints, and traffic profile. Both scenarios attempt IPv4/IPv6 ping and `iperf3`, record parsed latency/bandwidth/loss fields, snapshot RSS and CPU ticks from `/proc`, and tear down the labeled topology. `--tun-compare` reads saved scenario JSON files without rerunning traffic and emits one comparison schema with raw traffic/command data plus normalized latency, bandwidth, packet loss, CPU, RSS, thread, settings, environment, implementation, topology, git commit, command line, and managed-runtime fields. The `wireguard-go` report records the package/binary version source or a concrete unavailable reason and marks managed .NET counters unavailable because they do not apply.
 
 ## Container Smoke
 

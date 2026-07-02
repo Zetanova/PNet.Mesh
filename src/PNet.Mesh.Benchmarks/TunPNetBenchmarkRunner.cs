@@ -1,4 +1,5 @@
 ﻿using Noise;
+using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -1179,9 +1180,81 @@ internal static class TunPNetBenchmarkRunner
             processes,
             false,
             managedCounterUnavailableReason,
+            CreateManagedRuntimeMetrics(options.Scenario, available: false, managedCounterUnavailableReason),
+            ReadCurrentGitCommit(),
+            options.CommandLine,
             topologyReports,
             commands,
             message);
+    }
+
+    static TunBenchmarkManagedRuntimeMetrics CreateManagedRuntimeMetrics(
+        string scenario,
+        bool available,
+        string unavailableReason)
+    {
+        return scenario switch
+        {
+            PNetMeshTunScenario => new TunBenchmarkManagedRuntimeMetrics(
+                true,
+                available,
+                null,
+                null,
+                null,
+                null,
+                null,
+                available ? null : unavailableReason,
+                null),
+            WireGuardGoScenario => new TunBenchmarkManagedRuntimeMetrics(
+                false,
+                false,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                unavailableReason),
+            _ => throw new InvalidOperationException($"Unsupported TUN benchmark scenario '{scenario}'.")
+        };
+    }
+
+    static string? ReadCurrentGitCommit()
+    {
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo("git", "rev-parse --short=12 HEAD")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false
+            });
+            if (process == null)
+                return null;
+
+            if (!process.WaitForExit(1000))
+            {
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch (InvalidOperationException)
+                {
+                }
+
+                return null;
+            }
+
+            if (process.ExitCode != 0)
+                return null;
+
+            var commit = process.StandardOutput.ReadToEnd().Trim();
+            return string.IsNullOrWhiteSpace(commit) ? null : commit;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or System.ComponentModel.Win32Exception)
+        {
+            return null;
+        }
     }
 
     static TunBenchmarkTopologyRunner.TunTopologyOptions CreateTopologyOptions(string action, TunPNetBenchmarkOptions options)
@@ -1321,6 +1394,8 @@ internal static class TunPNetBenchmarkRunner
 
         public int Mtu { get; private init; } = 1280;
 
+        public string CommandLine { get; private init; } = "--tun-benchmark";
+
         public bool ShowHelp { get; private init; }
 
         public static bool TryParse(string[] args, TextWriter error, out TunPNetBenchmarkOptions options)
@@ -1328,7 +1403,7 @@ internal static class TunPNetBenchmarkRunner
             options = new TunPNetBenchmarkOptions();
             if (args.Length == 0 || IsHelp(args[0]))
             {
-                options = new TunPNetBenchmarkOptions { ShowHelp = true };
+                options = new TunPNetBenchmarkOptions { ShowHelp = true, CommandLine = CreateCommandLine(args) };
                 return true;
             }
 
@@ -1410,7 +1485,8 @@ internal static class TunPNetBenchmarkRunner
                 CommandTimeout = commandTimeout,
                 Warmup = warmup,
                 IperfDuration = iperfDuration,
-                PingCount = pingCount
+                PingCount = pingCount,
+                CommandLine = CreateCommandLine(args)
             };
             return true;
         }
@@ -1469,6 +1545,19 @@ internal static class TunPNetBenchmarkRunner
             return string.Equals(value, PNetMeshTunScenario, StringComparison.Ordinal)
                    || string.Equals(value, WireGuardGoScenario, StringComparison.Ordinal);
         }
+
+        static string CreateCommandLine(string[] args)
+        {
+            return "--tun-benchmark " + string.Join(" ", args.Select(QuoteCommandLineToken));
+        }
+
+        static string QuoteCommandLineToken(string value)
+        {
+            if (value.Length > 0 && value.All(character => !char.IsWhiteSpace(character) && character != '"' && character != '\\'))
+                return value;
+
+            return "\"" + value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
+        }
     }
 }
 
@@ -1485,6 +1574,9 @@ internal sealed record TunPNetBenchmarkReport(
     IReadOnlyList<TunBenchmarkProcessMetrics> Processes,
     bool ManagedCountersAvailable,
     string ManagedCounterUnavailableReason,
+    TunBenchmarkManagedRuntimeMetrics? ManagedRuntime,
+    string? GitCommit,
+    string? CommandLine,
     IReadOnlyList<TunTopologyReport> TopologyReports,
     IReadOnlyList<TunTopologyCommandRecord> Commands,
     string Message);
@@ -1533,3 +1625,14 @@ internal sealed record TunBenchmarkProcessMetrics(
     long? UserCpuTicks,
     long? SystemCpuTicks,
     string? Error);
+
+internal sealed record TunBenchmarkManagedRuntimeMetrics(
+    bool Applicable,
+    bool Available,
+    long? AllocationBytes,
+    long? ManagedHeapBytes,
+    int? Gen0Collections,
+    int? Gen1Collections,
+    int? Gen2Collections,
+    string? UnavailableReason,
+    string? NotApplicableReason);
