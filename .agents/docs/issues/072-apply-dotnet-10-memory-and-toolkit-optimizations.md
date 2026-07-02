@@ -3,22 +3,21 @@ issue: 072
 date: 2026-07-02
 source: performance/analysis
 priority: medium
-status: open
-research-status: partial
+status: completed
+research-status: complete
 research-date: 2026-07-02
 assumptions-date: 2026-07-02
 split-status: parent
-terminal-state: gated
-gate-depends:
-  - 074
-  - 075
-  - 076
-gate-reason: "Tracking parent waits for fine-grained child issues"
-ungate-when: "All child issues are completed"
-brief: "description+related-issues+playbook+scope+out-of-scope+analysis-notes+acceptance-criteria+tracking+residual-scope+assumptions"
+terminal-state: completed
+completed-date: 2026-07-02
+completed-commits:
+  - 0433a9e
+  - 4619f47
+  - 7482232
+brief: "description+related-issues+playbook+scope+out-of-scope+analysis-notes+acceptance-criteria+tracking+residual-scope+completion-report+assumptions"
 views:
-  enrich: "description+related-issues+playbook+scope+out-of-scope+analysis-notes+acceptance-criteria+tracking+residual-scope+assumptions"
-  fix: "description+related-issues+playbook+scope+out-of-scope+analysis-notes+acceptance-criteria+tracking+residual-scope+assumptions"
+  enrich: "description+related-issues+playbook+scope+out-of-scope+analysis-notes+acceptance-criteria+tracking+residual-scope+completion-report+assumptions"
+  fix: "description+related-issues+playbook+scope+out-of-scope+analysis-notes+acceptance-criteria+tracking+residual-scope+completion-report+assumptions"
   complete: "description+completion-report"
 ---
 
@@ -79,12 +78,22 @@ This extends the completed measured-hotspot work by covering additional source-i
 
 | Child | Scope | Status | Notes |
 |-------|-------|--------|-------|
-| #074 | Span-based byte-key and IP-byte helper optimizations | ready | Lookup helper and IP-byte allocation slice. |
-| #075 | TUN packet ownership transfer and no-copy channel enqueue | ready | Ownership handoff and enqueue copy removal slice. |
-| #076 | ACK bitmap processing and packet tracker cleanup | ready | Span-based ACK handling and tracker sizing review. |
+| #074 | Span-based byte-key and IP-byte helper optimizations | completed | Implemented in `0433a9e`; closed by `cdf3ea2`. |
+| #075 | TUN packet ownership transfer and no-copy channel enqueue | completed | Implemented in `4619f47`; closed by `aec0bd9`. |
+| #076 | ACK bitmap processing and packet tracker cleanup | completed | Implemented in `7482232`; closed by `fa7f111`. |
 
 ## Residual Scope
 `none`
+
+## Completion Report
+
+Completed by implementing the three fine-grained child issues:
+
+- `#074` added span-based byte-key lookup and small IP-byte helper optimizations in `0433a9e`.
+- `#075` added TUN packet owner transfer and no-copy channel enqueue overloads in `4619f47`.
+- `#076` added no-copy ACK bitmap processing and packet tracker sizing cleanup in `7482232`.
+
+The parent had no direct source-code patch beyond those child slices. Its gate is satisfied because #074, #075, and #076 are all completed, each with focused tests and benchmark evidence recorded in its issue file.
 
 ## Assumptions
 
@@ -92,8 +101,8 @@ This extends the completed measured-hotspot work by covering additional source-i
 |---|---|---|---|---|---|
 | 1 | F | The project targets `net10.0` and references `CommunityToolkit.HighPerformance` 8.4.2. | verified | test | `dotnet list src/PNet.Mesh/PNet.Mesh.csproj package` reported `CommunityToolkit.HighPerformance` 8.4.2 under `net10.0`; `dotnet --version` reported 10.0.108. |
 | 2 | F | Existing completed issues #066-#069 reduced measured allocation hotspots but did not cover the full source-identified .NET 10 and Toolkit optimization map. | verified | source | Completed issue files #066-#069 and #058 scope measured hotspot children, not the broader byte-key lookup, TUN ownership, ACK bitmap, IP-byte, and packet-tracker follow-up. |
-| 3 | F | `PNetMeshByteArrayComparer` uses `StructuralComparisons` and current span lookup callers allocate byte arrays before dictionary lookup. | verified | source | `PNetMeshHelpers.cs` and `PNetMeshWireGuardPeerState.cs` show `StructuralComparisons` and `remotePublicKey.ToArray()`. |
-| 4 | F | The TUN send path currently copies packets into a new array and later copies into pooled channel memory. | verified | source | `PNetMeshTunBridge.RunTunReaderAsync` calls `ToArray()` and `PNetMeshChannel.EnqueueWriteAsync` rents and copies the payload. |
-| 5 | F | ACK processing currently materializes a byte array and packet-buffer methods allocate `BitArray` and LINQ enumerators. | verified | source | `PNetMeshSession.ProcessAck` calls `ToByteArray()` and `PNetMeshPacketBuffer` uses `BitArray` with LINQ. |
-| 6 | R | Replacing copies with owner transfer and span-based lookup can reduce allocations without changing wire format. | unverified | logical | Needs implementation plus benchmark and test proof because ownership and protobuf lifetimes are correctness-sensitive. |
-| 7 | R | `PNetMeshPacketTracker` can reduce rented memory by revising word sizing. | unverified | source | The constructor has a `todo smaller implementation`; verify current window semantics before changing. |
+| 3 | F | Before child #074, `PNetMeshByteArrayComparer` used `StructuralComparisons` and span lookup callers allocated byte arrays before dictionary lookup. | verified | source | `PNetMeshHelpers.cs` and `PNetMeshWireGuardPeerState.cs` showed `StructuralComparisons` and `remotePublicKey.ToArray()`. |
+| 4 | F | Before child #075, the TUN send path copied packets into a new array and later copied into pooled channel memory. | verified | source | `PNetMeshTunBridge.RunTunReaderAsync` called `ToArray()` and `PNetMeshChannel.EnqueueWriteAsync` rented and copied the payload. |
+| 5 | F | Before child #076, ACK processing materialized a byte array and packet-buffer methods allocated `BitArray` and LINQ enumerators. | verified | source | `PNetMeshSession.ProcessAck` called `ToByteArray()` and `PNetMeshPacketBuffer` used `BitArray` with LINQ. |
+| 6 | R | The completed child issues reduced scoped copies or allocations without changing the protobuf wire format. | verified | source | Child issue completion reports #074, #075, and #076 record the implementation, focused tests, and benchmark evidence. |
+| 7 | F | Child #076 reduced packet-tracker storage while preserving tracker semantics. | verified | source | The #076 completion report records the tracker storage shrink and regression tests for window behavior. |
