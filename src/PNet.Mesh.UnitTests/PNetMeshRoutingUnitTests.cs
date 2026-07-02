@@ -2854,6 +2854,69 @@ namespace PNet.Actor.UnitTests.Mesh
         }
 
         [Fact]
+        public async Task channel_relay_wait_fails_when_channel_is_disposed()
+        {
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            using var bootstrapSenderKey = KeyPair.Generate();
+            using var bootstrapReceiverKey = KeyPair.Generate();
+            using var senderKey = KeyPair.Generate();
+            using var receiverKey = KeyPair.Generate();
+            var bootstrapSenderProtocol = new PNetMeshProtocol(bootstrapSenderKey.PrivateKey, bootstrapSenderKey.PublicKey, psk);
+            var bootstrapReceiverProtocol = new PNetMeshProtocol(bootstrapReceiverKey.PrivateKey, bootstrapReceiverKey.PublicKey, psk);
+            var senderProtocol = new PNetMeshProtocol(senderKey.PrivateKey, senderKey.PublicKey, psk);
+            var bootstrapSenderOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+            var bootstrapReceiverOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+            var senderOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+
+            using var bootstrapSender = new PNetMeshSession(bootstrapSenderProtocol, bootstrapSenderOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 24535),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 24536)
+            };
+            using var bootstrapReceiver = new PNetMeshSession(bootstrapReceiverProtocol, bootstrapReceiverOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 24536),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 24535)
+            };
+            using var relayCandidate = new PNetMeshSession(senderProtocol, senderOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 24541),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 24542)
+            };
+
+            using var channel = new PNetMeshChannel();
+            OpenSessionPair(bootstrapSender, bootstrapReceiver, bootstrapSenderOutbound, bootstrapReceiverOutbound, bootstrapReceiverKey.PublicKey);
+            channel.AddSession(bootstrapSender);
+            await WaitForStatusAsync(bootstrapSender, PNetMeshSessionStatus.Open);
+            bootstrapSender.Dispose();
+
+            relayCandidate.WriteInitialize(3, receiverKey.PublicKey);
+            Assert.IsType<PNetMeshOutboundMessages.Packet>(ReadMessage(senderOutbound)).MemoryOwner.Dispose();
+            channel.AddSession(relayCandidate);
+            Assert.Equal(PNetMeshSessionStatus.Opening, relayCandidate.Status);
+            Assert.True(channel.HasRoutableSession);
+
+            var relayTask = channel.RelayAsync(new PNetMeshRelayPacket
+            {
+                Address = Address(65),
+                SeqNumber = 3,
+                HopCount = 1,
+                Route = ImmutableArray.Create<byte[]>(Address(66)),
+                Payload = Encoding.UTF8.GetBytes("dispose")
+            }, cancellationToken: TestContext.Current.CancellationToken);
+
+            await Task.Delay(50, TestContext.Current.CancellationToken);
+            Assert.False(relayTask.IsCompleted);
+
+            channel.Dispose();
+
+            await Assert.ThrowsAsync<ObjectDisposedException>(() =>
+                relayTask.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken));
+        }
+
+        [Fact]
         public async Task channel_replies_use_session_that_delivered_recent_inbound_payload()
         {
             var psk = new byte[32];

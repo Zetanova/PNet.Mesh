@@ -27,7 +27,6 @@ namespace PNet.Mesh
 
         ImmutableList<PNetMeshSession> _sessions = ImmutableList<PNetMeshSession>.Empty;
         PNetMeshSession _currentSession;
-        readonly object _relayStateLock = new object();
         TaskCompletionSource _relayStateChanged = CreateRelayStateChanged();
         bool _disposed;
 
@@ -440,19 +439,12 @@ namespace PNet.Mesh
 
         Task GetRelayStateChangedTask()
         {
-            lock (_relayStateLock)
-                return _relayStateChanged.Task;
+            return Volatile.Read(ref _relayStateChanged).Task;
         }
 
         void SignalRelayStateChanged()
         {
-            TaskCompletionSource signal;
-            lock (_relayStateLock)
-            {
-                signal = _relayStateChanged;
-                _relayStateChanged = CreateRelayStateChanged();
-            }
-
+            var signal = Interlocked.Exchange(ref _relayStateChanged, CreateRelayStateChanged());
             signal.TrySetResult();
         }
 
