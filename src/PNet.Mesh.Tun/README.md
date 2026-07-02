@@ -29,6 +29,35 @@ docker build -f src/PNet.Mesh.Tun.Cli/Dockerfile -t localhost/pnet-mesh-tun:dev 
 
 The CLI configures the interface by default with `ip addr replace`, `ip link set`, and `ip route replace`. Use `--no-configure-interface` when another namespace setup tool owns interface state.
 
+## Benchmark Topology
+
+The benchmark executable owns the reusable privileged topology for later PNet.Mesh.Tun and `wireguard-go` comparison runs:
+
+```bash
+dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --tun-topology plan
+dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --tun-topology preflight
+dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --tun-topology create
+dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --tun-topology teardown
+```
+
+All actions emit JSON. `preflight` is non-mutating and reports `pass`, `skip`, or `fail` for Linux, `/dev/net/tun`, Docker, the `localhost/pnet-mesh-tun:dev` image, and a privileged container probe. `create` starts two labeled Docker containers that sleep in isolated namespaces; `teardown` removes only containers and networks carrying the `pnet.mesh.benchmark.topology` label.
+
+Default topology:
+
+| Field | Left | Right |
+|---|---|---|
+| Container | `pnet-tun-bench-left` | `pnet-tun-bench-right` |
+| Host alias | `left` | `right` |
+| Interface | `pnet0` | `pnet0` |
+| MTU | `1280` | `1280` |
+| IPv4 | `10.80.0.1/32` | `10.80.0.2/32` |
+| IPv6 | `fd80::1/128` | `fd80::2/128` |
+| Peer routes | `10.80.0.2/32`, `fd80::2/128` | `10.80.0.1/32`, `fd80::1/128` |
+| PNet.Mesh.Tun UDP | `12401` | `12402` |
+| `wireguard-go` UDP | `51820` | `51821` |
+
+Traffic generation is intentionally outside this topology step. Later benchmark issues add ping, `iperf3`, warmup, packet-loss handling, result schema, and the single-command comparison runner.
+
 ## Container Smoke
 
 Recommended isolated smoke path:

@@ -7,6 +7,8 @@ return 1;
 #else
 if (args.Length > 0 && args[0] == "--macro")
     return MacroBenchmarkRunner.Run(args[1..], Console.Out, Console.Error);
+if (args.Length > 0 && args[0] == "--tun-topology")
+    return TunBenchmarkTopologyRunner.Run(args[1..], Console.Out, Console.Error);
 
 BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args);
 return 0;

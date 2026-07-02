@@ -71,11 +71,15 @@ dotnet build PNet.Mesh.sln -c Release --no-restore
 dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --filter '*'
 dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --macro in-memory --payload 128 --warmup 00:00:05 --duration 00:00:30
 dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --macro udp-loopback --payload 128 --warmup 00:00:05 --duration 00:00:30
+dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --tun-topology plan
+dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --tun-topology preflight
 ```
 
 BenchmarkDotNet writes reports and exports to `artifacts/benchmarks/results/`. Debug runs fail with a Release command reminder. The initial matrix covers payload sizes 64, 128, 512, 1280, and 1420 with time, throughput, allocation, and GC metrics (`ns/op`, `ops/sec`, `B/op`, `Gen0`, `Gen1`, `Gen2`).
 
 Macro benchmarks run through the same Release-only benchmark executable with `--macro`. The `in-memory` scenario measures two-session payload exchange without sockets or Docker. The `udp-loopback` scenario measures encrypted packet exchange over localhost UDP. Both emit JSON with packets/sec, payload bytes/sec, wire bytes/sec, p50/p95/p99 latency, allocated bytes, GC counts, runtime, OS, CPU architecture, and payload size. `--macro testnode-smoke` documents the optional manual TestNode/container perf smoke as non-deterministic; it is not run by default.
+
+Privileged Linux TUN benchmark topology is manual and report-only. `--tun-topology plan` emits the fixed dual-stack Docker topology, `--tun-topology preflight` reports `pass`, `skip`, or `fail`, and `--tun-topology create`/`teardown` manages only labeled Docker resources for later PNet.Mesh.Tun and `wireguard-go` benchmark scenarios.
 
 Supported mesh E2E coverage lives in the Testcontainers project below; use the named methods for mesh topology coverage.
 
