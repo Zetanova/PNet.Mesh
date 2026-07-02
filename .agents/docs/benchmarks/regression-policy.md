@@ -17,6 +17,8 @@ Current baseline: [2026-07-02-baseline.md](2026-07-02-baseline.md).
 
 Use a new baseline only when benchmark code, runtime, host hardware, or macro workload shape intentionally changes. Keep old baselines as historical references.
 
+Privileged TUN comparison runs use [tun-workflow.md](tun-workflow.md) because they require runner capabilities beyond normal micro and macro benchmarks.
+
 ## Before/After Workflow
 
 1. Build Release:
@@ -57,6 +59,8 @@ Macro report thresholds:
 - p95 or p99 latency: report when more than 20% higher than baseline.
 - Allocated bytes per packet: report when more than 20% higher than baseline.
 - Gen1/Gen2 collections: report any new sustained increase.
+
+TUN report thresholds stay manual review items until the TUN workflow records repeated successful runs for one privileged runner class.
 
 ## Promotion To Blocking
 

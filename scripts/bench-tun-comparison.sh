@@ -2,7 +2,7 @@
 # Run PNet.Mesh.Tun versus wireguard-go benchmark comparison artifacts.
 # opt-status: optimized
 # opt-date: 2026-07-02
-# forks: help=0, dry-run=0, run=build:1 preflight:1 target:1-each compare:1 summary:1 failure-teardown:1
+# forks: help=0, dry-run=0, run=build:1 preflight:1 target:1-each compare:1 baseline-report:1 summary:1 failure-teardown:1
 
 set -euo pipefail
 
@@ -24,6 +24,7 @@ build_timeout="180s"
 run_timeout="420s"
 teardown_timeout="120s"
 target="all"
+baseline_path=""
 build_release=true
 preflight=true
 dry_run=false
@@ -51,6 +52,7 @@ Options:
   --build-timeout DUR      Wrapper timeout for dotnet build. Default: 180s.
   --run-timeout DUR        Wrapper timeout for preflight/benchmark/compare. Default: 420s.
   --target TARGET          all, pnet-mesh-tun, or wireguard-go. Default: all.
+  --baseline PATH          Optional previous comparison.json for report-only regression output.
   --no-build               Skip Release build before running.
   --skip-preflight         Skip topology preflight.
   --dry-run                Write commands without running them.
@@ -117,6 +119,7 @@ write_environment() {
     --arg mtu "$mtu" \
     --arg payloadMode "$payload_mode" \
     --arg commandTimeout "$command_timeout" \
+    --arg baseline "$baseline_path" \
     --arg outputDir "$output_dir" \
     '{
       kind: "pnet-mesh-tun-comparison-run",
@@ -131,6 +134,7 @@ write_environment() {
         payloadMode: $payloadMode,
         commandTimeout: $commandTimeout
       },
+      baseline: (if $baseline == "" then null else $baseline end),
       outputDir: $outputDir
     }' >"$output_dir/environment.json"
 }
@@ -146,6 +150,7 @@ write_summary() {
     --arg pnet "$output_dir/pnet-mesh-tun.json" \
     --arg wireguard "$output_dir/wireguard-go.json" \
     --arg comparison "$output_dir/comparison.json" \
+    --arg regression "$output_dir/regression-report.json" \
     --arg environment "$output_dir/environment.json" \
     '{
       kind: "pnet-mesh-tun-comparison-script-summary",
@@ -157,9 +162,79 @@ write_summary() {
         pnetMeshTun: $pnet,
         wireguardGo: $wireguard,
         comparison: $comparison,
+        regression: $regression,
         environment: $environment
       }
     }' >"$output_dir/summary.json"
+}
+
+write_regression_report() {
+  local current="$output_dir/comparison.json"
+  jq -n \
+    --arg baselinePath "$baseline_path" \
+    --arg currentPath "$current" \
+    --slurpfile baseline "$baseline_path" \
+    --slurpfile current "$current" '
+      def numeric($value): if ($value | type) == "number" then $value else null end;
+      def delta($current; $baseline):
+        if numeric($current) != null and numeric($baseline) != null
+        then $current - $baseline
+        else null
+        end;
+      def delta_percent($current; $baseline):
+        if numeric($current) != null and numeric($baseline) != null and $baseline != 0
+        then (($current - $baseline) * 100 / $baseline)
+        else null
+        end;
+      def metric($name; $unit; $direction; $current; $baseline): {
+        name: $name,
+        unit: $unit,
+        direction: $direction,
+        current: $current,
+        baseline: $baseline,
+        delta: delta($current; $baseline),
+        deltaPercent: delta_percent($current; $baseline)
+      };
+
+      ($current[0]) as $c |
+      ($baseline[0]) as $b |
+      {
+        kind: "pnet-mesh-tun-regression-report",
+        status: "report-only",
+        createdAt: (now | todateiso8601),
+        current: $currentPath,
+        baseline: $baselinePath,
+        note: "Report-only comparison; thresholds are not blocking until repeated runs establish stable variance.",
+        managedRuntime: {
+          pnet: {
+            current: $c.metrics.managedRuntime.pnet,
+            baseline: $b.metrics.managedRuntime.pnet
+          },
+          wireguard: {
+            current: $c.metrics.managedRuntime.wireguard,
+            baseline: $b.metrics.managedRuntime.wireguard
+          }
+        },
+        metrics: [
+          metric("pnet.ipv4.ping.average_latency_ms"; "ms"; "lower"; $c.metrics.traffic.ipv4PingAverageLatencyMilliseconds.pnet; $b.metrics.traffic.ipv4PingAverageLatencyMilliseconds.pnet),
+          metric("wireguard.ipv4.ping.average_latency_ms"; "ms"; "lower"; $c.metrics.traffic.ipv4PingAverageLatencyMilliseconds.wireguard; $b.metrics.traffic.ipv4PingAverageLatencyMilliseconds.wireguard),
+          metric("pnet.ipv6.ping.average_latency_ms"; "ms"; "lower"; $c.metrics.traffic.ipv6PingAverageLatencyMilliseconds.pnet; $b.metrics.traffic.ipv6PingAverageLatencyMilliseconds.pnet),
+          metric("wireguard.ipv6.ping.average_latency_ms"; "ms"; "lower"; $c.metrics.traffic.ipv6PingAverageLatencyMilliseconds.wireguard; $b.metrics.traffic.ipv6PingAverageLatencyMilliseconds.wireguard),
+          metric("pnet.ipv4.iperf.bits_per_second"; "bps"; "higher"; $c.metrics.traffic.ipv4IperfBitsPerSecond.pnet; $b.metrics.traffic.ipv4IperfBitsPerSecond.pnet),
+          metric("wireguard.ipv4.iperf.bits_per_second"; "bps"; "higher"; $c.metrics.traffic.ipv4IperfBitsPerSecond.wireguard; $b.metrics.traffic.ipv4IperfBitsPerSecond.wireguard),
+          metric("pnet.ipv6.iperf.bits_per_second"; "bps"; "higher"; $c.metrics.traffic.ipv6IperfBitsPerSecond.pnet; $b.metrics.traffic.ipv6IperfBitsPerSecond.pnet),
+          metric("wireguard.ipv6.iperf.bits_per_second"; "bps"; "higher"; $c.metrics.traffic.ipv6IperfBitsPerSecond.wireguard; $b.metrics.traffic.ipv6IperfBitsPerSecond.wireguard),
+          metric("pnet.process.rss_bytes"; "bytes"; "lower"; $c.metrics.process.residentSetBytes.pnet; $b.metrics.process.residentSetBytes.pnet),
+          metric("wireguard.process.rss_bytes"; "bytes"; "lower"; $c.metrics.process.residentSetBytes.wireguard; $b.metrics.process.residentSetBytes.wireguard),
+          metric("pnet.process.total_cpu_ticks"; "ticks"; "lower"; $c.metrics.process.totalCpuTicks.pnet; $b.metrics.process.totalCpuTicks.pnet),
+          metric("wireguard.process.total_cpu_ticks"; "ticks"; "lower"; $c.metrics.process.totalCpuTicks.wireguard; $b.metrics.process.totalCpuTicks.wireguard),
+          metric("pnet.managed.allocation_bytes"; "bytes"; "lower"; $c.metrics.managedRuntime.pnet.allocationBytes; $b.metrics.managedRuntime.pnet.allocationBytes),
+          metric("pnet.managed.heap_bytes"; "bytes"; "lower"; $c.metrics.managedRuntime.pnet.managedHeapBytes; $b.metrics.managedRuntime.pnet.managedHeapBytes),
+          metric("pnet.managed.gen0_collections"; "collections"; "lower"; $c.metrics.managedRuntime.pnet.gen0Collections; $b.metrics.managedRuntime.pnet.gen0Collections),
+          metric("pnet.managed.gen1_collections"; "collections"; "lower"; $c.metrics.managedRuntime.pnet.gen1Collections; $b.metrics.managedRuntime.pnet.gen1Collections),
+          metric("pnet.managed.gen2_collections"; "collections"; "lower"; $c.metrics.managedRuntime.pnet.gen2Collections; $b.metrics.managedRuntime.pnet.gen2Collections)
+        ]
+      }' >"$output_dir/regression-report.json"
 }
 
 best_effort_teardown() {
@@ -250,6 +325,11 @@ while [[ $# -gt 0 ]]; do
       [[ "$target" == "all" || "$target" == "pnet-mesh-tun" || "$target" == "wireguard-go" ]] || die "--target must be all, pnet-mesh-tun, or wireguard-go"
       shift 2
       ;;
+    --baseline)
+      [[ $# -ge 2 ]] || die "--baseline requires a value"
+      baseline_path="$2"
+      shift 2
+      ;;
     --no-build)
       build_release=false
       shift
@@ -275,6 +355,10 @@ done
 require_command dotnet
 require_command jq
 require_command timeout
+
+if [[ -n "$baseline_path" && ! -f "$baseline_path" ]]; then
+  die "baseline comparison JSON not found: $baseline_path"
+fi
 
 mkdir -p "$output_dir"
 : >"$output_dir/commands.log"
@@ -350,19 +434,35 @@ if [[ "$dry_run" == true ]]; then
         --tun-compare \
         --pnet "$output_dir/pnet-mesh-tun.json" \
         --wireguard "$output_dir/wireguard-go.json"
+    if [[ -n "$baseline_path" ]]; then
+      record_command baseline-report jq "$output_dir/comparison.json" "$baseline_path" '>' "$output_dir/regression-report.json"
+    fi
   fi
   write_summary pass "Dry run completed; commands.log lists the commands that would run."
   exit 0
 fi
 
 if [[ "$target" == "all" && -s "$output_dir/pnet-mesh-tun.json" && -s "$output_dir/wireguard-go.json" ]]; then
-  if ! run_capture compare "$output_dir/comparison.json" "$output_dir/comparison.err" "$run_timeout" \
+  compare_rc=0
+  run_capture compare "$output_dir/comparison.json" "$output_dir/comparison.err" "$run_timeout" \
     dotnet run --project "$benchmark_project" -c Release --no-build -- \
       --tun-compare \
       --pnet "$output_dir/pnet-mesh-tun.json" \
-      --wireguard "$output_dir/wireguard-go.json"; then
+      --wireguard "$output_dir/wireguard-go.json" || compare_rc=$?
+  if [[ "$compare_rc" -ne 0 ]]; then
     status="fail"
-    message="Comparison generation failed; see comparison.json and comparison.err."
+    if [[ -s "$output_dir/comparison.json" ]]; then
+      message="Comparison generated with failing benchmark inputs; see comparison.json."
+    else
+      message="Comparison generation failed; see comparison.json and comparison.err."
+    fi
+  fi
+
+  if [[ -n "$baseline_path" && -s "$output_dir/comparison.json" ]]; then
+    if ! write_regression_report; then
+      status="fail"
+      message="Report-only baseline comparison failed; see regression-report.json."
+    fi
   fi
 elif [[ "$target" != "all" ]]; then
   message="Target filter '$target' completed; comparison.json was not generated because both targets are required."
@@ -375,8 +475,8 @@ write_summary "$status" "$message"
 [[ "$status" == "pass" ]]
 
 # --- Testing ---
-# Inputs: CLI options above, dotnet SDK, jq, timeout, Docker/TUN host for non-dry runs.
-# Key functions: run_capture wraps timed commands, write_environment/write_summary emit JSON artifacts, run_target invokes each benchmark scenario, cleanup tears down labeled topology.
-# Edge cases: missing dependency, preflight skip/fail, one target filtered, benchmark failure, interrupted run, custom output dir/name/image/MTU/payload mode.
-# Fixtures: --dry-run --target all, --target pnet-mesh-tun, --payload-mode mtu --mtu 1420, preflight skip on host without /dev/net/tun.
+# Inputs: CLI options above, optional --baseline comparison.json, dotnet SDK, jq, timeout, Docker/TUN host for non-dry runs.
+# Key functions: run_capture wraps timed commands, write_environment/write_summary emit JSON artifacts, write_regression_report emits report-only latency/bandwidth/CPU/RSS/GC/allocation deltas plus managed-counter availability, run_target invokes each scenario, cleanup handles failure/signal teardown.
+# Edge cases: missing dependency, missing baseline, preflight skip/fail, one target filtered, benchmark failure, interrupted run, custom output dir/name/image/MTU/payload mode.
+# Fixtures: --dry-run --target all, --target pnet-mesh-tun, --payload-mode mtu --mtu 1420, --baseline /tmp/baseline-comparison.json, preflight skip on host without /dev/net/tun.
 # Run: bash -n scripts/bench-tun-comparison.sh && scripts/bench-tun-comparison.sh --help && scripts/bench-tun-comparison.sh --dry-run --output-dir /tmp/pnet-tun-compare-dry-run
