@@ -7,7 +7,8 @@ P2P protocol to use inside managed dotnet application
 ## Features
 
 .) WireGuard-compatible UDP protocol for managed .NET applications
-.) IPv4/IPv6 packet plaintext support for WireGuard transport payloads; TUN/TAP device integration and OS route injection are excluded
+.) IPv4/IPv6 packet plaintext support for WireGuard transport payloads; core library TUN/TAP device integration and OS route injection are excluded
+.) optional `PNet.Mesh.Tun` Linux component exposes mesh payloads through an OS TUN interface when explicitly enabled
 .) no extended OS permission required for covered container flows: ordinary UDP sockets, no TUN/TAP device, no raw-socket capability, no `CAP_NET_ADMIN`, and no privileged container mode
 .) communiction over data fragments (UDP)
 .) packet ordering and flow control
@@ -49,8 +50,18 @@ Build and test:
 dotnet restore PNet.Mesh.sln
 dotnet build PNet.Mesh.sln -c Release --no-restore
 dotnet run --project src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -parallel none
+dotnet run --project src/PNet.Mesh.Tun.UnitTests/PNet.Mesh.Tun.UnitTests.csproj -c Release --no-build -- -parallel none
 timeout 420s dotnet run --project src/PNet.Mesh.E2ETests/PNet.Mesh.E2ETests.csproj -c Release --no-build -- -parallel none
 ```
+
+Optional Linux TUN bridge:
+
+```bash
+dotnet run --project src/PNet.Mesh.Tun.UnitTests/PNet.Mesh.Tun.UnitTests.csproj -c Release --no-build -- -parallel none
+docker build -f src/PNet.Mesh.Tun.Cli/Dockerfile -t localhost/pnet-mesh-tun:dev .
+```
+
+See `src/PNet.Mesh.Tun/README.md` for required `/dev/net/tun`, `CAP_NET_ADMIN`, `CAP_NET_RAW`, `ping`, UDP `nc`, and `iperf3` tooling commands.
 
 Benchmarks:
 

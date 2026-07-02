@@ -13,6 +13,12 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PNet.Mesh.E2ETests", "src\P
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PNet.Mesh.Benchmarks", "src\PNet.Mesh.Benchmarks\PNet.Mesh.Benchmarks.csproj", "{41AF79B1-7984-4F83-8D3D-35B3BE569431}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PNet.Mesh.Tun", "src\PNet.Mesh.Tun\PNet.Mesh.Tun.csproj", "{A965C8D2-3F6D-4B3E-AC3D-F68BC4DE81B1}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PNet.Mesh.Tun.Cli", "src\PNet.Mesh.Tun.Cli\PNet.Mesh.Tun.Cli.csproj", "{6B63E9F7-C997-4C88-B7FD-66F1E575F5BD}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PNet.Mesh.Tun.UnitTests", "src\PNet.Mesh.Tun.UnitTests\PNet.Mesh.Tun.UnitTests.csproj", "{E5E4C49D-0A99-4F49-972F-8936D82CB0EC}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -39,6 +45,18 @@ Global
 		{41AF79B1-7984-4F83-8D3D-35B3BE569431}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{41AF79B1-7984-4F83-8D3D-35B3BE569431}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{41AF79B1-7984-4F83-8D3D-35B3BE569431}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A965C8D2-3F6D-4B3E-AC3D-F68BC4DE81B1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A965C8D2-3F6D-4B3E-AC3D-F68BC4DE81B1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A965C8D2-3F6D-4B3E-AC3D-F68BC4DE81B1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A965C8D2-3F6D-4B3E-AC3D-F68BC4DE81B1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6B63E9F7-C997-4C88-B7FD-66F1E575F5BD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6B63E9F7-C997-4C88-B7FD-66F1E575F5BD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6B63E9F7-C997-4C88-B7FD-66F1E575F5BD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6B63E9F7-C997-4C88-B7FD-66F1E575F5BD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E5E4C49D-0A99-4F49-972F-8936D82CB0EC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E5E4C49D-0A99-4F49-972F-8936D82CB0EC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E5E4C49D-0A99-4F49-972F-8936D82CB0EC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E5E4C49D-0A99-4F49-972F-8936D82CB0EC}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

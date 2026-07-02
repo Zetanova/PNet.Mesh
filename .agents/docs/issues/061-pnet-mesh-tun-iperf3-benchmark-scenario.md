@@ -30,6 +30,7 @@ Add the PNet.Mesh.Tun integration benchmark scenario that runs normal network to
 - `Traffic tools`: use `ping`/`ping6` or equivalent plus `iperf3` so the test follows normal OS networking behavior.
 - `Protocol coverage`: run both IPv4 and IPv6 paths through PNet.Mesh.Tun.
 - `Warmup`: separate topology startup and tunnel handshake from measured traffic windows.
+- `Current #059 smoke`: component-level Docker smoke can exchange IPv4 ping and IPv4/IPv6 UDP `nc` packets, but repeated ping and `iperf3` are not yet stable enough to use as a pass/fail benchmark gate.
 - `Output`: emit machine-readable latency, bandwidth, packet-loss, duration, payload, MTU, CPU, RSS, and allocation counters where available.
 
 ## Scope
@@ -55,7 +56,7 @@ Add the PNet.Mesh.Tun integration benchmark scenario that runs normal network to
 
 ## Gate
 
-This issue stays gated until #056, #059, and #060 are complete. The #054 benchmark foundation dependency was completed in `a402a8a`.
+This issue stays gated until #056, #059, and #060 are complete. The #054 benchmark foundation dependency was completed in `a402a8a`. After #059 closes, keep the gate on #060 and preserve the #059 smoke evidence as the baseline connectivity precondition.
 
 ## Assumptions
 
