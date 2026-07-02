@@ -2,7 +2,7 @@
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
 last-entry: 2026-07-02
 last-opened: 2026-07-02-079
-open-count: 5
+open-count: 4
 last-completed: 2026-07-02
 ---
 
@@ -17,7 +17,6 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 | 051 | 2026-07-01 | nuget/audit | Review transitive NuGet package updates reported by the dependency audit. | medium | gated | [051-review-transitive-nuget-package-updates](issues/051-review-transitive-nuget-package-updates.md) |
 | 072 | 2026-07-02 | performance/analysis | Apply .NET 10 memory and CommunityToolkit.HighPerformance optimizations across mesh hot paths. | medium | gated | [072-apply-dotnet-10-memory-and-toolkit-optimizations](issues/072-apply-dotnet-10-memory-and-toolkit-optimizations.md) |
 | 073 | 2026-07-02 | performance/refactor | Refactor PNetMeshSession control flow to remove premature locks with channel-owned state and benchmark gates. | high | gated | [073-refactor-session-control-flow-lock-free](issues/073-refactor-session-control-flow-lock-free.md) |
-| 075 | 2026-07-02 | performance/analysis | TUN packet ownership transfer and no-copy channel enqueue. | medium | ready | [075-tun-packet-ownership-transfer-and-no-copy-channel-enqueue](issues/075-tun-packet-ownership-transfer-and-no-copy-channel-enqueue.md) |
 | 077 | 2026-07-02 | performance/refactor | PNetMeshSession single-owner mailbox refactor. | high | ready | [077-pnetmeshsession-single-owner-mailbox-refactor](issues/077-pnetmeshsession-single-owner-mailbox-refactor.md) |
 
 ## Outgoing MRs
@@ -39,6 +38,7 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 
 | # | Date | Completed | Summary | Commits | File |
 |---|------|-----------|---------|---------|------|
+| 075 | 2026-07-02 | 2026-07-02 | TUN packet ownership transfer and no-copy channel enqueue. | 4619f47 | [075-tun-packet-ownership-transfer-and-no-copy-channel-enqueue](issues/075-tun-packet-ownership-transfer-and-no-copy-channel-enqueue.md) |
 | 076 | 2026-07-02 | 2026-07-02 | ACK bitmap processing and packet tracker cleanup. | 7482232 | [076-ack-bitmap-processing-and-packet-tracker-cleanup](issues/076-ack-bitmap-processing-and-packet-tracker-cleanup.md) |
 | 079 | 2026-07-02 | 2026-07-02 | PNetMeshTunBridge peer connect memoization. | c89ada0 | [079-pnetmeshtunbridge-peer-connect-memoization](issues/079-pnetmeshtunbridge-peer-connect-memoization.md) |
 | 078 | 2026-07-02 | 2026-07-02 | PNetMeshChannel relay-state atomic signaling. | a8c2a6b | [078-pnetmeshchannel-relay-state-atomic-signaling](issues/078-pnetmeshchannel-relay-state-atomic-signaling.md) |
