@@ -5,8 +5,9 @@ source: benchmark/integration-script
 priority: medium
 status: gated
 terminal-state: gated
-gate-depends: [060, 061, 062, 063]
-gate-reason: "Requires the privileged topology, PNet.Mesh.Tun benchmark scenario, wireguard-go benchmark scenario, and comparison result schema before the runner script can be implemented safely."
+gate-depends: [061, 062, 063]
+gate-reason: "Requires the PNet.Mesh.Tun benchmark scenario, wireguard-go benchmark scenario, and comparison result schema before the runner script can be implemented safely."
+gate-last-checked: 2026-07-02
 probeable: false
 research-status: complete
 research-date: 2026-07-02
@@ -60,7 +61,13 @@ Create a single-command script that runs the PNet.Mesh.Tun and `wireguard-go` TU
 
 ## Gate
 
-This issue stays gated until #060 defines the privileged topology, #061 adds the PNet.Mesh.Tun benchmark scenario, #062 adds the `wireguard-go` comparison scenario, and #063 defines the result schema.
+This issue stays gated until #061 adds the PNet.Mesh.Tun benchmark scenario, #062 adds the `wireguard-go` comparison scenario, and #063 defines the result schema. The privileged topology from #060 is complete in `1e079d2`.
+
+## Gate Validation
+
+| Date | Gate | Method | Result | Evidence |
+|------|------|--------|--------|----------|
+| 2026-07-02 | `gate-depends: [060, 061, 062, 063]` | source | partially passed | #060 is complete in `1e079d2`; #061, #062, and #063 remain open, so #065 stays gated on those issues. |
 
 ## Assumptions
 

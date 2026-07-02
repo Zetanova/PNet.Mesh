@@ -3,10 +3,7 @@ issue: 061
 date: 2026-07-02
 source: benchmark/integration-phase-2
 priority: medium
-status: gated
-terminal-state: gated
-gate-depends: [060]
-gate-reason: "Requires the privileged benchmark topology from #060."
+status: ready
 gate-last-checked: 2026-07-02
 probeable: false
 research-status: complete
@@ -56,7 +53,7 @@ Add the PNet.Mesh.Tun integration benchmark scenario that runs normal network to
 
 ## Gate
 
-This issue stays gated until #060 defines the privileged benchmark topology. The #054 benchmark foundation, #056 macro harnesses, and #059 optional TUN component are complete; preserve the #059 smoke evidence as the baseline connectivity precondition.
+The #060 gate is cleared by `1e079d2`, which added the privileged topology plan, preflight, create, and teardown commands. This issue is ready to add traffic generation on top of that topology.
 
 ## Assumptions
 
@@ -70,8 +67,8 @@ This issue stays gated until #060 defines the privileged benchmark topology. The
 
 | Date | Gate | Method | Result | Evidence |
 |------|------|--------|--------|----------|
-| 2026-07-02 | `gate-depends: [056, 059, 060]` | source | partially passed | #056 and #059 are complete; #060 remains open, so #061 stays gated only on #060. |
+| 2026-07-02 | `gate-depends: [056, 059, 060]` | source | passed | #056, #059, and #060 are complete; #061 is ready. |
 
 ## Validation History
 
-- 2026-07-02: dependency gates cleared by #054, #056, and #059; #060 keeps #061 gated.
+- 2026-07-02: dependency gates cleared by #054, #056, #059, and #060.

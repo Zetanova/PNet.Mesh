@@ -5,8 +5,9 @@ source: benchmark/integration-phase-3
 priority: medium
 status: gated
 terminal-state: gated
-gate-depends: [060, 061]
-gate-reason: "Requires the shared topology and PNet.Mesh.Tun scenario before a fair comparison baseline can be added."
+gate-depends: [061]
+gate-reason: "Requires the PNet.Mesh.Tun benchmark scenario before a fair comparison baseline can be added."
+gate-last-checked: 2026-07-02
 probeable: false
 research-status: complete
 research-date: 2026-07-02
@@ -54,7 +55,13 @@ Add an equivalent `wireguard-go` benchmark baseline that uses the same topology,
 
 ## Gate
 
-This issue stays gated until #060 defines the shared topology and #061 adds the PNet.Mesh.Tun benchmark scenario.
+This issue stays gated until #061 adds the PNet.Mesh.Tun benchmark scenario. The shared topology from #060 is complete in `1e079d2`.
+
+## Gate Validation
+
+| Date | Gate | Method | Result | Evidence |
+|------|------|--------|--------|----------|
+| 2026-07-02 | `gate-depends: [060, 061]` | source | partially passed | #060 is complete in `1e079d2`; #061 remains open, so #062 stays gated only on #061. |
 
 ## Assumptions
 
