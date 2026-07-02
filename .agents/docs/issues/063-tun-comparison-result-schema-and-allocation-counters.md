@@ -3,8 +3,11 @@ issue: 063
 date: 2026-07-02
 source: benchmark/integration-phase-4
 priority: medium
-status: ready
-terminal-state: ready
+status: completed
+terminal-state: completed
+completed-date: 2026-07-02
+completed-commits:
+  - 9bd8a8ad393c4f4f34a9816b29c3b698f0a66c66
 gate-depends: [057, 061, 062]
 gate-reason: "Requires baseline policy and both TUN benchmark scenarios before comparison schema can be finalized."
 gate-last-checked: 2026-07-02
@@ -56,7 +59,7 @@ Define and implement the result schema for PNet.Mesh.Tun versus `wireguard-go` b
 
 ## Gate
 
-Cleared on 2026-07-02: #057, #061, and #062 are complete, so #063 is ready.
+Cleared on 2026-07-02: #057, #061, and #062 are complete, so #063 was ready.
 
 ## Gate Validation
 
@@ -66,7 +69,28 @@ Cleared on 2026-07-02: #057, #061, and #062 are complete, so #063 is ready.
 
 ## Validation History
 
-- 2026-07-02: dependency gates cleared by #057, #061, and #062; #063 is now ready.
+- 2026-07-02: dependency gates cleared by #057, #061, and #062; #063 was ready before completion.
+
+## Completion Report
+
+Implemented in `9bd8a8ad393c4f4f34a9816b29c3b698f0a66c66`.
+
+- Added the saved-result `--tun-compare` CLI path for PNet.Mesh.Tun versus `wireguard-go` benchmark reports.
+- Normalized side-by-side latency, bandwidth, packet loss, CPU, RSS, thread, settings, environment, implementation, traceability, and managed-runtime fields while preserving raw traffic, process, topology, and command records.
+- Added tests covering the public CLI route, real saved-report serialization, and wrong-scenario validation.
+- Kept the comparison output usable from saved benchmark files so reports can be generated without rerunning benchmarks.
+
+Verification on 2026-07-02:
+
+- `timeout 180s rtk dotnet build PNet.Mesh.sln -c Release --no-restore` passed with 9 projects and 0 warnings.
+- `timeout 240s rtk dotnet run --project src/PNet.Mesh.Tun.UnitTests/PNet.Mesh.Tun.UnitTests.csproj -c Release --no-build -- -parallel none` passed, 14/14 tests.
+- `timeout 120s rtk dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release --no-build -- --tun-compare --pnet /tmp/codex-team-task.krDAde/test/tun-benchmark-pnet-closeout-seq.json --wireguard /tmp/codex-team-task.krDAde/test/tun-benchmark-wireguard-go-closeout.json > /tmp/codex-team-task.krDAde/test/tun-compare-063-final.json` passed.
+- `timeout 120s rtk dotnet format whitespace PNet.Mesh.sln --include src/PNet.Mesh.Benchmarks/Program.cs src/PNet.Mesh.Benchmarks/BenchmarkCli.cs src/PNet.Mesh.Benchmarks/TunPNetBenchmarkRunner.cs src/PNet.Mesh.Benchmarks/TunBenchmarkComparisonRunner.cs src/PNet.Mesh.Tun.UnitTests/TunBenchmarkComparisonRunnerTests.cs --no-restore --verify-no-changes --verbosity minimal` passed.
+- `git diff --check` passed.
+
+## Resolving Commits
+
+- `9bd8a8ad393c4f4f34a9816b29c3b698f0a66c66` - `benchmarks: add tun comparison result schema`
 
 ## Assumptions
 

@@ -3,12 +3,12 @@ issue: 065
 date: 2026-07-02
 source: benchmark/integration-script
 priority: medium
-status: gated
-terminal-state: gated
+status: ready
+terminal-state: ready
 gate-depends: [063]
 gate-reason: "Requires the comparison result schema before the runner script can be implemented safely."
 gate-last-checked: 2026-07-02
-gate-status: blocked
+gate-status: cleared
 probeable: false
 research-status: complete
 research-date: 2026-07-02
@@ -62,17 +62,19 @@ Create a single-command script that runs the PNet.Mesh.Tun and `wireguard-go` TU
 
 ## Gate
 
-This issue stays gated until #063 defines the result schema. The privileged topology from #060 is complete in `1e079d2`, #061 completed the PNet.Mesh.Tun benchmark scenario, and #062 completed the `wireguard-go` comparison scenario.
+Cleared on 2026-07-02: #063 is complete, so this issue is ready. The privileged topology from #060 is complete in `1e079d2`, #061 completed the PNet.Mesh.Tun benchmark scenario, and #062 completed the `wireguard-go` comparison scenario.
 
 ## Gate Validation
 
 | Date | Gate | Method | Result | Evidence |
 |------|------|--------|--------|----------|
 | 2026-07-02 | `gate-depends: [061, 062, 063]` | source | reduced | #061 and #062 are complete, so #065 now remains gated only on #063. |
+| 2026-07-02 | `gate-depends: [061, 062, 063]` | source | ready | #061, #062, and #063 are complete, so #065 is ready. |
 
 ## Validation History
 
-- 2026-07-02: dependency gates cleared by #061 and #062; #063 keeps #065 gated.
+- 2026-07-02: dependency gates cleared by #061 and #062; #063 kept #065 gated until completion.
+- 2026-07-02: dependency gates cleared by #061, #062, and #063; #065 is now ready.
 
 ## Assumptions
 
