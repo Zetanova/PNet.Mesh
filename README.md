@@ -52,6 +52,16 @@ dotnet run --project src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Relea
 timeout 420s dotnet run --project src/PNet.Mesh.E2ETests/PNet.Mesh.E2ETests.csproj -c Release --no-build -- -parallel none
 ```
 
+Benchmarks:
+
+```bash
+dotnet restore PNet.Mesh.sln
+dotnet build PNet.Mesh.sln -c Release --no-restore
+dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --filter '*'
+```
+
+BenchmarkDotNet writes reports and exports to `artifacts/benchmarks/results/`. Debug runs fail with a Release command reminder. The initial matrix covers payload sizes 64, 128, 512, 1280, and 1420 with time, throughput, allocation, and GC metrics (`ns/op`, `ops/sec`, `B/op`, `Gen0`, `Gen1`, `Gen2`).
+
 Supported mesh E2E coverage lives in the Testcontainers project below; use the named methods for mesh topology coverage.
 
 Direct P2P coverage:
