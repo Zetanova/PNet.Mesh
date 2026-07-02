@@ -3,10 +3,8 @@ issue: 060
 date: 2026-07-02
 source: benchmark/integration-phase-1
 priority: medium
-status: gated
-terminal-state: gated
-gate-depends: [059]
-gate-reason: "Requires optional PNet.Mesh.Tun component before executable benchmark topology can be validated."
+status: ready
+gate-last-checked: 2026-07-02
 probeable: false
 research-status: complete
 research-date: 2026-07-02
@@ -54,7 +52,13 @@ Define the privileged Linux namespace or container topology used by PNet.Mesh.Tu
 
 ## Gate
 
-This issue stays gated until #059 adds the optional `PNet.Mesh.Tun` component.
+The #059 gate is cleared by `781084d`, which added the optional `PNet.Mesh.Tun` component, CLI, Dockerfile, and smoke documentation. This issue is ready to implement the reusable privileged topology.
+
+## Gate Validation
+
+| Date | Gate | Method | Result | Evidence |
+|------|------|--------|--------|----------|
+| 2026-07-02 | `gate-depends: [059]` | source | passed | #059 completed in `781084d`. |
 
 ## Assumptions
 

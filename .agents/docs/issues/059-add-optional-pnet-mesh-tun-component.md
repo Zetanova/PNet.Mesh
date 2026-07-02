@@ -3,9 +3,13 @@ issue: 059
 date: 2026-07-02
 source: tun/optional-component
 priority: medium
-status: ready
+status: completed
 research-status: complete
 research-date: 2026-07-02
+terminal-state: completed
+completed-date: 2026-07-02
+completed-commits:
+  - 781084d
 assumptions-date: 2026-07-02
 brief: "description+playbook+scope+acceptance-criteria"
 views:
@@ -60,3 +64,33 @@ Add an optional `PNet.Mesh.Tun` component that exposes PNet.Mesh as an OS TUN in
 | 2 | F | Core PNet.Mesh currently excludes TUN/TAP, OS routing, and route injection from its WireGuard-equivalence claim. | verified | source | `README.md` states that WireGuard-equivalent IPv4/IPv6 packet payload behavior excludes TUN/TAP interfaces, OS routing, and route injection. |
 | 3 | F | PNet.Mesh already has raw IPv4/IPv6 packet payload helpers in the core library. | verified | source | `src/PNet.Mesh/PNetMeshPayloadFraming.cs` and `src/PNet.Mesh/PNetMeshIpPacket.cs` provide IPv4/IPv6 packet classification and helper paths. |
 | 4 | R | The TUN feature should live outside the core library to preserve the unprivileged no-TUN boundary. | verified | logical | This follows from the user's optional-component request plus the README's current core boundary. |
+
+## Completion Report
+
+Implemented in `781084d`.
+
+- Added optional `src/PNet.Mesh.Tun` with a fakeable `ITunDevice`, CIDR prefix routing, `PNetMeshTunBridge`, Linux `/dev/net/tun` adapter, and `ip` interface configurator.
+- Added `src/PNet.Mesh.Tun.Cli` with command-line configuration for interface, MTU, addresses, routes, bind endpoints, keys, peers, `AllowedIPs`, attach/configure switches, verbose logging, and a Linux smoke Dockerfile.
+- Added `src/PNet.Mesh.Tun.UnitTests` with fake TUN devices and real local `PNetMeshServer` instances to verify exact IPv4 and IPv6 packet exchange.
+- Updated README and TUN docs to preserve the core no-TUN/no-route-injection boundary and document `/dev/net/tun`, `CAP_NET_ADMIN`, `CAP_NET_RAW`, `ping`, UDP `nc`, and `iperf3` tooling.
+- Updated #061 with #059 smoke evidence and the remaining benchmark warmup/packet-loss work.
+
+Verification:
+
+- `timeout 120s dotnet restore PNet.Mesh.sln` passed.
+- `timeout 120s dotnet format whitespace PNet.Mesh.sln --include src/PNet.Mesh.Tun src/PNet.Mesh.Tun.Cli src/PNet.Mesh.Tun.UnitTests --no-restore --verify-no-changes --verbosity minimal` passed.
+- `timeout 180s dotnet build PNet.Mesh.sln -c Release --no-restore` passed.
+- `timeout 180s dotnet run --project src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -parallel none` passed: 154/154.
+- `timeout 120s dotnet run --project src/PNet.Mesh.Tun.UnitTests/PNet.Mesh.Tun.UnitTests.csproj -c Release --no-build -- -parallel none` passed: 2/2.
+- `timeout 420s docker build -f src/PNet.Mesh.Tun.Cli/Dockerfile -t localhost/pnet-mesh-tun:dev .` passed.
+- Privileged Docker smoke proved IPv4 ping packet exchange plus IPv4 and IPv6 UDP `nc` payload exchange; repeated ping and `iperf3` benchmark stability remain tracked by #061.
+- Package audits passed for vulnerable, deprecated, and outdated packages.
+- Full e2e command timed out and reported a transient six-node topology failure; targeted rerun of the named method passed 1/1 in 112.602s, and recurrence tracking was filed as #070.
+
+## Completion Assumptions
+
+| # | Cat | Assumption | Status | Method | Detail |
+|---|---|---|---|---|---|
+| 1 | F | The optional TUN implementation is contained in commit `781084d`. | verified | source | `git commit` created `781084d tun: add optional Linux TUN bridge`. |
+| 2 | F | Fake-device TUN tests pass after implementation. | verified | test | `PNet.Mesh.Tun.UnitTests` passed 2/2 after the final build. |
+| 3 | F | The named six-node DNS-alias e2e method passes when run alone after the full-suite timeout. | verified | test | Targeted e2e rerun passed 1/1 in 112.602s. |

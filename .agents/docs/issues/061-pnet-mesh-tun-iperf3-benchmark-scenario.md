@@ -5,8 +5,8 @@ source: benchmark/integration-phase-2
 priority: medium
 status: gated
 terminal-state: gated
-gate-depends: [056, 059, 060]
-gate-reason: "Requires macro harness conventions, PNet.Mesh.Tun, and the privileged benchmark topology."
+gate-depends: [060]
+gate-reason: "Requires the privileged benchmark topology from #060."
 gate-last-checked: 2026-07-02
 probeable: false
 research-status: complete
@@ -56,7 +56,7 @@ Add the PNet.Mesh.Tun integration benchmark scenario that runs normal network to
 
 ## Gate
 
-This issue stays gated until #056, #059, and #060 are complete. The #054 benchmark foundation dependency was completed in `a402a8a`. After #059 closes, keep the gate on #060 and preserve the #059 smoke evidence as the baseline connectivity precondition.
+This issue stays gated until #060 defines the privileged benchmark topology. The #054 benchmark foundation, #056 macro harnesses, and #059 optional TUN component are complete; preserve the #059 smoke evidence as the baseline connectivity precondition.
 
 ## Assumptions
 
@@ -70,8 +70,8 @@ This issue stays gated until #056, #059, and #060 are complete. The #054 benchma
 
 | Date | Gate | Method | Result | Evidence |
 |------|------|--------|--------|----------|
-| 2026-07-02 | `gate-depends: [056, 059, 060]` | source | blocked | #054 is completed, but #056, #059, and #060 remain open, so #061 stays gated. |
+| 2026-07-02 | `gate-depends: [056, 059, 060]` | source | partially passed | #056 and #059 are complete; #060 remains open, so #061 stays gated only on #060. |
 
 ## Validation History
 
-- 2026-07-02: dependency gate cleared by #054; remaining dependency gates #056, #059, and #060 keep #061 gated.
+- 2026-07-02: dependency gates cleared by #054, #056, and #059; #060 keeps #061 gated.
