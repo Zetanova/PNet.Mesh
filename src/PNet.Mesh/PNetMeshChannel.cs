@@ -91,7 +91,10 @@ namespace PNet.Mesh
             _routePathChannel?.Writer.Complete();
             _routePathChannel = null;
 
-            _controlChannel?.Writer.Complete();
+            var controlChannel = _controlChannel;
+            controlChannel?.Writer.Complete();
+            if (_controlTask.IsCompleted)
+                DrainControlCommands(controlChannel);
             _controlChannel = null;
 
             _relayChannel?.Writer.Complete();
@@ -171,7 +174,7 @@ namespace PNet.Mesh
                             }
                             finally
                             {
-                                cmd.MemoryOwner?.Dispose();
+                                ClearAndDispose(cmd.MemoryOwner);
                             }
                             break;
                         case PNetMeshChannelCommands.Invoke cmd:
@@ -226,14 +229,14 @@ namespace PNet.Mesh
             {
                 cmd.Result?.TrySetCanceled(ex.CancellationToken);
                 cmd.CancellationRegistration.Dispose();
-                cmd.MemoryOwner?.Dispose();
+                ClearAndDispose(cmd.MemoryOwner);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "relay enqueue error");
                 cmd.Result?.TrySetException(ex);
                 cmd.CancellationRegistration.Dispose();
-                cmd.MemoryOwner?.Dispose();
+                ClearAndDispose(cmd.MemoryOwner);
             }
         }
 
@@ -305,7 +308,26 @@ namespace PNet.Mesh
         static void DisposeRelayCommand(PNetMeshChannelCommands.Relay cmd)
         {
             cmd.CancellationRegistration.Dispose();
-            cmd.MemoryOwner?.Dispose();
+            ClearAndDispose(cmd.MemoryOwner);
+        }
+
+        static void DrainControlCommands(Channel<PNetMeshChannelCommands.Command> channel)
+        {
+            if (channel == null)
+                return;
+
+            while (channel.Reader.TryRead(out var command))
+            {
+                switch (command)
+                {
+                    case PNetMeshChannelCommands.Send send:
+                        ClearAndDispose(send.MemoryOwner);
+                        break;
+                    case PNetMeshChannelCommands.Relay relay:
+                        DisposeRelayCommand(relay);
+                        break;
+                }
+            }
         }
 
         public ValueTask<bool> WaitToReadAsync(CancellationToken cancellationToken = default)
@@ -368,18 +390,78 @@ namespace PNet.Mesh
 
         async ValueTask EnqueueWriteAsync(ReadOnlyMemory<byte> payload, bool unreliablePayloadDelivery, CancellationToken cancellationToken)
         {
-            IMemoryOwner<byte> memoryOwner = null;
-            var commandPayload = ReadOnlyMemory<byte>.Empty;
-            if (!payload.IsEmpty)
+            if (payload.IsEmpty)
             {
-                memoryOwner = MemoryPool<byte>.Shared.Rent(payload.Length);
-                payload.CopyTo(memoryOwner.Memory);
-                commandPayload = memoryOwner.Memory.Slice(0, payload.Length);
+                await EnqueueWriteCommandAsync(
+                    ReadOnlyMemory<byte>.Empty,
+                    memoryOwner: null,
+                    unreliablePayloadDelivery,
+                    cancellationToken);
+                return;
             }
 
+            var memoryOwner = MemoryPool<byte>.Shared.Rent(payload.Length);
+            var commandPayload = memoryOwner.Memory.Slice(0, payload.Length);
+            payload.CopyTo(commandPayload);
+
+            await EnqueueWriteAsync(commandPayload, memoryOwner, unreliablePayloadDelivery, cancellationToken);
+        }
+
+        /// <summary>
+        /// Enqueues an owned reliable payload without copying it.
+        /// </summary>
+        /// <remarks>
+        /// The <paramref name="payload"/> memory must be backed by <paramref name="memoryOwner"/>.
+        /// Ownership transfers to the channel when this method is called; callers must not read,
+        /// write, or dispose the owner after calling it. The channel clears the whole owner memory
+        /// and disposes it after the payload is copied into a session packet or if enqueue fails.
+        /// </remarks>
+        public ValueTask EnqueueWriteAsync(
+            ReadOnlyMemory<byte> payload,
+            IMemoryOwner<byte> memoryOwner,
+            CancellationToken cancellationToken = default)
+        {
+            return EnqueueWriteAsync(payload, memoryOwner, unreliablePayloadDelivery: false, cancellationToken);
+        }
+
+        /// <summary>
+        /// Enqueues an owned unreliable payload without copying it.
+        /// </summary>
+        /// <remarks>
+        /// The <paramref name="payload"/> memory must be backed by <paramref name="memoryOwner"/>.
+        /// Ownership transfers to the channel when this method is called; callers must not read,
+        /// write, or dispose the owner after calling it. The channel clears the whole owner memory
+        /// and disposes it after the payload is copied into a session packet or if enqueue fails.
+        /// </remarks>
+        public ValueTask EnqueueUnreliableWriteAsync(
+            ReadOnlyMemory<byte> payload,
+            IMemoryOwner<byte> memoryOwner,
+            CancellationToken cancellationToken = default)
+        {
+            return EnqueueWriteAsync(payload, memoryOwner, unreliablePayloadDelivery: true, cancellationToken);
+        }
+
+        async ValueTask EnqueueWriteAsync(
+            ReadOnlyMemory<byte> payload,
+            IMemoryOwner<byte> memoryOwner,
+            bool unreliablePayloadDelivery,
+            CancellationToken cancellationToken)
+        {
+            if (memoryOwner == null)
+                throw new ArgumentNullException(nameof(memoryOwner));
+
+            await EnqueueWriteCommandAsync(payload, memoryOwner, unreliablePayloadDelivery, cancellationToken);
+        }
+
+        async ValueTask EnqueueWriteCommandAsync(
+            ReadOnlyMemory<byte> payload,
+            IMemoryOwner<byte> memoryOwner,
+            bool unreliablePayloadDelivery,
+            CancellationToken cancellationToken)
+        {
             var cmd = new PNetMeshChannelCommands.Send
             {
-                Payload = commandPayload,
+                Payload = payload,
                 MemoryOwner = memoryOwner,
                 Result = null,
                 UnreliablePayloadDelivery = unreliablePayloadDelivery,
@@ -393,7 +475,7 @@ namespace PNet.Mesh
             }
             finally
             {
-                memoryOwner?.Dispose();
+                ClearAndDispose(memoryOwner);
             }
         }
 
@@ -496,6 +578,15 @@ namespace PNet.Mesh
         static TaskCompletionSource CreateRelayStateChanged()
         {
             return new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
+        static void ClearAndDispose(IMemoryOwner<byte> memoryOwner)
+        {
+            if (memoryOwner == null)
+                return;
+
+            memoryOwner.Memory.Span.Clear();
+            memoryOwner.Dispose();
         }
     }
 

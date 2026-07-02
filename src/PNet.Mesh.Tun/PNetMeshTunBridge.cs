@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using PNet.Mesh;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -50,64 +51,88 @@ namespace PNet.Mesh.Tun
 
         async Task RunTunReaderAsync(CancellationToken cancellationToken)
         {
-            var buffer = new byte[_tunDevice.Mtu];
-
             while (true)
             {
-                var bytesRead = await _tunDevice.ReadPacketAsync(buffer, cancellationToken);
-                if (bytesRead == 0)
-                    continue;
+                IMemoryOwner<byte> packetOwner = MemoryPool<byte>.Shared.Rent(_tunDevice.Mtu);
 
-                if (!PNetMeshIpPacket.TryRead(buffer.AsSpan(0, bytesRead), out var packet))
+                try
                 {
-                    _logger.LogWarning("dropping invalid packet read from TUN device {interfaceName}", _tunDevice.Name);
-                    continue;
-                }
+                    var buffer = packetOwner.Memory;
+                    var bytesRead = await _tunDevice.ReadPacketAsync(buffer, cancellationToken);
+                    if (bytesRead == 0)
+                        continue;
 
-                var peer = FindPeerByDestination(packet.DestinationAddress);
-                if (peer == null)
+                    if (!PNetMeshIpPacket.TryRead(buffer.Span[..bytesRead], out var packet))
+                    {
+                        _logger.LogWarning("dropping invalid packet read from TUN device {interfaceName}", _tunDevice.Name);
+                        continue;
+                    }
+
+                    var peer = FindPeerByDestination(packet.DestinationAddress);
+                    if (peer == null)
+                    {
+                        _logger.LogWarning("dropping unroutable packet from {sourceAddress} to {destinationAddress}", packet.SourceAddress, packet.DestinationAddress);
+                        continue;
+                    }
+
+                    var packetBytes = buffer.Slice(0, packet.TotalLength);
+                    if (!peer.TryQueuePacket(packetBytes, packetOwner))
+                    {
+                        _logger.LogWarning("dropping packet to {peerName} because the peer send queue is full", peer.Route.Name);
+                        continue;
+                    }
+
+                    packetOwner = null;
+
+                    _logger.LogDebug(
+                        "queued {packetLength} byte packet from TUN {interfaceName} to peer {peerName}: {sourceAddress} -> {destinationAddress}",
+                        packet.TotalLength,
+                        _tunDevice.Name,
+                        peer.Route.Name,
+                        packet.SourceAddress,
+                        packet.DestinationAddress);
+                }
+                finally
                 {
-                    _logger.LogWarning("dropping unroutable packet from {sourceAddress} to {destinationAddress}", packet.SourceAddress, packet.DestinationAddress);
-                    continue;
+                    ClearAndDispose(packetOwner);
                 }
-
-                var packetBytes = buffer.AsSpan(0, packet.TotalLength).ToArray();
-                if (!peer.TryQueuePacket(packetBytes))
-                {
-                    _logger.LogWarning("dropping packet to {peerName} because the peer send queue is full", peer.Route.Name);
-                    continue;
-                }
-
-                _logger.LogDebug(
-                    "queued {packetLength} byte packet from TUN {interfaceName} to peer {peerName}: {sourceAddress} -> {destinationAddress}",
-                    packet.TotalLength,
-                    _tunDevice.Name,
-                    peer.Route.Name,
-                    packet.SourceAddress,
-                    packet.DestinationAddress);
             }
         }
 
         async Task RunPeerWriterAsync(PeerState peer, CancellationToken cancellationToken)
         {
-            while (await peer.WaitToSendAsync(cancellationToken))
+            try
             {
-                while (peer.TryTakePacket(out var payload))
+                while (await peer.WaitToSendAsync(cancellationToken))
                 {
-                    try
+                    while (peer.TryTakePacket(out var queuedPacket))
                     {
-                        var channel = await peer.GetChannelAsync(_server, cancellationToken);
-                        await channel.EnqueueUnreliableWriteAsync(payload, cancellationToken);
-                    }
-                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                    {
-                        throw;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "dropping packet to {peerName} because the mesh channel did not accept it", peer.Route.Name);
+                        var memoryOwner = queuedPacket.MemoryOwner;
+                        try
+                        {
+                            var channel = await peer.GetChannelAsync(_server, cancellationToken);
+                            var transferOwner = memoryOwner;
+                            memoryOwner = null;
+                            await channel.EnqueueUnreliableWriteAsync(queuedPacket.Payload, transferOwner, cancellationToken);
+                        }
+                        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                        {
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "dropping packet to {peerName} because the mesh channel did not accept it", peer.Route.Name);
+                        }
+                        finally
+                        {
+                            ClearAndDispose(memoryOwner);
+                        }
                     }
                 }
+            }
+            finally
+            {
+                peer.CompleteSendQueueAndDisposeQueuedPackets();
             }
         }
 
@@ -198,7 +223,7 @@ namespace PNet.Mesh.Tun
         sealed class PeerState
         {
             // multi-threading: the TUN reader and peer reader startup loops can both open the same peer channel; memoize one connect task and cache one channel.
-            readonly Channel<ReadOnlyMemory<byte>> _sendQueue = Channel.CreateBounded<ReadOnlyMemory<byte>>(new BoundedChannelOptions(256)
+            readonly Channel<QueuedPacket> _sendQueue = Channel.CreateBounded<QueuedPacket>(new BoundedChannelOptions(256)
             {
                 AllowSynchronousContinuations = true,
                 SingleReader = true,
@@ -220,9 +245,9 @@ namespace PNet.Mesh.Tun
                 return Route.AllowedIPs.Any(prefix => prefix.Contains(sourceAddress));
             }
 
-            public bool TryQueuePacket(ReadOnlyMemory<byte> packet)
+            public bool TryQueuePacket(ReadOnlyMemory<byte> packet, IMemoryOwner<byte> memoryOwner)
             {
-                return _sendQueue.Writer.TryWrite(packet);
+                return _sendQueue.Writer.TryWrite(new QueuedPacket(packet, memoryOwner));
             }
 
             public ValueTask<bool> WaitToSendAsync(CancellationToken cancellationToken)
@@ -230,9 +255,16 @@ namespace PNet.Mesh.Tun
                 return _sendQueue.Reader.WaitToReadAsync(cancellationToken);
             }
 
-            public bool TryTakePacket(out ReadOnlyMemory<byte> packet)
+            public bool TryTakePacket(out QueuedPacket packet)
             {
                 return _sendQueue.Reader.TryRead(out packet);
+            }
+
+            public void CompleteSendQueueAndDisposeQueuedPackets()
+            {
+                _sendQueue.Writer.TryComplete();
+                while (_sendQueue.Reader.TryRead(out var packet))
+                    ClearAndDispose(packet.MemoryOwner);
             }
 
             public async ValueTask<PNetMeshChannel> GetChannelAsync(PNetMeshServer server, CancellationToken cancellationToken)
@@ -281,6 +313,28 @@ namespace PNet.Mesh.Tun
                     completion.TrySetException(ex);
                 }
             }
+        }
+
+        readonly struct QueuedPacket
+        {
+            public QueuedPacket(ReadOnlyMemory<byte> payload, IMemoryOwner<byte> memoryOwner)
+            {
+                Payload = payload;
+                MemoryOwner = memoryOwner;
+            }
+
+            public ReadOnlyMemory<byte> Payload { get; }
+
+            public IMemoryOwner<byte> MemoryOwner { get; }
+        }
+
+        static void ClearAndDispose(IMemoryOwner<byte> memoryOwner)
+        {
+            if (memoryOwner == null)
+                return;
+
+            memoryOwner.Memory.Span.Clear();
+            memoryOwner.Dispose();
         }
     }
 }

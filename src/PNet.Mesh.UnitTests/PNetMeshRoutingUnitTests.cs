@@ -2,6 +2,7 @@
 using Noise;
 using PNet.Mesh;
 using System;
+using System.Buffers;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Net;
@@ -3127,6 +3128,94 @@ namespace PNet.Actor.UnitTests.Mesh
         }
 
         [Fact]
+        public async Task channel_enqueue_owned_write_queues_original_owner()
+        {
+            using var channel = new PNetMeshChannel();
+            var owner = new TrackingMemoryOwner(16);
+            Encoding.UTF8.GetBytes("original").CopyTo(owner.Memory.Span.Slice(4));
+
+            await channel.EnqueueUnreliableWriteAsync(
+                owner.Memory.Slice(4, 8),
+                owner,
+                TestContext.Current.CancellationToken);
+
+            Assert.True(GetControlChannel(channel).Reader.TryRead(out var command));
+            var send = Assert.IsType<PNetMeshChannelCommands.Send>(command);
+
+            Assert.Same(owner, send.MemoryOwner);
+            Assert.Equal("original", Encoding.UTF8.GetString(send.Payload.Span));
+            Assert.Equal(0, owner.DisposeCount);
+
+            send.MemoryOwner.Dispose();
+            Assert.Equal(1, owner.DisposeCount);
+        }
+
+        [Fact]
+        public async Task channel_enqueue_owned_write_disposes_owner_after_send()
+        {
+            using var senderKey = KeyPair.Generate();
+            using var receiverKey = KeyPair.Generate();
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            var senderProtocol = new PNetMeshProtocol(senderKey.PrivateKey, senderKey.PublicKey, psk);
+            var receiverProtocol = new PNetMeshProtocol(receiverKey.PrivateKey, receiverKey.PublicKey, psk);
+
+            var senderOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+            var receiverOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+
+            using var sender = new PNetMeshSession(senderProtocol, senderOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 24523),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 24524)
+            };
+            using var receiver = new PNetMeshSession(receiverProtocol, receiverOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 24524),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 24523)
+            };
+
+            var receiverChannels = AttachSession(receiver);
+            OpenSessionPair(sender, receiver, senderOutbound, receiverOutbound, receiverKey.PublicKey);
+
+            using var channel = new PNetMeshChannel();
+            channel.AddSession(sender);
+
+            var owner = new TrackingMemoryOwner(16);
+            Encoding.UTF8.GetBytes("original").CopyTo(owner.Memory.Span);
+
+            await channel.EnqueueUnreliableWriteAsync(
+                owner.Memory.Slice(0, 8),
+                owner,
+                TestContext.Current.CancellationToken);
+
+            var packet = await ReadPacketAsync(senderOutbound);
+            receiver.ReadMessage(packet.MemoryBuffer.Span);
+
+            AssertPayload(receiverChannels.Inbound, "original");
+            Assert.True(SpinWait.SpinUntil(() => owner.DisposeCount == 1, TimeSpan.FromSeconds(2)));
+            Assert.True(owner.IsCleared);
+        }
+
+        [Fact]
+        public async Task channel_dispose_clears_queued_owned_write_before_control_loop_starts()
+        {
+            var channel = new PNetMeshChannel();
+            var owner = new TrackingMemoryOwner(16);
+            Encoding.UTF8.GetBytes("queued").CopyTo(owner.Memory.Span);
+
+            await channel.EnqueueUnreliableWriteAsync(
+                owner.Memory.Slice(0, 6),
+                owner,
+                TestContext.Current.CancellationToken);
+
+            channel.Dispose();
+
+            Assert.Equal(1, owner.DisposeCount);
+            Assert.True(owner.IsCleared);
+        }
+
+        [Fact]
         public async Task channel_pending_relay_candidate_does_not_block_payload_sends()
         {
             using var senderKey = KeyPair.Generate();
@@ -3210,6 +3299,27 @@ namespace PNet.Actor.UnitTests.Mesh
             public Channel<ReadOnlyMemory<byte>> Inbound { get; init; }
 
             public Channel<PNetMeshChannelCommands.Command> Control { get; init; }
+        }
+
+        sealed class TrackingMemoryOwner : IMemoryOwner<byte>
+        {
+            readonly byte[] _buffer;
+
+            public TrackingMemoryOwner(int length)
+            {
+                _buffer = new byte[length];
+            }
+
+            public Memory<byte> Memory => _buffer;
+
+            public int DisposeCount { get; private set; }
+
+            public bool IsCleared => _buffer.All(value => value == 0);
+
+            public void Dispose()
+            {
+                DisposeCount++;
+            }
         }
 
         sealed class BlockingControlWriter : ChannelWriter<PNetMeshChannelCommands.Command>

@@ -2,6 +2,7 @@
 using PNet.Mesh;
 using PNet.Mesh.Tun;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -285,6 +286,49 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             }
         }
 
+        [Fact]
+        public void peer_state_queues_packet_owner_without_copy()
+        {
+            using var key2 = KeyPair.Generate();
+
+            var peerState = CreatePeerState(key2, "node2");
+            var owner = new TrackingMemoryOwner(16);
+            var expected = new byte[] { 1, 2, 3, 4 };
+            expected.CopyTo(owner.Memory.Span.Slice(3));
+
+            Assert.True(InvokeTryQueuePacket(peerState, owner.Memory.Slice(3, expected.Length), owner));
+            Assert.True(InvokeTryTakePacket(peerState, out var queuedPacket));
+
+            var payload = GetQueuedPayload(queuedPacket);
+            var memoryOwner = GetQueuedMemoryOwner(queuedPacket);
+
+            Assert.Same(owner, memoryOwner);
+            Assert.Equal(expected, payload.ToArray());
+
+            owner.Dispose();
+        }
+
+        [Fact]
+        public void peer_state_disposes_queued_packet_owners_when_drained()
+        {
+            using var key2 = KeyPair.Generate();
+
+            var peerState = CreatePeerState(key2, "node2");
+            var owner = new TrackingMemoryOwner(16);
+            new byte[] { 1, 2, 3, 4 }.CopyTo(owner.Memory.Span);
+
+            Assert.True(InvokeTryQueuePacket(peerState, owner.Memory.Slice(0, 4), owner));
+            InvokeDisposeQueuedPackets(peerState);
+
+            Assert.Equal(1, owner.DisposeCount);
+            Assert.True(owner.IsCleared);
+            Assert.False(InvokeTryTakePacket(peerState, out _));
+
+            var lateOwner = new TrackingMemoryOwner(16);
+            Assert.False(InvokeTryQueuePacket(peerState, lateOwner.Memory.Slice(0, 4), lateOwner));
+            lateOwner.Dispose();
+        }
+
         static PNetMeshServerSettings CreateSettings(
             byte[] publicKey,
             byte[] privateKey,
@@ -308,6 +352,16 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
                     }
                 }
             };
+        }
+
+        static object CreatePeerState(KeyPair peerKey, string peerName)
+        {
+            var bind2 = $"127.0.0.1:{NextPort()}";
+            var route = CreateRoute(peerName, peerKey.PublicKey, bind2, "10.80.0.2/32");
+            var peerStateType = typeof(PNetMeshTunBridge).GetNestedType("PeerState", BindingFlags.NonPublic);
+            Assert.NotNull(peerStateType);
+
+            return Activator.CreateInstance(peerStateType, route);
         }
 
         static PNetMeshTunPeerRoute CreateRoute(string name, byte[] publicKey, string endpoint, params string[] prefixes)
@@ -381,10 +435,73 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             return Assert.IsType<PNetMeshTunPeerRoute>(routeProperty.GetValue(peerState));
         }
 
+        static bool InvokeTryQueuePacket(
+            object peerState,
+            ReadOnlyMemory<byte> packet,
+            IMemoryOwner<byte> memoryOwner)
+        {
+            var tryQueuePacket = peerState.GetType().GetMethod("TryQueuePacket", BindingFlags.Instance | BindingFlags.Public);
+            Assert.NotNull(tryQueuePacket);
+            return Assert.IsType<bool>(tryQueuePacket.Invoke(peerState, new object[] { packet, memoryOwner }));
+        }
+
+        static bool InvokeTryTakePacket(object peerState, out object queuedPacket)
+        {
+            var tryTakePacket = peerState.GetType().GetMethod("TryTakePacket", BindingFlags.Instance | BindingFlags.Public);
+            Assert.NotNull(tryTakePacket);
+
+            var args = new object[] { null };
+            var result = Assert.IsType<bool>(tryTakePacket.Invoke(peerState, args));
+            queuedPacket = args[0];
+            return result;
+        }
+
+        static void InvokeDisposeQueuedPackets(object peerState)
+        {
+            var disposeQueuedPackets = peerState.GetType().GetMethod("CompleteSendQueueAndDisposeQueuedPackets", BindingFlags.Instance | BindingFlags.Public);
+            Assert.NotNull(disposeQueuedPackets);
+            disposeQueuedPackets.Invoke(peerState, Array.Empty<object>());
+        }
+
+        static ReadOnlyMemory<byte> GetQueuedPayload(object queuedPacket)
+        {
+            var payloadProperty = queuedPacket.GetType().GetProperty("Payload", BindingFlags.Instance | BindingFlags.Public);
+            Assert.NotNull(payloadProperty);
+            return Assert.IsType<ReadOnlyMemory<byte>>(payloadProperty.GetValue(queuedPacket));
+        }
+
+        static IMemoryOwner<byte> GetQueuedMemoryOwner(object queuedPacket)
+        {
+            var memoryOwnerProperty = queuedPacket.GetType().GetProperty("MemoryOwner", BindingFlags.Instance | BindingFlags.Public);
+            Assert.NotNull(memoryOwnerProperty);
+            return Assert.IsAssignableFrom<IMemoryOwner<byte>>(memoryOwnerProperty.GetValue(queuedPacket));
+        }
+
         static FieldInfo GetRequiredField(Type type, string name)
         {
             return type.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
                 ?? throw new InvalidOperationException($"Field '{name}' was not found on {type.FullName}.");
+        }
+
+        sealed class TrackingMemoryOwner : IMemoryOwner<byte>
+        {
+            readonly byte[] _buffer;
+
+            public TrackingMemoryOwner(int length)
+            {
+                _buffer = new byte[length];
+            }
+
+            public Memory<byte> Memory => _buffer;
+
+            public int DisposeCount { get; private set; }
+
+            public bool IsCleared => _buffer.All(value => value == 0);
+
+            public void Dispose()
+            {
+                DisposeCount++;
+            }
         }
 
         sealed class FakeTunDevice : ITunDevice
