@@ -46,7 +46,7 @@ namespace PNet.Mesh
 
             _inboundChannel = Channel.CreateBounded<ReadOnlyMemory<byte>>(new BoundedChannelOptions(100)
             {
-                AllowSynchronousContinuations = true,
+                AllowSynchronousContinuations = false,
                 SingleReader = true,
                 SingleWriter = false,
                 FullMode = BoundedChannelFullMode.Wait
@@ -62,7 +62,7 @@ namespace PNet.Mesh
 
             _controlChannel = Channel.CreateBounded<PNetMeshChannelCommands.Command>(new BoundedChannelOptions(100)
             {
-                AllowSynchronousContinuations = true,
+                AllowSynchronousContinuations = false,
                 SingleReader = true,
                 SingleWriter = false,
                 FullMode = BoundedChannelFullMode.Wait

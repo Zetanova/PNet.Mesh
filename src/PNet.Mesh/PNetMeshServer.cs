@@ -92,7 +92,7 @@ namespace PNet.Mesh
         {
             _outboundChannel = Channel.CreateBounded<PNetMeshOutboundMessages.Message>(new BoundedChannelOptions(100)
             {
-                AllowSynchronousContinuations = true,
+                AllowSynchronousContinuations = false,
                 SingleReader = true,
                 SingleWriter = false,
                 FullMode = BoundedChannelFullMode.Wait
@@ -773,8 +773,7 @@ namespace PNet.Mesh
 
         void ApplyAuthenticatedEndpointUpdate(PNetMeshSession session, PNetMeshControlCommands.Receive cmd)
         {
-            if (cmd.LocalEndPoint is not null && !cmd.LocalEndPoint.Equals(session.LocalEndPoint))
-                session.LocalEndPoint = cmd.LocalEndPoint;
+            session.UpdateLocalEndpoint(cmd.LocalEndPoint);
 
             if (cmd.RelayCandidateEndPoint is not null)
             {
@@ -836,8 +835,7 @@ namespace PNet.Mesh
 
         void ApplyLegacyEndpointUpdate(PNetMeshSession session, PNetMeshControlCommands.Receive cmd)
         {
-            if (cmd.LocalEndPoint is not null && !cmd.LocalEndPoint.Equals(session.LocalEndPoint))
-                session.LocalEndPoint = cmd.LocalEndPoint;
+            session.UpdateLocalEndpoint(cmd.LocalEndPoint);
 
             var remoteEndPoint = cmd.RelayCandidateEndPoint ?? cmd.RemoteEndPoint;
             if (remoteEndPoint is null)
