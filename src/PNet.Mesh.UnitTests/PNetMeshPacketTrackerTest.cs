@@ -1,6 +1,7 @@
 ﻿using PNet.Mesh;
 using System;
 using System.Collections;
+using System.Reflection;
 using Xunit;
 
 namespace PNet.Actor.UnitTests.Mesh
@@ -108,6 +109,44 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.Throws<ArgumentOutOfRangeException>(() => tracker.GetBitmap(0, buffer, out _));
         }
 
+        [Theory]
+        [InlineData(32, 32, 2)]
+        [InlineData(33, 40, 2)]
+        [InlineData(64, 64, 2)]
+        [InlineData(65, 72, 3)]
+        [InlineData(128, 128, 3)]
+        [InlineData(2000, 2000, 33)]
+        [InlineData(4098, 4104, 66)]
+        public void tracker_rents_only_required_words_for_effective_window_regression(
+            int counterSize,
+            int expectedSize,
+            int expectedWordCount)
+        {
+            using var tracker = new PNetMeshPacketTracker(counterSize);
+
+            var wordCount = (int)typeof(PNetMeshPacketTracker)
+                .GetField("_wordCount", BindingFlags.Instance | BindingFlags.NonPublic)
+                .GetValue(tracker);
+
+            Assert.Equal(expectedSize, tracker.Size);
+            Assert.Equal(expectedWordCount, wordCount);
+        }
+
+        [Fact]
+        public void get_bitmap_fills_exact_byte_without_overrun_regression()
+        {
+            using var tracker = new PNetMeshPacketTracker();
+
+            for (ulong i = 0; i < 8; i++)
+                Assert.True(tracker.TryAdd(i));
+
+            var buffer = new byte[1];
+            tracker.GetBitmap(0, buffer, out var bytesUsed);
+
+            Assert.Equal(1, bytesUsed);
+            Assert.Equal(0xFF, buffer[0]);
+        }
+
         [Fact]
         public void bitmap_from_small_end()
         {
@@ -196,6 +235,18 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.True(bitmap[0] == 0x00);
             Assert.True(bitmap[1] == 0x00);
             Assert.True(bitmap[2] == 0x00);
+        }
+
+        [Fact]
+        public void bitmap_right_shift_handles_exact_full_byte_regression()
+        {
+            var bitmap = new byte[] { 0xFF };
+
+            var shifted = PNetMeshPacketTracker.RightShift(bitmap, out var bytesUsed);
+
+            Assert.Equal(8u, shifted);
+            Assert.Equal(0, bytesUsed);
+            Assert.Equal(0x00, bitmap[0]);
         }
     }
 }

@@ -12,10 +12,11 @@ namespace PNet.Mesh
         private const int RedundantBitShift = 6; //bitcount of CounterRedundantBits-1
         private const int CounterRedundantBits = sizeof(ulong) * 8;
 
+        readonly int _size;
         int _wordCount;
         ulong[] _bitmap;
 
-        public int Size => (_wordCount * sizeof(ulong)) - CounterRedundantBits;
+        public int Size => _size;
 
         public ulong Current { get; private set; }
 
@@ -23,12 +24,11 @@ namespace PNet.Mesh
 
         public PNetMeshPacketTracker(int counterSize = 2000)
         {
-            //todo smaller implentation for reduced counter
-
-            _wordCount = (int)Math.Ceiling((double)(counterSize + CounterRedundantBits) / sizeof(ulong));
+            _size = (int)Math.Ceiling(counterSize / (double)sizeof(ulong)) * sizeof(ulong);
+            _wordCount = Math.Max(2, ((_size + CounterRedundantBits - 1) / CounterRedundantBits) + 1);
 
             _bitmap = ArrayPool<ulong>.Shared.Rent(_wordCount);
-            _bitmap[0] = 0;
+            _bitmap.AsSpan(0, _wordCount).Clear();
         }
 
         public bool TryAdd(ulong counter)
@@ -73,35 +73,21 @@ namespace PNet.Mesh
             }
 
             var bitCount = (int)(Current - counter + 1);
-            if (bitmap.Length * 8 < bitCount)
+            var bytesRequired = (bitCount + 7) >> 3;
+            if (bitmap.Length < bytesRequired)
                 throw new ArgumentOutOfRangeException(nameof(bitmap));
 
-            //todo over bit shifting
-            //var index = (int)((counter >> RedundantBitShift) % WordsCount);
-            //var value = _bitmap[index];
-            //var bitIndex = (int)(counter & (CounterRedundantBits - 1));
-
-
-            int bitmapIndex = 0, bitOfBitmap = 0;
-            int index; ulong value; int bitIndex;
-
-            bitmap[0] = 0;
-            for (uint i = 0; i < bitCount; i++)
+            bitmap = bitmap.Slice(0, bytesRequired);
+            bitmap.Clear();
+            for (var i = 0; i < bitCount; i++)
             {
-                index = (int)(((counter + i) >> RedundantBitShift) % (ulong)_wordCount);
-                bitIndex = (int)((counter + i) & (CounterRedundantBits - 1));
-                value = _bitmap[index];
-                if (value == (value | (1ul << bitIndex)))
-                    bitmap[bitmapIndex] |= (byte)(1 << bitOfBitmap);
-
-                bitOfBitmap++;
-                if (bitOfBitmap == 8)
-                {
-                    bitOfBitmap = 0;
-                    bitmap[++bitmapIndex] = 0;
-                }
+                var sequence = counter + (ulong)i;
+                var index = (int)((sequence >> RedundantBitShift) % (ulong)_wordCount);
+                var bitIndex = (int)(sequence & (CounterRedundantBits - 1));
+                if ((_bitmap[index] & (1ul << bitIndex)) != 0)
+                    bitmap[i >> 3] |= (byte)(1 << (i & 7));
             }
-            bytesWritten = bitmapIndex + 1;
+            bytesWritten = bytesRequired;
         }
 
         public void Dispose()
@@ -134,6 +120,13 @@ namespace PNet.Mesh
                 }
                 if (bitIndex < 8)
                     break;
+            }
+
+            if (index == bitmap.Length)
+            {
+                bitmap.Clear();
+                bytesUsed = 0;
+                return (uint)(index * 8);
             }
 
             if (index > 0)

@@ -3420,7 +3420,7 @@ namespace PNet.Actor.UnitTests.Mesh
             var field = typeof(PNetMeshSession).GetField("_remoteAck", BindingFlags.Instance | BindingFlags.NonPublic);
             var ack = field.GetValue(session);
             var outOfOrder = ack.GetType().GetProperty("OutOfOrder");
-            return (byte[])outOfOrder.GetValue(ack);
+            return ((ReadOnlyMemory<byte>)outOfOrder.GetValue(ack)).ToArray();
         }
 
         static ulong GetReceiveCounter(PNetMeshSession session)

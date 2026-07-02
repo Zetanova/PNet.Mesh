@@ -1,8 +1,6 @@
 ﻿using System;
 using System.Buffers;
-using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace PNet.Mesh
 {
@@ -151,35 +149,70 @@ namespace PNet.Mesh
             return count;
         }
 
+        static bool IsSet(ReadOnlyMemory<byte> bitmap, int index)
+        {
+            var span = bitmap.Span;
+            return (span[index >> 3] & (1 << (index & 7))) != 0;
+        }
+
+        public IEnumerable<Memory<byte>> GetSequence(ReadOnlyMemory<byte> bitmap)
+        {
+            var bitCount = bitmap.Length * 8;
+            var index = 0;
+            foreach (var entry in _items)
+            {
+                if (index >= bitCount)
+                    yield break;
+
+                if (entry.IsTracked && IsSet(bitmap, index))
+                    yield return entry.Memory;
+
+                index++;
+            }
+        }
+
         public IEnumerable<Memory<byte>> GetSequence(byte[] bitmap)
         {
-            //todo refactor to loop and take readonlyspan as arg
-            var bits = new BitArray(bitmap);
-            return _items
-                .Take(bits.Length).Where((n, i) => n.IsTracked && bits[i])
-                //.Where((n, i) => i >= bits.Length || bits[i])
-                .Select(n => n.Memory);
+            if (bitmap == null)
+                throw new ArgumentNullException(nameof(bitmap));
+
+            return GetSequence((ReadOnlyMemory<byte>)bitmap);
+        }
+
+        public IEnumerable<Memory<byte>> GetMissingSequence(ReadOnlyMemory<byte> receivedBitmap)
+        {
+            var bitCount = receivedBitmap.Length * 8;
+            var index = 0;
+            foreach (var entry in _items)
+            {
+                if (index >= bitCount)
+                    yield break;
+
+                if (entry.IsTracked && !IsSet(receivedBitmap, index))
+                    yield return entry.Memory;
+
+                index++;
+            }
         }
 
         public IEnumerable<Memory<byte>> GetMissingSequence(byte[] receivedBitmap)
         {
-            var bits = new BitArray(receivedBitmap);
-            return _items
-                .Take(bits.Length)
-                .Where((n, i) => n.IsTracked && !bits[i])
-                .Select(n => n.Memory);
+            if (receivedBitmap == null)
+                throw new ArgumentNullException(nameof(receivedBitmap));
+
+            return GetMissingSequence((ReadOnlyMemory<byte>)receivedBitmap);
         }
 
-        public void RemoveSequence(byte[] receivedBitmap)
+        public void RemoveSequence(ReadOnlyMemory<byte> receivedBitmap)
         {
-            var bits = new BitArray(receivedBitmap);
+            var bitCount = receivedBitmap.Length * 8;
             var index = 0;
             foreach (var entry in _items)
             {
-                if (index >= bits.Length)
+                if (index >= bitCount)
                     break;
 
-                if (!bits[index++] || !entry.IsTracked)
+                if (!IsSet(receivedBitmap, index++) || !entry.IsTracked)
                     continue;
 
                 entry.MemoryOwner.Dispose();
@@ -189,9 +222,21 @@ namespace PNet.Mesh
             }
         }
 
+        public void RemoveSequence(byte[] receivedBitmap)
+        {
+            if (receivedBitmap == null)
+                throw new ArgumentNullException(nameof(receivedBitmap));
+
+            RemoveSequence((ReadOnlyMemory<byte>)receivedBitmap);
+        }
+
         public IEnumerable<Memory<byte>> GetSequence()
         {
-            return _items.Where(n => n.IsTracked).Select(n => n.Memory);
+            foreach (var entry in _items)
+            {
+                if (entry.IsTracked)
+                    yield return entry.Memory;
+            }
         }
     }
 }

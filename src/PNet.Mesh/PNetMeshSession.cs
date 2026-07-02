@@ -32,7 +32,7 @@ namespace PNet.Mesh
         {
             public ulong SeqNumber { get; init; }
 
-            public byte[] OutOfOrder { get; init; }
+            public ReadOnlyMemory<byte> OutOfOrder { get; init; }
         }
 
         readonly PNetMeshProtocol _protocol;
@@ -178,7 +178,7 @@ namespace PNet.Mesh
 
         // multi-threading: server receive handling updates remote ACKs while the channel control/timer loop reads them for payload gating and retransmission.
         readonly object _remoteAckLock = new object();
-        Ack _remoteAck = new Ack { SeqNumber = 0, OutOfOrder = Array.Empty<byte>() };
+        Ack _remoteAck = new Ack { SeqNumber = 0, OutOfOrder = ReadOnlyMemory<byte>.Empty };
 
         // multi-threading: server receive handling mutates receive counters/pending packets while the channel control/timer loop calls WritePacket to emit ACKs.
         readonly object _receiveStateLock = new object();
@@ -1304,9 +1304,7 @@ namespace PNet.Mesh
                 return;
 
             var ack = packet.Ack;
-            var outOfOrder = !ack.OutOfSeqPackets.IsEmpty
-                ? ack.OutOfSeqPackets.ToByteArray()
-                : Array.Empty<byte>();
+            var outOfOrder = ack.OutOfSeqPackets.Memory;
             var remoteAck = new Ack
             {
                 SeqNumber = ack.AckSeqNumber,
@@ -1318,7 +1316,7 @@ namespace PNet.Mesh
             {
                 var ackAdvanced = _remoteAck.SeqNumber < ack.AckSeqNumber;
                 var outOfOrderChanged = _remoteAck.SeqNumber == ack.AckSeqNumber
-                    && !_remoteAck.OutOfOrder.SequenceEqual(outOfOrder);
+                    && !_remoteAck.OutOfOrder.Span.SequenceEqual(outOfOrder.Span);
 
                 if (!ackAdvanced && !outOfOrderChanged)
                     return;
