@@ -3,13 +3,14 @@ issue: 057
 date: 2026-07-02
 source: benchmark/phase-4
 priority: medium
-status: gated
-terminal-state: gated
+status: ready
 gate: "Wait for #055 core microbenchmarks and #056 macro harnesses."
 gate-depends:
   - 55
   - 56
 gate-reason: "Requires benchmark suites and macro harnesses before baselines and thresholds can be meaningful."
+gate-last-checked: 2026-07-02
+gate-status: cleared
 research-status: complete
 research-date: 2026-07-02
 assumptions-date: 2026-07-02
@@ -55,7 +56,7 @@ Capture the first benchmark baseline and define how future changes compare perfo
 
 ## Gate
 
-This issue stays gated until #055 and #056 produce the benchmark evidence that the baseline depends on.
+Cleared on 2026-07-02: #055 added core protocol microbenchmarks in `15537b4`, and #056 added macro harnesses in `64aa683`.
 
 ## Assumptions
 
@@ -64,3 +65,13 @@ This issue stays gated until #055 and #056 produce the benchmark evidence that t
 | 1 | F | Benchmarks need environment metadata to be comparable. | verified | source | BenchmarkDotNet reports runtime and environment metadata; macro harnesses should emit equivalent fields. |
 | 2 | R | Allocation budgets should start report-only until variance and workload realism are understood. | verified | logical | Premature blocking thresholds can reject harmless noise before baseline stability is known. |
 | 3 | F | Transport and session hot paths need documented max `B/op` after baseline capture. | verified | source | The rollout explicitly asks for memory allocations to be measured, tested, and benchmarked. |
+
+## Gate Validation
+
+| Date | Gate | Method | Result | Evidence |
+|------|------|--------|--------|----------|
+| 2026-07-02 | `gate-depends: [055, 056]` | source | ready | #055 and #056 are completed, so #057 is implementation-ready. |
+
+## Validation History
+
+- 2026-07-02: dependency gates cleared by #055 and #056; #057 is now ready.

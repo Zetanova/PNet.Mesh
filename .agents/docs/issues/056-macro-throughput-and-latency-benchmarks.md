@@ -3,17 +3,16 @@ issue: 056
 date: 2026-07-02
 source: benchmark/phase-3
 priority: medium
-status: ready
-gate: "Wait for #055 core protocol microbenchmarks."
-gate-depends:
-  - 55
-gate-reason: "Requires core microbenchmarks so macro results can be interpreted against protocol hot-path costs."
-gate-last-checked: 2026-07-02
-gate-status: cleared
+status: completed
 research-status: complete
 research-date: 2026-07-02
 assumptions-date: 2026-07-02
-brief: "description+scope+acceptance-criteria+assumptions+playbook+gate"
+terminal-state: completed
+completed-date: 2026-07-02
+completed: 2026-07-02
+completed-commits:
+  - 64aa6835cd01e1d0ee8756f4e7d918e49a76ef66
+brief: "description+completion-report"
 views:
   enrich: "description+scope+acceptance-criteria+assumptions+playbook+gate"
   fix: "description+scope+acceptance-criteria+assumptions+playbook+gate"
@@ -74,3 +73,26 @@ Cleared on 2026-07-02: #055 added category-filterable core protocol microbenchma
 ## Validation History
 
 - 2026-07-02: dependency gate cleared by #055; #056 is now ready.
+
+## Completion Report
+
+Implemented in `64aa683`.
+
+- Added `--macro` mode to the Release-only benchmark executable.
+- Added in-memory two-session payload exchange and localhost UDP loopback macro harnesses.
+- Added manual non-deterministic TestNode/container smoke metadata via `--macro testnode-smoke`.
+- Emitted machine-readable JSON with throughput, latency percentiles, allocation, GC, runtime, OS, CPU, and payload-size fields.
+- Documented canonical macro commands in README and benchmark best-practices.
+
+Verification:
+- `dotnet build PNet.Mesh.sln -c Release --no-restore` passed.
+- `dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release --no-build -- --macro all --payload 128 --warmup 00:00:01 --duration 00:00:01` passed and emitted `in-memory` plus `udp-loopback` summaries.
+- `dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release --no-build -- --macro testnode-smoke` passed and emitted manual non-deterministic smoke metadata.
+- `dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release --no-build -- --list flat` listed the seven BenchmarkDotNet microbenchmarks.
+- `dotnet run --project src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -parallel none` passed 154 tests.
+- `dotnet format whitespace PNet.Mesh.sln --include src/PNet.Mesh.Benchmarks/Program.cs src/PNet.Mesh.Benchmarks/WireGuardTransportBenchmarks.cs src/PNet.Mesh.Benchmarks/BenchmarkProtocolHarness.cs src/PNet.Mesh.Benchmarks/MacroBenchmarkRunner.cs --no-restore --verify-no-changes --verbosity minimal` passed.
+- `git diff --check` passed.
+
+## Resolving Commits
+
+- `64aa6835cd01e1d0ee8756f4e7d918e49a76ef66` - benchmarks: add macro throughput harnesses
