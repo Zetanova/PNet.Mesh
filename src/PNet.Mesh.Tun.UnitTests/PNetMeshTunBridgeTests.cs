@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Channels;
@@ -166,6 +167,124 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             Assert.False(IpPrefix.Parse("10.80.0.0/24").Contains(IPAddress.Parse("fd80::1")));
         }
 
+        [Fact]
+        public async Task peer_state_memoizes_one_channel_connect_task_for_concurrent_callers()
+        {
+            using var key1 = KeyPair.Generate();
+            using var key2 = KeyPair.Generate();
+
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            var bind1 = $"127.0.0.1:{NextPort()}";
+            var bind2 = $"127.0.0.1:{NextPort()}";
+
+            var settings1 = CreateSettings(key1.PublicKey, key1.PrivateKey, psk, bind1, key2.PublicKey, bind2);
+            var settings2 = CreateSettings(key2.PublicKey, key2.PrivateKey, psk, bind2, key1.PublicKey, bind1);
+
+            using var server1 = new PNetMeshServer(settings1);
+            using var server2 = new PNetMeshServer(settings2);
+            await using var tun = new FakeTunDevice("pnet-test");
+
+            server1.Start();
+            server2.Start();
+
+            var bridge = new PNetMeshTunBridge(server1, tun, new[]
+            {
+                CreateRoute("node2", key2.PublicKey, bind2, "10.80.0.2/32")
+            });
+
+            try
+            {
+                var peerState = GetPeerState(bridge, "node2");
+                var connectTaskField = GetRequiredField(peerState.GetType(), "_connectTask");
+                Assert.Null(connectTaskField.GetValue(peerState));
+
+                var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var requests = Enumerable.Range(0, 32)
+                    .Select(_ => Task.Run(async () =>
+                    {
+                        await start.Task;
+                        return StartPeerChannelRequest(peerState, server1, TestContext.Current.CancellationToken);
+                    }, TestContext.Current.CancellationToken))
+                    .ToArray();
+
+                start.TrySetResult();
+
+                var snapshots = await Task.WhenAll(requests);
+                var channels = await Task.WhenAll(snapshots.Select(snapshot => snapshot.ChannelTask));
+                var memoizedTask = Assert.IsType<Task<PNetMeshChannel>>(connectTaskField.GetValue(peerState));
+
+                Assert.All(channels, channel => Assert.Same(channels[0], channel));
+                Assert.All(snapshots, snapshot => Assert.Same(memoizedTask, snapshot.ConnectTask));
+                Assert.True(memoizedTask.IsCompletedSuccessfully);
+                Assert.Same(channels[0], await memoizedTask);
+
+                var cachedChannel = await InvokeGetChannelAsync(peerState, server1, TestContext.Current.CancellationToken);
+                Assert.Same(channels[0], cachedChannel);
+            }
+            finally
+            {
+                await Task.WhenAll(
+                    server1.ShutdownAsync(TestContext.Current.CancellationToken),
+                    server2.ShutdownAsync(TestContext.Current.CancellationToken));
+            }
+        }
+
+        [Fact]
+        public async Task peer_state_canceled_waiter_does_not_cancel_shared_connect_task()
+        {
+            using var key1 = KeyPair.Generate();
+            using var key2 = KeyPair.Generate();
+
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            var bind1 = $"127.0.0.1:{NextPort()}";
+            var bind2 = $"127.0.0.1:{NextPort()}";
+
+            var settings1 = CreateSettings(key1.PublicKey, key1.PrivateKey, psk, bind1, key2.PublicKey, bind2);
+            var settings2 = CreateSettings(key2.PublicKey, key2.PrivateKey, psk, bind2, key1.PublicKey, bind1);
+
+            using var server1 = new PNetMeshServer(settings1);
+            using var server2 = new PNetMeshServer(settings2);
+            await using var tun = new FakeTunDevice("pnet-test");
+
+            server1.Start();
+            server2.Start();
+
+            var bridge = new PNetMeshTunBridge(server1, tun, new[]
+            {
+                CreateRoute("node2", key2.PublicKey, bind2, "10.80.0.2/32")
+            });
+
+            try
+            {
+                var peerState = GetPeerState(bridge, "node2");
+                var connectTaskField = GetRequiredField(peerState.GetType(), "_connectTask");
+
+                using var canceled = new CancellationTokenSource();
+                canceled.Cancel();
+
+                var canceledSnapshot = StartPeerChannelRequest(peerState, server1, canceled.Token);
+                var canceledWaitException = await Record.ExceptionAsync(async () => await canceledSnapshot.ChannelTask);
+                Assert.True(canceledWaitException is null or OperationCanceledException);
+
+                var channel = await InvokeGetChannelAsync(peerState, server1, TestContext.Current.CancellationToken);
+                var memoizedTask = Assert.IsType<Task<PNetMeshChannel>>(connectTaskField.GetValue(peerState));
+
+                Assert.Same(canceledSnapshot.ConnectTask, memoizedTask);
+                Assert.True(memoizedTask.IsCompletedSuccessfully);
+                Assert.Same(channel, await memoizedTask);
+            }
+            finally
+            {
+                await Task.WhenAll(
+                    server1.ShutdownAsync(TestContext.Current.CancellationToken),
+                    server2.ShutdownAsync(TestContext.Current.CancellationToken));
+            }
+        }
+
         static PNetMeshServerSettings CreateSettings(
             byte[] publicKey,
             byte[] privateKey,
@@ -219,6 +338,53 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             catch (OperationCanceledException)
             {
             }
+        }
+
+        static object GetPeerState(PNetMeshTunBridge bridge, string peerName)
+        {
+            var peersField = GetRequiredField(typeof(PNetMeshTunBridge), "_peers");
+            var peers = Assert.IsAssignableFrom<Array>(peersField.GetValue(bridge));
+
+            return Assert.Single(
+                peers.Cast<object>(),
+                peerState => GetRoute(peerState).Name == peerName);
+        }
+
+        static (Task<PNetMeshChannel> ChannelTask, Task<PNetMeshChannel> ConnectTask) StartPeerChannelRequest(
+            object peerState,
+            PNetMeshServer server,
+            CancellationToken cancellationToken)
+        {
+            var channelTask = InvokeGetChannelAsync(peerState, server, cancellationToken);
+            var connectTask = Assert.IsType<Task<PNetMeshChannel>>(
+                GetRequiredField(peerState.GetType(), "_connectTask").GetValue(peerState));
+            return (channelTask, connectTask);
+        }
+
+        static Task<PNetMeshChannel> InvokeGetChannelAsync(
+            object peerState,
+            PNetMeshServer server,
+            CancellationToken cancellationToken)
+        {
+            var getChannelAsync = peerState.GetType().GetMethod("GetChannelAsync", BindingFlags.Instance | BindingFlags.Public);
+            Assert.NotNull(getChannelAsync);
+
+            var valueTask = Assert.IsType<ValueTask<PNetMeshChannel>>(
+                getChannelAsync.Invoke(peerState, new object[] { server, cancellationToken }));
+            return valueTask.AsTask();
+        }
+
+        static PNetMeshTunPeerRoute GetRoute(object peerState)
+        {
+            var routeProperty = peerState.GetType().GetProperty("Route", BindingFlags.Instance | BindingFlags.Public);
+            Assert.NotNull(routeProperty);
+            return Assert.IsType<PNetMeshTunPeerRoute>(routeProperty.GetValue(peerState));
+        }
+
+        static FieldInfo GetRequiredField(Type type, string name)
+        {
+            return type.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException($"Field '{name}' was not found on {type.FullName}.");
         }
 
         sealed class FakeTunDevice : ITunDevice

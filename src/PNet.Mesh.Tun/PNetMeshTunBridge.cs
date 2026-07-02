@@ -197,8 +197,7 @@ namespace PNet.Mesh.Tun
 
         sealed class PeerState
         {
-            // multi-threading: the TUN reader and peer reader startup loops can both open the same peer channel; serialize first connect and cache one channel.
-            readonly SemaphoreSlim _connectLock = new SemaphoreSlim(1, 1);
+            // multi-threading: the TUN reader and peer reader startup loops can both open the same peer channel; memoize one connect task and cache one channel.
             readonly Channel<ReadOnlyMemory<byte>> _sendQueue = Channel.CreateBounded<ReadOnlyMemory<byte>>(new BoundedChannelOptions(256)
             {
                 AllowSynchronousContinuations = true,
@@ -206,7 +205,8 @@ namespace PNet.Mesh.Tun
                 SingleWriter = false,
                 FullMode = BoundedChannelFullMode.Wait
             });
-            PNetMeshChannel _channel;
+            Task<PNetMeshChannel>? _connectTask;
+            PNetMeshChannel? _channel;
 
             public PeerState(PNetMeshTunPeerRoute route)
             {
@@ -237,18 +237,48 @@ namespace PNet.Mesh.Tun
 
             public async ValueTask<PNetMeshChannel> GetChannelAsync(PNetMeshServer server, CancellationToken cancellationToken)
             {
-                if (_channel != null)
-                    return _channel;
+                var channel = Volatile.Read(ref _channel);
+                if (channel != null)
+                    return channel;
 
-                await _connectLock.WaitAsync(cancellationToken);
+                var connectTask = Volatile.Read(ref _connectTask);
+                if (connectTask == null)
+                {
+                    var completion = new TaskCompletionSource<PNetMeshChannel>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    var currentTask = Interlocked.CompareExchange(ref _connectTask, completion.Task, null);
+                    if (currentTask == null)
+                    {
+                        _ = ConnectAndCacheChannelAsync(server, completion);
+                        connectTask = completion.Task;
+                    }
+                    else
+                    {
+                        connectTask = currentTask;
+                    }
+                }
+
+                return await connectTask.WaitAsync(cancellationToken);
+            }
+
+            async Task ConnectAndCacheChannelAsync(
+                PNetMeshServer server,
+                TaskCompletionSource<PNetMeshChannel> completion)
+            {
                 try
                 {
-                    _channel ??= await server.ConnectToAsync(Route.Peer, cancellationToken);
-                    return _channel;
+                    var channel = await server.ConnectToAsync(Route.Peer);
+                    Volatile.Write(ref _channel, channel);
+                    completion.TrySetResult(channel);
                 }
-                finally
+                catch (OperationCanceledException ex)
                 {
-                    _connectLock.Release();
+                    _ = Interlocked.CompareExchange(ref _connectTask, null, completion.Task);
+                    completion.TrySetCanceled(ex.CancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _ = Interlocked.CompareExchange(ref _connectTask, null, completion.Task);
+                    completion.TrySetException(ex);
                 }
             }
         }
