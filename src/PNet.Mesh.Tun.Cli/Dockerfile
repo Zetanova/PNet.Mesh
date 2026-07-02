@@ -1,7 +1,7 @@
 FROM mcr.microsoft.com/dotnet/runtime:10.0 AS base
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends iproute2 iputils-ping iperf3 netcat-openbsd \
+    && apt-get install -y --no-install-recommends iproute2 iputils-ping iperf3 netcat-openbsd procps wireguard-go wireguard-tools \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 

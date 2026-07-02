@@ -26,6 +26,7 @@ docker build -f src/PNet.Mesh.Tun.Cli/Dockerfile -t localhost/pnet-mesh-tun:dev 
 | Configure addresses, MTU, link state, and routes | `CAP_NET_ADMIN` |
 | Run `ping` in the smoke container | `CAP_NET_RAW` or image-level ping capability |
 | Run throughput smoke | `iperf3` in the TUN CLI image |
+| Run the `wireguard-go` baseline | `wireguard-go`, `wg`, and `pgrep` in the TUN CLI image |
 
 The CLI configures the interface by default with `ip addr replace`, `ip link set`, and `ip route replace`. Use `--no-configure-interface` when another namespace setup tool owns interface state.
 
@@ -39,6 +40,7 @@ dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Rel
 dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --tun-topology create
 dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --tun-topology teardown
 dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --tun-benchmark pnet-mesh-tun --ping-count 1 --iperf-duration 3s
+dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --tun-benchmark wireguard-go --ping-count 1 --iperf-duration 3s
 ```
 
 All actions emit JSON. `preflight` is non-mutating and reports `pass`, `skip`, or `fail` for Linux, `/dev/net/tun`, Docker, the `localhost/pnet-mesh-tun:dev` image, and a privileged container probe. `create` starts two labeled Docker containers that sleep in isolated namespaces; `teardown` removes only containers and networks carrying the `pnet.mesh.benchmark.topology` label.
@@ -57,9 +59,9 @@ Default topology:
 | PNet.Mesh.Tun UDP | `12401` | `12402` |
 | `wireguard-go` UDP | `51820` | `51821` |
 
-Traffic generation is intentionally outside the topology step. Use the scenario command below for PNet.Mesh.Tun traffic; later comparison issues add the `wireguard-go` baseline, shared result schema, and single-command comparison runner.
+Traffic generation is intentionally outside the topology step. Use `--tun-benchmark pnet-mesh-tun` for PNet.Mesh.Tun traffic and `--tun-benchmark wireguard-go` for the userspace WireGuard baseline.
 
-`--tun-benchmark pnet-mesh-tun` is the current PNet.Mesh.Tun diagnostic traffic scenario. It creates the topology, starts one TUN CLI process per container, attempts IPv4/IPv6 ping and `iperf3`, records parsed latency/bandwidth/loss fields, snapshots RSS and CPU ticks from `/proc`, reports managed counters as unavailable when `dotnet-counters` is absent, and tears down the labeled topology. `.agents/docs/issues/071-stabilize-pnet-mesh-tun-os-traffic.md` tracks the remaining packet-delivery work required before this can serve as a passing benchmark.
+`--tun-benchmark pnet-mesh-tun` starts one TUN CLI process per container. `--tun-benchmark wireguard-go` starts `wireguard-go` with the same interface name, MTU, addresses, peer routes, UDP endpoints, and traffic profile. Both scenarios attempt IPv4/IPv6 ping and `iperf3`, record parsed latency/bandwidth/loss fields, snapshot RSS and CPU ticks from `/proc`, and tear down the labeled topology. The `wireguard-go` report records the package/binary version source or a concrete unavailable reason and marks managed .NET counters unavailable because they do not apply.
 
 ## Container Smoke
 

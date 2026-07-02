@@ -65,6 +65,22 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
         }
 
         [Fact]
+        public void options_accept_supported_tun_benchmark_scenarios()
+        {
+            Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
+                new[] { "pnet-mesh-tun" },
+                TextWriter.Null,
+                out var pnetOptions));
+            Assert.Equal("pnet-mesh-tun", pnetOptions.Scenario);
+
+            Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
+                new[] { "wireguard-go" },
+                TextWriter.Null,
+                out var wireGuardOptions));
+            Assert.Equal("wireguard-go", wireGuardOptions.Scenario);
+        }
+
+        [Fact]
         public void run_benchmark_keeps_generated_keys_out_of_command_lines_and_report_commands()
         {
             Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
@@ -126,6 +142,97 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
         }
 
         [Fact]
+        public void run_wireguard_go_benchmark_records_version_config_and_redacts_secrets()
+        {
+            Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
+                new[] { "wireguard-go", "--warmup", "0ms", "--iperf-duration", "1ms", "--timeout", "1s" },
+                TextWriter.Null,
+                out var options));
+
+            var runner = new FakeCommandRunner();
+
+            var report = TunPNetBenchmarkRunner.RunBenchmark(options, runner);
+
+            Assert.Equal("pass", report.Status);
+            Assert.Equal("wireguard-go", report.Scenario);
+            Assert.Equal("wireguard-go", report.Implementation.Name);
+            Assert.Equal("0.0.20230223-1", report.Implementation.Version);
+            Assert.Equal("/usr/bin/wireguard-go", report.Implementation.ExecutablePath);
+            Assert.Equal("dpkg-query wireguard-go", report.Implementation.VersionSource);
+            Assert.Null(report.Implementation.VersionUnavailableReason);
+            Assert.False(report.ManagedCountersAvailable);
+            Assert.Contains("wireguard-go is not a .NET process", report.ManagedCounterUnavailableReason);
+
+            var actualConfigCommands = runner.Calls
+                .Where(call => call.FileName == "docker"
+                               && call.Arguments.Count >= 5
+                               && call.Arguments[0] == "exec"
+                               && call.Arguments[^2] == "-c"
+                               && call.Arguments[^1].Contains("wg", StringComparison.Ordinal)
+                               && call.Arguments[^1].Contains("set", StringComparison.Ordinal))
+                .Select(call => call.Arguments[^1])
+                .ToArray();
+            Assert.Equal(2, actualConfigCommands.Length);
+            Assert.Contains(actualConfigCommands, shellCommand =>
+                shellCommand.Contains("'listen-port' '51820'", StringComparison.Ordinal)
+                && shellCommand.Contains("'endpoint' 'right:51821'", StringComparison.Ordinal)
+                && shellCommand.Contains("'allowed-ips' '10.80.0.2/32,fd80::2/128'", StringComparison.Ordinal));
+            Assert.Contains(actualConfigCommands, shellCommand =>
+                shellCommand.Contains("'listen-port' '51821'", StringComparison.Ordinal)
+                && shellCommand.Contains("'endpoint' 'left:51820'", StringComparison.Ordinal)
+                && shellCommand.Contains("'allowed-ips' '10.80.0.1/32,fd80::1/128'", StringComparison.Ordinal));
+            Assert.All(actualConfigCommands, shellCommand =>
+            {
+                Assert.StartsWith("set -e; ", shellCommand, StringComparison.Ordinal);
+                var linkUpIndex = shellCommand.IndexOf("ip link set dev 'pnet0' up", StringComparison.Ordinal);
+                Assert.True(linkUpIndex >= 0);
+                var ipv4RouteIndex = shellCommand.IndexOf("ip route replace", StringComparison.Ordinal);
+                var ipv6RouteIndex = shellCommand.IndexOf("ip -6 route replace", StringComparison.Ordinal);
+                Assert.True(ipv4RouteIndex > linkUpIndex);
+                Assert.True(ipv6RouteIndex > linkUpIndex);
+            });
+
+            var reportedArguments = string.Join('\n', report.Commands.SelectMany(command => command.Arguments));
+            Assert.Contains("wireguard-go pnet0", reportedArguments);
+            Assert.Contains("wg set pnet0 private-key <container-secret>", reportedArguments);
+            Assert.Contains("listen-port 51820", reportedArguments);
+            Assert.Contains("endpoint right:51821", reportedArguments);
+            Assert.Contains("allowed-ips 10.80.0.2/32,fd80::2/128", reportedArguments);
+            Assert.Contains("<peer-public-key>", reportedArguments);
+            var reportedConfigCommands = report.Commands
+                .Where(command => command.Arguments.Count >= 5
+                                  && command.Arguments[0] == "exec"
+                                  && command.Arguments[^2] == "-c"
+                                  && command.Arguments[^1].Contains("wg set pnet0", StringComparison.Ordinal))
+                .Select(command => command.Arguments[^1])
+                .ToArray();
+            Assert.Equal(2, reportedConfigCommands.Length);
+            Assert.All(reportedConfigCommands, shellCommand =>
+            {
+                Assert.StartsWith("set -e; ", shellCommand, StringComparison.Ordinal);
+                var linkUpIndex = shellCommand.IndexOf("ip link set dev pnet0 up", StringComparison.Ordinal);
+                Assert.True(linkUpIndex >= 0);
+                var ipv4RouteIndex = shellCommand.IndexOf("ip route replace", StringComparison.Ordinal);
+                var ipv6RouteIndex = shellCommand.IndexOf("ip -6 route replace", StringComparison.Ordinal);
+                Assert.True(ipv4RouteIndex > linkUpIndex);
+                Assert.True(ipv6RouteIndex > linkUpIndex);
+            });
+            Assert.Contains(runner.Calls, call =>
+                call.Arguments.SequenceEqual(new[] { "exec", "pnet-tun-bench-left", "pgrep", "-f", "(^|/)wireguard-go .*pnet0($| )" }));
+            Assert.Contains(report.Commands, command =>
+                command.Arguments.SequenceEqual(new[] { "exec", "pnet-tun-bench-left", "sh", "-c", "tail -n 120 /tmp/wireguard-go.log 2>/dev/null || true" }));
+            Assert.DoesNotContain(report.Commands, command =>
+                command.Arguments.SequenceEqual(new[] { "exec", "pnet-tun-bench-left", "sh", "-c", "tail -n 120 /tmp/pnet-tun.log 2>/dev/null || true" }));
+
+            var actualArguments = string.Join('\n', runner.Calls.SelectMany(command => command.Arguments));
+            foreach (var secret in runner.CopiedSensitiveContents)
+            {
+                Assert.DoesNotContain(secret, actualArguments);
+                Assert.DoesNotContain(secret, reportedArguments);
+            }
+        }
+
+        [Fact]
         public void run_benchmark_fails_when_final_ping_has_partial_packet_loss()
         {
             Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
@@ -170,6 +277,45 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
 
                 if (arguments.Count >= 2 && arguments[0] == "image" && arguments[1] == "inspect")
                     return new TunTopologyCommandResult(fileName, arguments.ToArray(), 0, "sha256:test\n", string.Empty, false);
+
+                if (arguments.Count >= 4
+                    && arguments[0] == "exec"
+                    && arguments[2] == "sh"
+                    && arguments[^1].Contains("dpkg-query -W", StringComparison.Ordinal)
+                    && arguments[^1].Contains("wireguard-go", StringComparison.Ordinal))
+                {
+                    return new TunTopologyCommandResult(
+                        fileName,
+                        arguments.ToArray(),
+                        0,
+                        "path=/usr/bin/wireguard-go\nversion=0.0.20230223-1\nsource=dpkg-query wireguard-go\n",
+                        string.Empty,
+                        false);
+                }
+
+                if (arguments.Count >= 4
+                    && arguments[0] == "exec"
+                    && arguments[2] == "sh"
+                    && arguments[^1].Contains("wg genkey", StringComparison.Ordinal))
+                {
+                    return new TunTopologyCommandResult(fileName, arguments.ToArray(), 0, string.Empty, string.Empty, false);
+                }
+
+                if (arguments.Count >= 4
+                    && arguments[0] == "exec"
+                    && arguments[2] == "cat"
+                    && arguments[1].Contains("left", StringComparison.Ordinal))
+                {
+                    return new TunTopologyCommandResult(fileName, arguments.ToArray(), 0, "BVgqSt6+IyxeVh2OacdS+42af3w58QF2ehTAZ31nnm8=\n", string.Empty, false);
+                }
+
+                if (arguments.Count >= 4
+                    && arguments[0] == "exec"
+                    && arguments[2] == "cat"
+                    && arguments[1].Contains("right", StringComparison.Ordinal))
+                {
+                    return new TunTopologyCommandResult(fileName, arguments.ToArray(), 0, "cs3lkYSvSryeLBG/D6WRsNvhtv2UW1tQoO59I/MLv3Y=\n", string.Empty, false);
+                }
 
                 if (arguments.Count >= 3 && arguments[0] == "cp" && !arguments[2].EndsWith("/public.key", StringComparison.Ordinal))
                     CopiedSensitiveContents.Add(File.ReadAllText(arguments[1]));

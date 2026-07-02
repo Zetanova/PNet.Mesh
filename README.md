@@ -83,13 +83,14 @@ dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Rel
 dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --tun-topology plan
 dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --tun-topology preflight
 dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --tun-benchmark pnet-mesh-tun --ping-count 1 --iperf-duration 3s
+dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --tun-benchmark wireguard-go --ping-count 1 --iperf-duration 3s
 ```
 
 BenchmarkDotNet writes reports and exports to `artifacts/benchmarks/results/`. Debug runs fail with a Release command reminder. The initial matrix covers payload sizes 64, 128, 512, 1280, and 1420 with time, throughput, allocation, and GC metrics (`ns/op`, `ops/sec`, `B/op`, `Gen0`, `Gen1`, `Gen2`).
 
 Macro benchmarks run through the same Release-only benchmark executable with `--macro`. The `in-memory` scenario measures two-session payload exchange without sockets or Docker. The `udp-loopback` scenario measures encrypted packet exchange over localhost UDP. Both emit JSON with packets/sec, payload bytes/sec, wire bytes/sec, p50/p95/p99 latency, allocated bytes, GC counts, runtime, OS, CPU architecture, and payload size. `--macro testnode-smoke` documents the optional manual TestNode/container perf smoke as non-deterministic; it is not run by default.
 
-Privileged Linux TUN benchmark topology is manual and report-only. `--tun-topology plan` emits the fixed dual-stack Docker topology, `--tun-topology preflight` reports `pass`, `skip`, or `fail`, and `--tun-topology create`/`teardown` manages only labeled Docker resources for later PNet.Mesh.Tun and `wireguard-go` benchmark scenarios. `--tun-benchmark pnet-mesh-tun` is the current PNet.Mesh.Tun diagnostic runner: it creates that topology, attempts IPv4/IPv6 ping and `iperf3`, emits parsed JSON success/failure details plus process metrics, and tears the topology down. Sustained traffic stabilization is tracked in `.agents/docs/issues/071-stabilize-pnet-mesh-tun-os-traffic.md`.
+Privileged Linux TUN benchmark topology is manual and report-only. `--tun-topology plan` emits the fixed dual-stack Docker topology, `--tun-topology preflight` reports `pass`, `skip`, or `fail`, and `--tun-topology create`/`teardown` manages only labeled Docker resources for PNet.Mesh.Tun and `wireguard-go` benchmark scenarios. `--tun-benchmark pnet-mesh-tun` and `--tun-benchmark wireguard-go` create that topology, attempt IPv4/IPv6 ping and `iperf3`, emit parsed JSON success/failure details plus process metrics, and tear the topology down. The `wireguard-go` scenario records the package/binary version source or an unavailable reason and marks managed .NET counters as unavailable because it is not a .NET process.
 
 Supported mesh E2E coverage lives in the Testcontainers project below; use the named methods for mesh topology coverage.
 
