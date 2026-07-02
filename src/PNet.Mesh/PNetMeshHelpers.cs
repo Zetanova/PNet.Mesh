@@ -1,22 +1,44 @@
-﻿using System.Collections;
+﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 
 namespace PNet.Mesh
 {
-    public sealed class PNetMeshByteArrayComparer : IEqualityComparer<byte[]>
+    public sealed class PNetMeshByteArrayComparer :
+        IEqualityComparer<byte[]>,
+        IAlternateEqualityComparer<ReadOnlySpan<byte>, byte[]>
     {
         public readonly static PNetMeshByteArrayComparer Default = new PNetMeshByteArrayComparer();
 
-        public bool Equals(byte[] x, byte[] y)
+        public bool Equals(byte[]? x, byte[]? y)
         {
-            //todo benchmark
-            return StructuralComparisons.StructuralEqualityComparer.Equals(x, y);
+            if (ReferenceEquals(x, y))
+                return true;
+            if (x is null || y is null)
+                return false;
+
+            return x.AsSpan().SequenceEqual(y);
         }
 
-        public int GetHashCode([DisallowNull] byte[] obj)
+        public int GetHashCode(byte[] obj)
         {
-            return StructuralComparisons.StructuralEqualityComparer.GetHashCode(obj);
+            return GetHashCode(obj.AsSpan());
+        }
+
+        public bool Equals(ReadOnlySpan<byte> alternate, byte[] other)
+        {
+            return alternate.SequenceEqual(other);
+        }
+
+        public int GetHashCode(ReadOnlySpan<byte> alternate)
+        {
+            var hash = new HashCode();
+            hash.AddBytes(alternate);
+            return hash.ToHashCode();
+        }
+
+        public byte[] Create(ReadOnlySpan<byte> alternate)
+        {
+            return alternate.ToArray();
         }
     }
 }

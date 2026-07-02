@@ -70,7 +70,7 @@ namespace PNet.Mesh
                     {
                         Ip = new Protos.IPEndPoint
                         {
-                            V4 = BitConverter.ToUInt32(ep.Address.GetAddressBytes()),
+                            V4 = MapIPv4Address(ep.Address),
                             Port = (uint)ep.Port
                         }
                     },
@@ -78,7 +78,7 @@ namespace PNet.Mesh
                     {
                         Ip = new Protos.IPEndPoint
                         {
-                            V6 = Google.Protobuf.ByteString.CopyFrom(ep.Address.GetAddressBytes()),
+                            V6 = MapIPv6Address(ep.Address),
                             Port = (uint)ep.Port
                         }
                     },
@@ -96,6 +96,22 @@ namespace PNet.Mesh
             };
         }
 
+        static uint MapIPv4Address(IPAddress address)
+        {
+            Span<byte> bytes = stackalloc byte[4];
+            if (!address.TryWriteBytes(bytes, out var bytesWritten) || bytesWritten != bytes.Length)
+                throw new InvalidOperationException("IPv4 address byte length mismatch.");
 
+            return BitConverter.ToUInt32(bytes);
+        }
+
+        static Google.Protobuf.ByteString MapIPv6Address(IPAddress address)
+        {
+            Span<byte> bytes = stackalloc byte[16];
+            if (!address.TryWriteBytes(bytes, out var bytesWritten) || bytesWritten != bytes.Length)
+                throw new InvalidOperationException("IPv6 address byte length mismatch.");
+
+            return Google.Protobuf.ByteString.CopyFrom(bytes);
+        }
     }
 }

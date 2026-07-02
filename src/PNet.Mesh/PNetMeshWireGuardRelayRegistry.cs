@@ -117,8 +117,9 @@ namespace PNet.Mesh
 
             PurgeExpired(now);
 
-            var key = publicKey.ToArray();
-            if (!_leases.ContainsKey(key) && _leases.Count >= _options.MaxLeases)
+            var lookup = _leases.GetAlternateLookup<ReadOnlySpan<byte>>();
+            var renewed = lookup.ContainsKey(publicKey);
+            if (!renewed && _leases.Count >= _options.MaxLeases)
             {
                 _logger.LogWarning(
                     "event=wireguard_relay_lease_rejected reason=max_leases peer_id={peerId} lease_count={leaseCount}",
@@ -127,7 +128,7 @@ namespace PNet.Mesh
                 throw new InvalidOperationException("maximum WireGuard relay leases reached");
             }
 
-            var renewed = _leases.ContainsKey(key);
+            var key = publicKey.ToArray();
             var lease = new PNetMeshWireGuardRelayLease(
                 key,
                 returnAddress.ToArray(),
@@ -150,8 +151,8 @@ namespace PNet.Mesh
         {
             if (publicKey.Length != 32) throw new ArgumentOutOfRangeException(nameof(publicKey));
 
-            var key = publicKey.ToArray();
-            if (!_leases.Remove(key))
+            var lookup = _leases.GetAlternateLookup<ReadOnlySpan<byte>>();
+            if (!lookup.Remove(publicKey, out var key, out _))
             {
                 _logger.LogInformation(
                     "event=wireguard_relay_lease_release_missed peer_id={peerId}",

@@ -53,6 +53,21 @@ namespace PNet.Actor.UnitTests.Mesh
         }
 
         [Fact]
+        public void peer_table_matches_sliced_public_key_spans()
+        {
+            var table = new PNetMeshWireGuardPeerTable();
+            var remotePublicKey = Enumerable.Range(0, 32).Select(i => (byte)(0x60 + i)).ToArray();
+            var paddedPublicKey = new byte[remotePublicKey.Length + 2];
+            remotePublicKey.CopyTo(paddedPublicKey, 1);
+
+            var peer = table.GetOrAdd(remotePublicKey);
+            var slicedPeer = table.GetOrAdd(paddedPublicKey.AsSpan(1, remotePublicKey.Length));
+
+            Assert.Same(peer, slicedPeer);
+            Assert.Equal(remotePublicKey, slicedPeer.PublicKey);
+        }
+
+        [Fact]
         public void keypair_tracks_timers_counters_and_replay_window()
         {
             var createdAt = DateTimeOffset.UnixEpoch;

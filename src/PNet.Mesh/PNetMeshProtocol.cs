@@ -473,13 +473,14 @@ namespace PNet.Mesh
             if (peerPublicKey.Length != 32) throw new ArgumentOutOfRangeException(nameof(peerPublicKey));
             if (timestamp.Length < PNetMeshTai64n.TimestampSize) throw new ArgumentOutOfRangeException(nameof(timestamp));
 
-            var peer = peerPublicKey.ToArray();
-            var value = timestamp[..PNetMeshTai64n.TimestampSize].ToArray();
-
-            if (_timestamps.TryGetValue(peer, out var previous)
-                && PNetMeshTai64n.Compare(value, previous) <= 0)
+            var lookup = _timestamps.GetAlternateLookup<ReadOnlySpan<byte>>();
+            var currentTimestamp = timestamp[..PNetMeshTai64n.TimestampSize];
+            if (lookup.TryGetValue(peerPublicKey, out var previous)
+                && PNetMeshTai64n.Compare(currentTimestamp, previous) <= 0)
                 return false;
 
+            var peer = peerPublicKey.ToArray();
+            var value = currentTimestamp.ToArray();
             _timestamps[peer] = value;
             return true;
         }

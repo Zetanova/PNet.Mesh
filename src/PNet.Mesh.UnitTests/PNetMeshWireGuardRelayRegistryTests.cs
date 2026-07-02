@@ -19,6 +19,8 @@ namespace PNet.Actor.UnitTests.Mesh
             var registry = CreateRegistry((_, _) => false);
             var endpoint = Endpoint(10001);
             var key = Key(1);
+            var paddedKey = new byte[key.Length + 2];
+            key.CopyTo(paddedKey, 1);
 
             var lease = registry.RegisterOrRenew(
                 key,
@@ -34,13 +36,13 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.Equal(Address(20), Assert.Single(lease.ReturnRoute));
             Assert.Equal(endpoint, Assert.Single(lease.AllowedRemoteEndpoints));
 
-            var renewed = registry.RegisterOrRenew(key, Address(11), now.AddMinutes(2), now);
+            var renewed = registry.RegisterOrRenew(paddedKey.AsSpan(1, key.Length), Address(11), now.AddMinutes(2), now);
 
             Assert.Equal(1, registry.Count);
             Assert.Equal(Address(11), renewed.ReturnAddress.ToArray());
             Assert.Empty(renewed.AllowedRemoteEndpoints);
-            Assert.True(registry.Release(key));
-            Assert.False(registry.Release(key));
+            Assert.True(registry.Release(paddedKey.AsSpan(1, key.Length)));
+            Assert.False(registry.Release(paddedKey.AsSpan(1, key.Length)));
 
             registry.RegisterOrRenew(key, Address(12), now.AddMilliseconds(1), now);
 

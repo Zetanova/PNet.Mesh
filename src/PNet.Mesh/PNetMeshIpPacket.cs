@@ -71,8 +71,8 @@ namespace PNet.Mesh
             BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(2, 2), (ushort)totalLength);
             packet[8] = 64;
             packet[9] = protocol;
-            sourceAddress.GetAddressBytes().CopyTo(packet, 12);
-            destinationAddress.GetAddressBytes().CopyTo(packet, 16);
+            WriteAddressBytes(sourceAddress, packet.AsSpan(12, 4));
+            WriteAddressBytes(destinationAddress, packet.AsSpan(16, 4));
             payload.CopyTo(packet.AsSpan(20));
             BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(10, 2), ComputeIPv4HeaderChecksum(packet.AsSpan(0, 20)));
             return packet;
@@ -94,8 +94,8 @@ namespace PNet.Mesh
             BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(4, 2), (ushort)payload.Length);
             packet[6] = nextHeader;
             packet[7] = 64;
-            sourceAddress.GetAddressBytes().CopyTo(packet, 8);
-            destinationAddress.GetAddressBytes().CopyTo(packet, 24);
+            WriteAddressBytes(sourceAddress, packet.AsSpan(8, 16));
+            WriteAddressBytes(destinationAddress, packet.AsSpan(24, 16));
             payload.CopyTo(packet.AsSpan(40));
             return packet;
         }
@@ -147,6 +147,12 @@ namespace PNet.Mesh
             if (address == null) throw new ArgumentNullException(paramName);
             if (address.AddressFamily != expected)
                 throw new ArgumentException("invalid address family", paramName);
+        }
+
+        static void WriteAddressBytes(IPAddress address, Span<byte> destination)
+        {
+            if (!address.TryWriteBytes(destination, out var bytesWritten) || bytesWritten != destination.Length)
+                throw new InvalidOperationException("Address byte length did not match the destination length.");
         }
 
         static ushort ComputeIPv4HeaderChecksum(ReadOnlySpan<byte> header)

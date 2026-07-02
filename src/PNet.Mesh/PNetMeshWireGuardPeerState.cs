@@ -147,10 +147,11 @@ namespace PNet.Mesh
             if (remotePublicKey.Length != 32)
                 throw new ArgumentOutOfRangeException(nameof(remotePublicKey));
 
-            var key = remotePublicKey.ToArray();
-            if (_peers.TryGetValue(key, out var peer))
+            var lookup = _peers.GetAlternateLookup<ReadOnlySpan<byte>>();
+            if (lookup.TryGetValue(remotePublicKey, out var peer))
                 return peer;
 
+            var key = remotePublicKey.ToArray();
             peer = new PNetMeshWireGuardPeer(key);
             _peers.Add(key, peer);
             return peer;

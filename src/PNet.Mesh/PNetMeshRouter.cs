@@ -37,6 +37,11 @@ namespace PNet.Mesh
             return _entries.TryGetValue(address, out entry);
         }
 
+        public bool TryGetEntry(ReadOnlySpan<byte> address, out PNetMeshRoutingEntry entry)
+        {
+            return _entries.GetAlternateLookup<ReadOnlySpan<byte>>().TryGetValue(address, out entry);
+        }
+
         public void SetEntry(byte[] address, EndPoint endPoint)
         {
             if (address?.Length != 10) throw new ArgumentOutOfRangeException(nameof(address));
@@ -45,7 +50,7 @@ namespace PNet.Mesh
             {
                 entry = new PNetMeshRoutingEntry
                 {
-                    Address = address.Clone() as byte[],
+                    Address = (byte[])address.Clone(),
                     EndPoint = endPoint,
                     LastSeen = DateTime.UtcNow
                 };
@@ -64,11 +69,32 @@ namespace PNet.Mesh
             {
                 entry = new PNetMeshRoutingEntry
                 {
-                    Address = address.Clone() as byte[],
+                    Address = (byte[])address.Clone(),
                     EndPoint = null,
                     LastSeen = DateTime.UtcNow
                 };
                 _entries.Add(address, entry);
+            }
+            else
+            {
+                entry.LastSeen = DateTime.UtcNow;
+            }
+            return entry;
+        }
+
+        public PNetMeshRoutingEntry GetOrCreateEntry(ReadOnlySpan<byte> address)
+        {
+            var lookup = _entries.GetAlternateLookup<ReadOnlySpan<byte>>();
+            if (!lookup.TryGetValue(address, out var entry))
+            {
+                var key = address.ToArray();
+                entry = new PNetMeshRoutingEntry
+                {
+                    Address = (byte[])key.Clone(),
+                    EndPoint = null,
+                    LastSeen = DateTime.UtcNow
+                };
+                _entries.Add(key, entry);
             }
             else
             {

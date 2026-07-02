@@ -272,6 +272,8 @@ namespace PNet.Actor.UnitTests.Mesh
         {
             var tracker = new PNetMeshHandshakeReplayTracker();
             var peer = Enumerable.Range(0, 32).Select(i => (byte)i).ToArray();
+            var paddedPeer = new byte[peer.Length + 2];
+            peer.CopyTo(paddedPeer, 1);
             Span<byte> first = stackalloc byte[PNetMeshTai64n.TimestampSize];
             Span<byte> duplicate = stackalloc byte[PNetMeshTai64n.TimestampSize];
             Span<byte> stale = stackalloc byte[PNetMeshTai64n.TimestampSize];
@@ -283,9 +285,9 @@ namespace PNet.Actor.UnitTests.Mesh
             PNetMeshTai64n.Write(1_700_000_001, 0x02000000, newer);
 
             Assert.True(tracker.TryAdd(peer, first));
-            Assert.False(tracker.TryAdd(peer, duplicate));
-            Assert.False(tracker.TryAdd(peer, stale));
-            Assert.True(tracker.TryAdd(peer, newer));
+            Assert.False(tracker.TryAdd(paddedPeer.AsSpan(1, peer.Length), duplicate));
+            Assert.False(tracker.TryAdd(paddedPeer.AsSpan(1, peer.Length), stale));
+            Assert.True(tracker.TryAdd(paddedPeer.AsSpan(1, peer.Length), newer));
         }
 
         [Fact]

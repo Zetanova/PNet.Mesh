@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Net;
 using System.Net.Sockets;
 
@@ -31,7 +31,9 @@ namespace PNet.Mesh.Tun
             if (address.AddressFamily != Address.AddressFamily)
                 return false;
 
-            var candidate = address.GetAddressBytes();
+            Span<byte> candidate = stackalloc byte[_addressBytes.Length];
+            if (!address.TryWriteBytes(candidate, out var bytesWritten) || bytesWritten != _addressBytes.Length)
+                return false;
             var fullBytes = PrefixLength / 8;
             var remainingBits = PrefixLength % 8;
 

@@ -28,6 +28,8 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.Equal(payload.Length, packet.PayloadLength);
             Assert.Equal(IPAddress.Parse("10.0.0.1"), packet.SourceAddress);
             Assert.Equal(IPAddress.Parse("10.0.0.2"), packet.DestinationAddress);
+            Assert.Equal(new byte[] { 10, 0, 0, 1 }, packetBytes.AsSpan(12, 4).ToArray());
+            Assert.Equal(new byte[] { 10, 0, 0, 2 }, packetBytes.AsSpan(16, 4).ToArray());
         }
 
         [Fact]
@@ -49,6 +51,8 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.Equal(payload.Length, packet.PayloadLength);
             Assert.Equal(IPAddress.Parse("2001:db8::1"), packet.SourceAddress);
             Assert.Equal(IPAddress.Parse("2001:db8::2"), packet.DestinationAddress);
+            Assert.Equal(IPAddress.Parse("2001:db8::1").GetAddressBytes(), packetBytes.AsSpan(8, 16).ToArray());
+            Assert.Equal(IPAddress.Parse("2001:db8::2").GetAddressBytes(), packetBytes.AsSpan(24, 16).ToArray());
         }
 
         [Theory]

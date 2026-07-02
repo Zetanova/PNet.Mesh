@@ -96,6 +96,35 @@ namespace PNet.Actor.UnitTests.Mesh
         }
 
         [Fact]
+        public void router_span_overloads_match_existing_entries_and_create_new_entries()
+        {
+            var router = new PNetMeshRouter();
+            var address = Address(3);
+            var paddedAddress = new byte[address.Length + 2];
+            address.CopyTo(paddedAddress, 1);
+            var firstEndPoint = new IPEndPoint(IPAddress.Loopback, 10003);
+
+            router.SetEntry(address, firstEndPoint);
+
+            Assert.True(router.TryGetEntry(paddedAddress.AsSpan(1, address.Length), out var spanLookup));
+            Assert.Equal(firstEndPoint, spanLookup.EndPoint);
+
+            var existing = router.GetOrCreateEntry(paddedAddress.AsSpan(1, address.Length));
+
+            Assert.Same(spanLookup, existing);
+
+            var createdAddress = Address(4);
+            var paddedCreatedAddress = new byte[createdAddress.Length + 4];
+            createdAddress.CopyTo(paddedCreatedAddress, 2);
+
+            var created = router.GetOrCreateEntry(paddedCreatedAddress.AsSpan(2, createdAddress.Length));
+
+            Assert.True(router.TryGetEntry(createdAddress, out var createdLookup));
+            Assert.Same(created, createdLookup);
+            Assert.Equal(createdAddress, created.Address);
+        }
+
+        [Fact]
         public void server_endpoint_resolution_normalizes_ipv4_mapped_addresses_and_removes_duplicates()
         {
             var mapped = new IPEndPoint(IPAddress.Parse("::ffff:172.18.0.3"), 12402);
@@ -117,6 +146,25 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.Equal(AddressFamily.InterNetwork, endpoint.AddressFamily);
             Assert.Equal(IPAddress.Parse("172.18.0.3"), endpoint.Address);
             Assert.Equal(12402, endpoint.Port);
+        }
+
+        [Fact]
+        public void endpoint_proto_mapping_preserves_ip_address_bytes()
+        {
+            var ipv4 = new IPEndPoint(IPAddress.Parse("172.18.0.3"), 12402);
+            var ipv4Proto = PNetMeshUtils.MapToProtos(ipv4);
+            var ipv4RoundTrip = Assert.IsType<IPEndPoint>(PNetMeshUtils.MapToItem(ipv4Proto));
+
+            Assert.Equal(ipv4.Address, ipv4RoundTrip.Address);
+            Assert.Equal(ipv4.Port, ipv4RoundTrip.Port);
+
+            var ipv6 = new IPEndPoint(IPAddress.Parse("2001:db8::5"), 12403);
+            var ipv6Proto = PNetMeshUtils.MapToProtos(ipv6);
+            var ipv6RoundTrip = Assert.IsType<IPEndPoint>(PNetMeshUtils.MapToItem(ipv6Proto));
+
+            Assert.Equal(ipv6.Address, ipv6RoundTrip.Address);
+            Assert.Equal(ipv6.Port, ipv6RoundTrip.Port);
+            Assert.Equal(ipv6.Address.GetAddressBytes(), ipv6Proto.Ip.V6.ToByteArray());
         }
 
         [Fact]

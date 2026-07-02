@@ -159,6 +159,8 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
         {
             Assert.True(IpPrefix.Parse("10.80.0.0/24").Contains(IPAddress.Parse("10.80.0.42")));
             Assert.False(IpPrefix.Parse("10.80.0.0/24").Contains(IPAddress.Parse("10.80.1.42")));
+            Assert.True(IpPrefix.Parse("10.80.0.128/25").Contains(IPAddress.Parse("10.80.0.255")));
+            Assert.False(IpPrefix.Parse("10.80.0.128/25").Contains(IPAddress.Parse("10.80.0.127")));
             Assert.True(IpPrefix.Parse("fd80::/64").Contains(IPAddress.Parse("fd80::abcd")));
             Assert.False(IpPrefix.Parse("fd80::/64").Contains(IPAddress.Parse("fd80:1::abcd")));
             Assert.False(IpPrefix.Parse("10.80.0.0/24").Contains(IPAddress.Parse("fd80::1")));
