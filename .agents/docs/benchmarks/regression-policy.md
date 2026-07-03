@@ -1,8 +1,8 @@
 ---
 title: Benchmark Regression Policy
-assumptions-date: 2026-07-02
+assumptions-date: 2026-07-03
 status: report-only
-baseline: 2026-07-02-baseline.md
+baseline: 2026-07-03-baseline.md
 ---
 
 # Benchmark Regression Policy
@@ -15,7 +15,7 @@ Any source change claimed to improve performance must include before/after micro
 
 ## Baseline
 
-Current baseline: [2026-07-02-baseline.md](2026-07-02-baseline.md).
+Current baseline: [2026-07-03-baseline.md](2026-07-03-baseline.md).
 
 Use a new baseline only when benchmark code, runtime, host hardware, or macro workload shape intentionally changes. Keep old baselines as historical references.
 
@@ -90,6 +90,6 @@ When filing a performance issue, include:
 
 | # | Cat | Assumption | Status | Method | Detail |
 |---|---|---|---|---|---|
-| 1 | F | The current baseline is a single complete run on one host/runtime. | verified | source | `2026-07-02-baseline.md` records one full microbenchmark run and one macro run. |
+| 1 | F | The current baseline is a single complete run on one host/runtime. | verified | source | `2026-07-03-baseline.md` records one full microbenchmark run and one macro run. |
 | 2 | R | A 20% report threshold is appropriate before variance is known. | verified | logical | It is wide enough to avoid most noise while still surfacing meaningful shifts for review. |
 | 3 | R | Blocking checks need at least three comparable baselines. | verified | logical | One run cannot establish stable host variance for benchmark gating. |
