@@ -27,7 +27,7 @@ namespace PNet.Mesh
         Disposed
     }
 
-    public sealed class PNetMeshSession : IDisposable
+    public sealed class PNetMeshSession : IDisposable, IPNetMeshReliableControlPacketHandler
     {
         private readonly struct Ack
         {
@@ -52,6 +52,10 @@ namespace PNet.Mesh
         PNetMeshHandshake? _handshake;
 
         PNetMeshTransport2? _transport;
+
+        PNetMeshSecureFrameSession? _secureFrames;
+
+        readonly PNetMeshFrameDispatcher _frameDispatcher;
 
         readonly PNetMeshWireGuardEndpointDiscovery _endpointDiscovery =
             new PNetMeshWireGuardEndpointDiscovery(null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(10));
@@ -136,6 +140,8 @@ namespace PNet.Mesh
         PNetMeshHandshake Handshake => _handshake ?? throw new InvalidOperationException("Session handshake is not initialized.");
 
         PNetMeshTransport2 Transport => _transport ?? throw new InvalidOperationException("Session transport is not initialized.");
+
+        PNetMeshSecureFrameSession SecureFrames => _secureFrames ?? throw new InvalidOperationException("Session secure-frame transport is not initialized.");
 
         public byte[] LocalPublicKey => Handshake.LocalPublicKey;
 
@@ -291,6 +297,7 @@ namespace PNet.Mesh
             _outboundWriter = writer;
             _logger = logger ?? NullLogger<PNetMeshSession>.Instance;
             _retransBuffer = new PNetMeshPacketBuffer();
+            _frameDispatcher = new PNetMeshFrameDispatcher(new PNetMeshReliableControlSession(this));
         }
 
         public void Dispose()
@@ -310,6 +317,7 @@ namespace PNet.Mesh
 
             _handshake?.Dispose();
             _transport?.Dispose();
+            _secureFrames = null;
         }
 
         internal void AttachTo(ChannelWriter<ReadOnlyMemory<byte>> inboundWriter, ChannelWriter<PNetMeshChannelCommands.Command>? controlWriter)
@@ -446,6 +454,7 @@ namespace PNet.Mesh
                     Status = PNetMeshSessionStatus.Closed;
                     return;
                 }
+                _secureFrames = new PNetMeshSecureFrameSession(_transport);
                 Debug.Assert(bytesWritten == PNetMeshHandshake.ResponseMessageSize);
 
                 Status = PNetMeshSessionStatus.Opening;
@@ -456,6 +465,7 @@ namespace PNet.Mesh
                     {
                         buffer.Dispose();
                         _transport?.Dispose();
+                        _secureFrames = null;
                         return;
                     }
 
@@ -502,10 +512,12 @@ namespace PNet.Mesh
                     Status = PNetMeshSessionStatus.Closed;
                     return false;
                 }
+                _secureFrames = new PNetMeshSecureFrameSession(_transport);
 
                 if (_disposing || _status == PNetMeshSessionStatus.Disposed || _status == PNetMeshSessionStatus.Closed)
                 {
                     _transport?.Dispose();
+                    _secureFrames = null;
                     return false;
                 }
 
@@ -835,7 +847,8 @@ namespace PNet.Mesh
                 {
                     var buffer = _retransBuffer.Rent(packetSize);
                     rented = true;
-                    Transport.WriteMessage(frame, buffer.Span, out var byteWritten, out var counter);
+                    if (!SecureFrames.TryWriteFrame(frame, buffer.Span, out var byteWritten, out var counter))
+                        throw new InvalidOperationException("Unable to write secure frame.");
                     Debug.Assert(counter == _retransBuffer.Current);
                     var item = new PNetMeshOutboundMessages.Packet
                     {
@@ -868,11 +881,12 @@ namespace PNet.Mesh
             }
             else
             {
-                var bufferOwner = MemoryPool<byte>.Shared.Rent(packetSize + 48);
+                var bufferOwner = MemoryPool<byte>.Shared.Rent(PNetMeshSecureFrameSession.CalculatePacketSize(frame.Length));
                 try
                 {
                     var buffer = bufferOwner.Memory;
-                    Transport.WriteMessage(frame, buffer.Span, out var byteWritten, out var counter);
+                    if (!SecureFrames.TryWriteFrame(frame, buffer.Span, out var byteWritten, out var counter))
+                        throw new InvalidOperationException("Unable to write secure frame.");
 
                     var item = new PNetMeshOutboundMessages.Packet
                     {
@@ -1013,7 +1027,7 @@ namespace PNet.Mesh
                 var ackSeqNumber = _receiveCounter;
 
                 Span<byte> bitmap = stackalloc byte[16];
-                Transport.Tracker.GetBitmap(ackSeqNumber, bitmap, out var bytesWritten);
+                SecureFrames.Tracker.GetBitmap(ackSeqNumber, bitmap, out var bytesWritten);
                 bitmap = bitmap.Slice(0, bytesWritten);
 
                 ackSeqNumber += PNetMeshPacketTracker.RightShift(bitmap, out bytesWritten);
@@ -1120,11 +1134,11 @@ namespace PNet.Mesh
             out bool payloadReceived)
         {
             payloadReceived = false;
-            if (!Transport.TryReadMessage(payload, buffer.Span, out var bytesWritten, out var counter))
+            if (!SecureFrames.TryReadFrame(payload, buffer.Span, out var plaintext))
             {
                 //buffer.Dispose();
 
-                if (counter > 0)
+                if (plaintext.Counter > 0)
                 {
                     //duplicate message
                 }
@@ -1146,11 +1160,16 @@ namespace PNet.Mesh
                 Status = PNetMeshSessionStatus.Open;
             }
 
-            if (!PNetMeshPayloadFraming.TryRead(buffer.Span.Slice(0, bytesWritten), out var frame, out _)
-                || frame.Kind != PNetMeshPayloadFrameKind.PNet)
-                return false;
+            return _frameDispatcher.TryDispatch(
+                buffer.Span.Slice(0, plaintext.BytesWritten),
+                plaintext.Counter,
+                out payloadReceived,
+                out _);
+        }
 
-            var packet = Protos.Packet.Parser.ParseFrom(frame.Payload);
+        bool IPNetMeshReliableControlPacketHandler.TryHandlePacket(Protos.Packet packet, ulong counter, out bool payloadReceived)
+        {
+            payloadReceived = false;
             ProcessAck(packet);
 
             if (_status != PNetMeshSessionStatus.Open)
