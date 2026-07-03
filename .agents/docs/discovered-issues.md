@@ -1,7 +1,7 @@
 ---
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
 last-entry: 2026-07-03
-last-opened: 2026-07-03-094
+last-opened: 2026-07-03-082
 open-count: 2
 last-completed: 2026-07-03
 ---
@@ -36,6 +36,10 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 
 | # | Date | Completed | Summary | Commits | File |
 |---|------|-----------|---------|---------|------|
+| 098 | 2026-07-03 | 2026-07-03 | Move PNet reliable/control behavior behind a PNet-only session handler. | a659d9e | [098-pnetmeshreliablecontrolsession-protobuf-control-handler](issues/098-pnetmeshreliablecontrolsession-protobuf-control-handler.md) |
+| 097 | 2026-07-03 | 2026-07-03 | Add a frame dispatcher that routes decrypted frames by first byte. | a659d9e | [097-pnetmeshframedispatcher-first-byte-routing](issues/097-pnetmeshframedispatcher-first-byte-routing.md) |
+| 096 | 2026-07-03 | 2026-07-03 | Extract raw secure-frame transport from `PNetMeshSession`. | a659d9e | [096-pnetmeshsecureframesession-raw-plaintext-transport](issues/096-pnetmeshsecureframesession-raw-plaintext-transport.md) |
+| 095 | 2026-07-03 | 2026-07-03 | Split PNetMeshSession into raw secure frame transport and separate PNet control/reliable handlers. | a659d9e | [095-split-session-secure-frame-transport](issues/095-split-session-secure-frame-transport.md) |
 | 094 | 2026-07-03 | 2026-07-03 | Refactor microbenchmarks around decrypted cleartext and first-byte PNet/IPv4/IPv6 classification. | ad9edae3f5f7b3c0f4643ab791e0c459c29f52d8 | [094-decrypted-cleartext-classification-benchmarks](issues/094-decrypted-cleartext-classification-benchmarks.md) |
 | 093 | 2026-07-03 | 2026-07-03 | Add allocation-free IP packet classification/header parsing with benchmark regression gate. | ad9edae3f5f7b3c0f4643ab791e0c459c29f52d8 | [093-allocation-free-ip-packet-classification](issues/093-allocation-free-ip-packet-classification.md) |
 | 092 | 2026-07-03 | 2026-07-03 | Add a steady-state session benchmark before optimizing session internals. | ad9edae3f5f7b3c0f4643ab791e0c459c29f52d8 | [092-steady-state-session-benchmark](issues/092-steady-state-session-benchmark.md) |
