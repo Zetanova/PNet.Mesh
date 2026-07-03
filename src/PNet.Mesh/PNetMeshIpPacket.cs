@@ -11,6 +11,53 @@ namespace PNet.Mesh
         IPv6 = 6
     }
 
+    public readonly ref struct PNetMeshIpPacketHeader
+    {
+        readonly ReadOnlySpan<byte> _packet;
+
+        internal PNetMeshIpPacketHeader(
+            ReadOnlySpan<byte> packet,
+            PNetMeshIpPacketVersion version,
+            int headerLength,
+            int totalLength)
+        {
+            _packet = packet;
+            Version = version;
+            HeaderLength = headerLength;
+            TotalLength = totalLength;
+        }
+
+        public PNetMeshIpPacketVersion Version { get; }
+
+        public int HeaderLength { get; }
+
+        public int TotalLength { get; }
+
+        public int PayloadOffset => HeaderLength;
+
+        public int PayloadLength => TotalLength - PayloadOffset;
+
+        public PNetMeshIpPacket ToPacket()
+        {
+            return Version switch
+            {
+                PNetMeshIpPacketVersion.IPv4 when _packet.Length >= TotalLength => new PNetMeshIpPacket(
+                    Version,
+                    HeaderLength,
+                    TotalLength,
+                    new IPAddress(_packet.Slice(12, 4)),
+                    new IPAddress(_packet.Slice(16, 4))),
+                PNetMeshIpPacketVersion.IPv6 when _packet.Length >= TotalLength => new PNetMeshIpPacket(
+                    Version,
+                    HeaderLength,
+                    TotalLength,
+                    new IPAddress(_packet.Slice(8, 16)),
+                    new IPAddress(_packet.Slice(24, 16))),
+                _ => default
+            };
+        }
+    }
+
     public readonly struct PNetMeshIpPacket
     {
         public PNetMeshIpPacket(
@@ -42,13 +89,23 @@ namespace PNet.Mesh
         public static bool TryRead(ReadOnlySpan<byte> plaintext, out PNetMeshIpPacket packet)
         {
             packet = default;
+            if (!TryReadHeader(plaintext, out var header))
+                return false;
+
+            packet = header.ToPacket();
+            return true;
+        }
+
+        public static bool TryReadHeader(ReadOnlySpan<byte> plaintext, out PNetMeshIpPacketHeader header)
+        {
+            header = default;
             if (plaintext.IsEmpty)
                 return false;
 
             return (plaintext[0] >> 4) switch
             {
-                4 => TryReadIPv4(plaintext, out packet),
-                6 => TryReadIPv6(plaintext, out packet),
+                4 => TryReadIPv4Header(plaintext, out header),
+                6 => TryReadIPv6Header(plaintext, out header),
                 _ => false
             };
         }
@@ -100,9 +157,9 @@ namespace PNet.Mesh
             return packet;
         }
 
-        static bool TryReadIPv4(ReadOnlySpan<byte> plaintext, out PNetMeshIpPacket packet)
+        static bool TryReadIPv4Header(ReadOnlySpan<byte> plaintext, out PNetMeshIpPacketHeader header)
         {
-            packet = default;
+            header = default;
             if (plaintext.Length < 20)
                 return false;
 
@@ -114,18 +171,17 @@ namespace PNet.Mesh
             if (totalLength < headerLength || totalLength > plaintext.Length)
                 return false;
 
-            packet = new PNetMeshIpPacket(
+            header = new PNetMeshIpPacketHeader(
+                plaintext,
                 PNetMeshIpPacketVersion.IPv4,
                 headerLength,
-                totalLength,
-                new IPAddress(plaintext.Slice(12, 4)),
-                new IPAddress(plaintext.Slice(16, 4)));
+                totalLength);
             return true;
         }
 
-        static bool TryReadIPv6(ReadOnlySpan<byte> plaintext, out PNetMeshIpPacket packet)
+        static bool TryReadIPv6Header(ReadOnlySpan<byte> plaintext, out PNetMeshIpPacketHeader header)
         {
-            packet = default;
+            header = default;
             if (plaintext.Length < 40)
                 return false;
 
@@ -133,12 +189,11 @@ namespace PNet.Mesh
             if (totalLength > plaintext.Length)
                 return false;
 
-            packet = new PNetMeshIpPacket(
+            header = new PNetMeshIpPacketHeader(
+                plaintext,
                 PNetMeshIpPacketVersion.IPv6,
                 40,
-                totalLength,
-                new IPAddress(plaintext.Slice(8, 16)),
-                new IPAddress(plaintext.Slice(24, 16)));
+                totalLength);
             return true;
         }
 

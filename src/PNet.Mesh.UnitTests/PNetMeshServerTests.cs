@@ -2,10 +2,13 @@
 using Noise;
 using PNet.Mesh;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -249,6 +252,32 @@ namespace PNet.Actor.UnitTests.Mesh
             );
         }
 
+        [Fact]
+        public void disposed_receive_socket_local_endpoint_disposes_active_buffer()
+        {
+            using var key = KeyPair.Generate();
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+            var protocol = new PNetMeshProtocol(key.PrivateKey, key.PublicKey, psk);
+            var control = Channel.CreateUnbounded<PNetMeshControlCommands.Command>();
+            using var socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
+            var memoryOwner = new TrackingMemoryOwner(256);
+            var item = new PNetMeshSocketReceiveWorkItem
+            {
+                Protocol = protocol,
+                MemoryOwner = memoryOwner,
+                Writer = control.Writer,
+                Logger = NullLogger.Instance
+            };
+            socket.Dispose();
+
+            var accepted = PNetMeshServer.TryGetReceiveLocalEndPoint(socket, item, out var localEndPoint);
+
+            Assert.False(accepted);
+            Assert.Null(localEndPoint);
+            Assert.True(memoryOwner.Disposed);
+        }
+
         static async Task<ReadOnlyMemory<byte>> ReadPayloadAsync(PNetMeshChannel channel, string operation)
         {
             if (channel.TryRead(out var payload))
@@ -269,6 +298,25 @@ namespace PNet.Actor.UnitTests.Mesh
 
             Assert.True(channel.TryRead(out payload), $"{operation}: signaled readable but no payload was available");
             return payload;
+        }
+
+        sealed class TrackingMemoryOwner : IMemoryOwner<byte>
+        {
+            readonly byte[] _buffer;
+
+            public TrackingMemoryOwner(int length)
+            {
+                _buffer = new byte[length];
+            }
+
+            public bool Disposed { get; private set; }
+
+            public Memory<byte> Memory => _buffer;
+
+            public void Dispose()
+            {
+                Disposed = true;
+            }
         }
     }
 }

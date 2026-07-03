@@ -1043,10 +1043,13 @@ namespace PNet.Mesh
                     var data = args.MemoryBuffer.Span.Slice(args.Offset, args.BytesTransferred);
                     if (ShouldAcceptReceivedPacket(socket, item, args, data))
                     {
+                        if (!TryGetReceiveLocalEndPoint(socket, item, out var localEndPoint))
+                            return;
+
                         //try write packet to channel
                         var cmd = CreateReceiveCommand(
                             item.MemoryOwner,
-                            socket.LocalEndPoint,
+                            localEndPoint,
                             args.RemoteEndPoint,
                             args.MemoryBuffer.Slice(args.Offset, args.BytesTransferred));
 
@@ -1087,6 +1090,24 @@ namespace PNet.Mesh
                 {
                     break;
                 }
+            }
+        }
+
+        internal static bool TryGetReceiveLocalEndPoint(
+            Socket socket,
+            PNetMeshSocketReceiveWorkItem item,
+            out EndPoint? localEndPoint)
+        {
+            try
+            {
+                localEndPoint = socket.LocalEndPoint;
+                return true;
+            }
+            catch (ObjectDisposedException)
+            {
+                item.MemoryOwner.Dispose();
+                localEndPoint = null;
+                return false;
             }
         }
 

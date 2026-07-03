@@ -39,6 +39,43 @@ namespace PNet.Actor.UnitTests.Mesh
         }
 
         [Fact]
+        public void try_classify_identifies_pnet_ipv4_and_ipv6_headers()
+        {
+            var ipv4 = PNetMeshIpPacket.CreateIPv4(
+                IPAddress.Parse("10.0.0.1"),
+                IPAddress.Parse("10.0.0.2"),
+                ReadOnlySpan<byte>.Empty,
+                protocol: 17);
+            var ipv6 = PNetMeshIpPacket.CreateIPv6(
+                IPAddress.Parse("2001:db8::1"),
+                IPAddress.Parse("2001:db8::2"),
+                ReadOnlySpan<byte>.Empty,
+                nextHeader: 59);
+
+            Assert.True(PNetMeshPayloadFraming.TryClassify(new byte[] { 0x00 }, out var kind, out var error));
+            Assert.Equal(PNetMeshPayloadFrameError.None, error);
+            Assert.Equal(PNetMeshPayloadFrameKind.PNet, kind);
+
+            Assert.True(PNetMeshPayloadFraming.TryClassifyHeader(0x80, out kind, out error));
+            Assert.Equal(PNetMeshPayloadFrameError.None, error);
+            Assert.Equal(PNetMeshPayloadFrameKind.PNet, kind);
+
+            Assert.True(PNetMeshPayloadFraming.TryClassify(ipv4, out kind, out error));
+            Assert.Equal(PNetMeshPayloadFrameError.None, error);
+            Assert.Equal(PNetMeshPayloadFrameKind.IPv4, kind);
+
+            Assert.True(PNetMeshPayloadFraming.TryClassify(ipv6, out kind, out error));
+            Assert.Equal(PNetMeshPayloadFrameError.None, error);
+            Assert.Equal(PNetMeshPayloadFrameKind.IPv6, kind);
+
+            Assert.False(PNetMeshPayloadFraming.TryClassify(Array.Empty<byte>(), out _, out error));
+            Assert.Equal(PNetMeshPayloadFrameError.Empty, error);
+
+            Assert.False(PNetMeshPayloadFraming.TryClassifyHeader(0x70, out _, out error));
+            Assert.Equal(PNetMeshPayloadFrameError.ReservedMarker, error);
+        }
+
+        [Fact]
         public void pnet_frame_decodes_padding_count_and_slices_default_payload()
         {
             var raw = new byte[] { 0x83, 0x01, 0x02, 0x00, 0x00, 0x00 };
@@ -79,6 +116,10 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.True(PNetMeshPayloadFraming.TryRead(padded, out var frame));
 
             Assert.Equal(PNetMeshPayloadFrameKind.IPv4, frame.Kind);
+            Assert.Equal(PNetMeshIpPacketVersion.IPv4, frame.IpHeader.Version);
+            Assert.Equal(20, frame.IpHeader.HeaderLength);
+            Assert.Equal(packet.Length, frame.IpHeader.TotalLength);
+            Assert.Equal(payload.Length, frame.IpHeader.PayloadLength);
             Assert.Equal(PNetMeshIpPacketVersion.IPv4, frame.IpPacket.Version);
             Assert.Equal(20, frame.HeaderLength);
             Assert.Equal(packet.Length, frame.TotalLength);
@@ -100,6 +141,10 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.True(PNetMeshPayloadFraming.TryRead(padded, out var frame));
 
             Assert.Equal(PNetMeshPayloadFrameKind.IPv6, frame.Kind);
+            Assert.Equal(PNetMeshIpPacketVersion.IPv6, frame.IpHeader.Version);
+            Assert.Equal(40, frame.IpHeader.HeaderLength);
+            Assert.Equal(packet.Length, frame.IpHeader.TotalLength);
+            Assert.Equal(payload.Length, frame.IpHeader.PayloadLength);
             Assert.Equal(PNetMeshIpPacketVersion.IPv6, frame.IpPacket.Version);
             Assert.Equal(40, frame.HeaderLength);
             Assert.Equal(packet.Length, frame.TotalLength);

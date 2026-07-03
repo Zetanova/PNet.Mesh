@@ -123,6 +123,8 @@ internal static class BenchmarkProtocolHarness
             receiverOutbound,
             senderInbound,
             receiverInbound,
+            senderControl,
+            receiverControl,
             senderStatic,
             receiverStatic);
     }
@@ -173,6 +175,8 @@ internal sealed class SessionPair : IDisposable
         Channel<PNetMeshOutboundMessages.Message> receiverOutbound,
         Channel<ReadOnlyMemory<byte>> senderInbound,
         Channel<ReadOnlyMemory<byte>> receiverInbound,
+        Channel<PNetMeshChannelCommands.Command> senderControl,
+        Channel<PNetMeshChannelCommands.Command> receiverControl,
         params IDisposable[] disposables)
     {
         Sender = sender;
@@ -181,6 +185,8 @@ internal sealed class SessionPair : IDisposable
         ReceiverOutbound = receiverOutbound;
         SenderInbound = senderInbound;
         ReceiverInbound = receiverInbound;
+        SenderControl = senderControl;
+        ReceiverControl = receiverControl;
         _disposables = new IDisposable[] { sender, receiver }.Concat(disposables).ToArray();
     }
 
@@ -195,6 +201,10 @@ internal sealed class SessionPair : IDisposable
     public Channel<ReadOnlyMemory<byte>> SenderInbound { get; }
 
     public Channel<ReadOnlyMemory<byte>> ReceiverInbound { get; }
+
+    public Channel<PNetMeshChannelCommands.Command> SenderControl { get; }
+
+    public Channel<PNetMeshChannelCommands.Command> ReceiverControl { get; }
 
     public void Dispose()
     {

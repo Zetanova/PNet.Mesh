@@ -7,6 +7,7 @@ using BenchmarkDotNet.Running;
 using System.Buffers.Binary;
 using System.Globalization;
 using System.Net;
+using System.Threading.Channels;
 
 namespace PNet.Mesh.Benchmarks;
 
@@ -24,6 +25,7 @@ public class WireGuardTransportBenchmarks
     byte[] _ipv6Packet = Array.Empty<byte>();
 
     EstablishedTransportPair? _transports;
+    SessionPair? _sessionPair;
 
     [Params(64, 128, 512, 1280, 1420)]
     public int PayloadSize { get; set; }
@@ -41,6 +43,9 @@ public class WireGuardTransportBenchmarks
             IPAddress.Parse("fd00::1"),
             IPAddress.Parse("fd00::2"),
             _payload.AsSpan(0, PayloadSize));
+        _sessionPair = BenchmarkProtocolHarness.CreateOpenSessionPair();
+        _sessionPair.Sender.UnreliablePayloadDelivery = true;
+        DrainSessionState(_sessionPair);
     }
 
     [GlobalCleanup]
@@ -48,6 +53,8 @@ public class WireGuardTransportBenchmarks
     {
         _transports?.Dispose();
         _transports = null;
+        _sessionPair?.Dispose();
+        _sessionPair = null;
     }
 
     [Benchmark(Description = "WireGuard transport write/read")]
@@ -72,6 +79,27 @@ public class WireGuardTransportBenchmarks
         }
 
         return plaintextBytes;
+    }
+
+    [Benchmark(Description = "Transport decrypt PNet cleartext only")]
+    [BenchmarkCategory("transport")]
+    public int WriteThenReadPNetCleartextOnly()
+    {
+        return WriteThenReadCleartext(_pnetFrame);
+    }
+
+    [Benchmark(Description = "Transport decrypt IPv4 cleartext only")]
+    [BenchmarkCategory("transport")]
+    public int WriteThenReadIPv4CleartextOnly()
+    {
+        return WriteThenReadCleartext(_ipv4Packet);
+    }
+
+    [Benchmark(Description = "Transport decrypt IPv6 cleartext only")]
+    [BenchmarkCategory("transport")]
+    public int WriteThenReadIPv6CleartextOnly()
+    {
+        return WriteThenReadCleartext(_ipv6Packet);
     }
 
     [Benchmark(Description = "PNet frame create")]
@@ -111,6 +139,77 @@ public class WireGuardTransportBenchmarks
             throw new InvalidOperationException($"IPv6 frame parsing failed: {ipv6Error}");
 
         return ipv4Frame.PayloadLength + ipv6Frame.PayloadLength;
+    }
+
+    [Benchmark(Description = "Already-decrypted PNet first-byte classification")]
+    [BenchmarkCategory("classification")]
+    public int ClassifyAlreadyDecryptedPNetFirstByte()
+    {
+        return ClassifyCleartext(_pnetFrame, PNetMeshPayloadFrameKind.PNet);
+    }
+
+    [Benchmark(Description = "Already-decrypted IPv4 first-byte classification")]
+    [BenchmarkCategory("classification")]
+    public int ClassifyAlreadyDecryptedIPv4FirstByte()
+    {
+        return ClassifyCleartext(_ipv4Packet, PNetMeshPayloadFrameKind.IPv4);
+    }
+
+    [Benchmark(Description = "Already-decrypted IPv6 first-byte classification")]
+    [BenchmarkCategory("classification")]
+    public int ClassifyAlreadyDecryptedIPv6FirstByte()
+    {
+        return ClassifyCleartext(_ipv6Packet, PNetMeshPayloadFrameKind.IPv6);
+    }
+
+    [Benchmark(Description = "Decrypted PNet cleartext first-byte classification")]
+    [BenchmarkCategory("classification")]
+    public int DecryptThenClassifyPNetCleartext()
+    {
+        return DecryptThenClassifyCleartext(_pnetFrame, PNetMeshPayloadFrameKind.PNet);
+    }
+
+    [Benchmark(Description = "Decrypted IPv4 cleartext first-byte classification")]
+    [BenchmarkCategory("classification")]
+    public int DecryptThenClassifyIPv4Cleartext()
+    {
+        return DecryptThenClassifyCleartext(_ipv4Packet, PNetMeshPayloadFrameKind.IPv4);
+    }
+
+    [Benchmark(Description = "Decrypted IPv6 cleartext first-byte classification")]
+    [BenchmarkCategory("classification")]
+    public int DecryptThenClassifyIPv6Cleartext()
+    {
+        return DecryptThenClassifyCleartext(_ipv6Packet, PNetMeshPayloadFrameKind.IPv6);
+    }
+
+    [Benchmark(Description = "IPv4 header and total-length validation")]
+    [BenchmarkCategory("parsing")]
+    public int TryReadIPv4Header()
+    {
+        return ReadIpHeader(_ipv4Packet, PNetMeshIpPacketVersion.IPv4);
+    }
+
+    [Benchmark(Description = "IPv6 header and payload-length validation")]
+    [BenchmarkCategory("parsing")]
+    public int TryReadIPv6Header()
+    {
+        return ReadIpHeader(_ipv6Packet, PNetMeshIpPacketVersion.IPv6);
+    }
+
+    [Benchmark(Description = "IP materialized compatibility read")]
+    [BenchmarkCategory("parsing")]
+    public int TryReadIpPacketMaterializedCompatibility()
+    {
+        if (!PNetMeshIpPacket.TryRead(_ipv4Packet, out var ipv4Packet))
+            throw new InvalidOperationException("IPv4 packet parsing failed.");
+        if (!PNetMeshIpPacket.TryRead(_ipv6Packet, out var ipv6Packet))
+            throw new InvalidOperationException("IPv6 packet parsing failed.");
+
+        return ipv4Packet.PayloadLength
+            + ipv6Packet.PayloadLength
+            + (int)ipv4Packet.SourceAddress.AddressFamily
+            + (int)ipv6Packet.DestinationAddress.AddressFamily;
     }
 
     [Benchmark(Description = "WireGuard full handshake setup")]
@@ -157,6 +256,14 @@ public class WireGuardTransportBenchmarks
         }
     }
 
+    [Benchmark(Description = "Session steady-state write/read payload")]
+    [BenchmarkCategory("session")]
+    public int SessionWriteReadPayloadPacketSteadyState()
+    {
+        var pair = _sessionPair ?? throw new InvalidOperationException("Benchmark setup did not create a session pair.");
+        return WriteReadSteadyStateSessionPayloadPacket(pair, _payload.AsSpan(0, PayloadSize));
+    }
+
     bool RejectTamperedPacket()
     {
         using var transports = BenchmarkProtocolHarness.CreateEstablishedTransports();
@@ -192,6 +299,117 @@ public class WireGuardTransportBenchmarks
             out _);
 
         return _encryptedPacket.AsSpan(0, packetBytes).ToArray();
+    }
+
+    int WriteThenReadCleartext(ReadOnlySpan<byte> cleartext)
+    {
+        var transports = _transports ?? throw new InvalidOperationException("Benchmark setup did not create transports.");
+
+        transports.Initiator.WriteMessage(
+            cleartext,
+            _encryptedPacket,
+            out var packetBytes,
+            out _);
+
+        if (!transports.Responder.TryReadMessage(
+                _encryptedPacket.AsSpan(0, packetBytes),
+                _plaintext,
+                out var plaintextBytes,
+                out _))
+        {
+            throw new InvalidOperationException("Transport packet did not decrypt.");
+        }
+
+        return plaintextBytes;
+    }
+
+    int DecryptThenClassifyCleartext(ReadOnlySpan<byte> cleartext, PNetMeshPayloadFrameKind expectedKind)
+    {
+        var plaintextBytes = WriteThenReadCleartext(cleartext);
+        return plaintextBytes + ClassifyCleartext(_plaintext.AsSpan(0, plaintextBytes), expectedKind);
+    }
+
+    static int ClassifyCleartext(ReadOnlySpan<byte> cleartext, PNetMeshPayloadFrameKind expectedKind)
+    {
+        if (!PNetMeshPayloadFraming.TryClassify(cleartext, out var kind, out var error) || kind != expectedKind)
+            throw new InvalidOperationException($"Cleartext classification failed: {error}");
+
+        return (int)kind;
+    }
+
+    static int ReadIpHeader(ReadOnlySpan<byte> packet, PNetMeshIpPacketVersion expectedVersion)
+    {
+        if (!PNetMeshIpPacket.TryReadHeader(packet, out var header) || header.Version != expectedVersion)
+            throw new InvalidOperationException("IP header parsing failed.");
+
+        return (int)header.Version + header.PayloadOffset + header.PayloadLength;
+    }
+
+    static int WriteReadSteadyStateSessionPayloadPacket(SessionPair pair, ReadOnlySpan<byte> payload)
+    {
+        DrainSessionState(pair);
+        pair.Sender.WritePayload(payload);
+
+        var packet = BenchmarkProtocolHarness.ReadPacket(pair.SenderOutbound);
+        try
+        {
+            if (!pair.Receiver.TryReadMessage(packet.MemoryBuffer.Span))
+                throw new InvalidOperationException("Receiver rejected session packet.");
+        }
+        finally
+        {
+            packet.MemoryOwner?.Dispose();
+        }
+
+        if (!pair.ReceiverInbound.Reader.TryRead(out var received))
+            throw new InvalidOperationException("Receiver did not emit payload.");
+
+        var receivedLength = received.Length;
+        DrainSessionState(pair);
+        return receivedLength;
+    }
+
+    static void DrainSessionState(SessionPair pair)
+    {
+        DrainOutboundMessages(pair.SenderOutbound);
+        DrainOutboundMessages(pair.ReceiverOutbound);
+        DrainInboundMessages(pair.SenderInbound);
+        DrainInboundMessages(pair.ReceiverInbound);
+        DrainControlCommands(pair.SenderControl);
+        DrainControlCommands(pair.ReceiverControl);
+    }
+
+    static void DrainOutboundMessages(Channel<PNetMeshOutboundMessages.Message> channel)
+    {
+        while (channel.Reader.TryRead(out var message))
+        {
+            if (message is PNetMeshOutboundMessages.Packet packet)
+                packet.MemoryOwner?.Dispose();
+        }
+    }
+
+    static void DrainInboundMessages(Channel<ReadOnlyMemory<byte>> channel)
+    {
+        while (channel.Reader.TryRead(out _))
+        {
+        }
+    }
+
+    static void DrainControlCommands(Channel<PNetMeshChannelCommands.Command> channel)
+    {
+        while (channel.Reader.TryRead(out var command))
+        {
+            switch (command)
+            {
+                case PNetMeshChannelCommands.Send send:
+                    send.MemoryOwner?.Dispose();
+                    break;
+                case PNetMeshChannelCommands.Relay relay:
+                    relay.CancellationRegistration.Dispose();
+                    relay.MemoryOwner?.Dispose();
+                    break;
+            }
+        }
     }
 
     sealed class BenchmarkConfig : ManualConfig

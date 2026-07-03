@@ -30,7 +30,7 @@ namespace PNet.Mesh
             int headerLength,
             int totalLength,
             int paddingLength,
-            PNetMeshIpPacket ipPacket)
+            PNetMeshIpPacketHeader ipHeader)
         {
             _frame = frame;
             Kind = kind;
@@ -38,7 +38,7 @@ namespace PNet.Mesh
             HeaderLength = headerLength;
             TotalLength = totalLength;
             PaddingLength = paddingLength;
-            IpPacket = ipPacket;
+            IpHeader = ipHeader;
         }
 
         public PNetMeshPayloadFrameKind Kind { get; }
@@ -59,7 +59,9 @@ namespace PNet.Mesh
 
         public int PayloadLength => TotalLength - HeaderLength - PaddingLength;
 
-        public PNetMeshIpPacket IpPacket { get; }
+        public PNetMeshIpPacketHeader IpHeader { get; }
+
+        public PNetMeshIpPacket IpPacket => IpHeader.ToPacket();
 
         public ReadOnlySpan<byte> Frame => _frame.Slice(0, TotalLength);
 
@@ -94,12 +96,14 @@ namespace PNet.Mesh
             }
 
             var headerByte = payload[0];
-            var version = headerByte >> 4;
-            if (version == 4 || version == 6)
+            if (!TryClassifyHeader(headerByte, out var kind, out error))
+                return false;
+
+            if (kind == PNetMeshPayloadFrameKind.IPv4 || kind == PNetMeshPayloadFrameKind.IPv6)
             {
-                if (!PNetMeshIpPacket.TryRead(payload, out var ipPacket)
-                    || (version == 4 && ipPacket.Version != PNetMeshIpPacketVersion.IPv4)
-                    || (version == 6 && ipPacket.Version != PNetMeshIpPacketVersion.IPv6))
+                if (!PNetMeshIpPacket.TryReadHeader(payload, out var ipHeader)
+                    || (kind == PNetMeshPayloadFrameKind.IPv4 && ipHeader.Version != PNetMeshIpPacketVersion.IPv4)
+                    || (kind == PNetMeshPayloadFrameKind.IPv6 && ipHeader.Version != PNetMeshIpPacketVersion.IPv6))
                 {
                     error = PNetMeshPayloadFrameError.InvalidIpPacket;
                     return false;
@@ -107,16 +111,16 @@ namespace PNet.Mesh
 
                 frame = new PNetMeshPayloadFrame(
                     payload,
-                    version == 4 ? PNetMeshPayloadFrameKind.IPv4 : PNetMeshPayloadFrameKind.IPv6,
+                    kind,
                     headerByte,
-                    ipPacket.HeaderLength,
-                    ipPacket.TotalLength,
+                    ipHeader.HeaderLength,
+                    ipHeader.TotalLength,
                     0,
-                    ipPacket);
+                    ipHeader);
                 return true;
             }
 
-            if (IsPNetHeader(headerByte))
+            if (kind == PNetMeshPayloadFrameKind.PNet)
             {
                 var paddingLength = headerByte & 0x0f;
                 if (payload.Length - 1 < paddingLength)
@@ -137,12 +141,68 @@ namespace PNet.Mesh
 
                 frame = new PNetMeshPayloadFrame(
                     payload,
-                    PNetMeshPayloadFrameKind.PNet,
+                    kind,
                     headerByte,
                     1,
                     payload.Length,
                     paddingLength,
                     default);
+                return true;
+            }
+
+            return false;
+        }
+
+        public static bool TryClassify(ReadOnlySpan<byte> payload, out PNetMeshPayloadFrameKind kind)
+        {
+            return TryClassify(payload, out kind, out _);
+        }
+
+        public static bool TryClassify(
+            ReadOnlySpan<byte> payload,
+            out PNetMeshPayloadFrameKind kind,
+            out PNetMeshPayloadFrameError error)
+        {
+            kind = default;
+            error = PNetMeshPayloadFrameError.None;
+            if (payload.IsEmpty)
+            {
+                error = PNetMeshPayloadFrameError.Empty;
+                return false;
+            }
+
+            return TryClassifyHeader(payload[0], out kind, out error);
+        }
+
+        public static bool TryClassifyHeader(byte headerByte, out PNetMeshPayloadFrameKind kind)
+        {
+            return TryClassifyHeader(headerByte, out kind, out _);
+        }
+
+        public static bool TryClassifyHeader(
+            byte headerByte,
+            out PNetMeshPayloadFrameKind kind,
+            out PNetMeshPayloadFrameError error)
+        {
+            kind = default;
+            error = PNetMeshPayloadFrameError.None;
+
+            var version = headerByte >> 4;
+            if (version == 4)
+            {
+                kind = PNetMeshPayloadFrameKind.IPv4;
+                return true;
+            }
+
+            if (version == 6)
+            {
+                kind = PNetMeshPayloadFrameKind.IPv6;
+                return true;
+            }
+
+            if (IsPNetHeader(headerByte))
+            {
+                kind = PNetMeshPayloadFrameKind.PNet;
                 return true;
             }
 
