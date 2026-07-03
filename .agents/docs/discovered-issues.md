@@ -1,7 +1,7 @@
 ---
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
 last-entry: 2026-07-03
-last-opened: 2026-07-03-091
+last-opened: 2026-07-03-094
 open-count: 2
 last-completed: 2026-07-03
 ---
@@ -36,6 +36,9 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 
 | # | Date | Completed | Summary | Commits | File |
 |---|------|-----------|---------|---------|------|
+| 094 | 2026-07-03 | 2026-07-03 | Refactor microbenchmarks around decrypted cleartext and first-byte PNet/IPv4/IPv6 classification. | ad9edae3f5f7b3c0f4643ab791e0c459c29f52d8 | [094-decrypted-cleartext-classification-benchmarks](issues/094-decrypted-cleartext-classification-benchmarks.md) |
+| 093 | 2026-07-03 | 2026-07-03 | Add allocation-free IP packet classification/header parsing with benchmark regression gate. | ad9edae3f5f7b3c0f4643ab791e0c459c29f52d8 | [093-allocation-free-ip-packet-classification](issues/093-allocation-free-ip-packet-classification.md) |
+| 092 | 2026-07-03 | 2026-07-03 | Add a steady-state session benchmark before optimizing session internals. | ad9edae3f5f7b3c0f4643ab791e0c459c29f52d8 | [092-steady-state-session-benchmark](issues/092-steady-state-session-benchmark.md) |
 | 091 | 2026-07-03 | 2026-07-03 | Split TUN benchmark report models and assembly helpers into a focused file. | 4cb0090 | [091-tunpnetbenchmarkrunner-report-models](issues/091-tunpnetbenchmarkrunner-report-models.md) |
 | 090 | 2026-07-03 | 2026-07-03 | Split TUN benchmark execution parsers and metrics helpers into focused files. | 4cb0090 | [090-tunpnetbenchmarkrunner-execution-parsers-and-metrics](issues/090-tunpnetbenchmarkrunner-execution-parsers-and-metrics.md) |
 | 089 | 2026-07-03 | 2026-07-03 | Split TUN benchmark options and CLI helpers into a focused file. | 4cb0090 | [089-tunpnetbenchmarkrunner-options-and-cli-surface](issues/089-tunpnetbenchmarkrunner-options-and-cli-surface.md) |
