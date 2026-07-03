@@ -1,4 +1,4 @@
-using PNet.Mesh;
+﻿using PNet.Mesh;
 using System;
 using System.Collections.Generic;
 
@@ -10,7 +10,7 @@ namespace PNet.Mesh.Tun
 
         public int Mtu { get; init; } = 1280;
 
-        public PNetMeshServerSettings Mesh { get; init; }
+        public required PNetMeshServerSettings Mesh { get; init; }
 
         public IReadOnlyList<PNetMeshTunPeerRoute> Peers { get; init; } = Array.Empty<PNetMeshTunPeerRoute>();
     }

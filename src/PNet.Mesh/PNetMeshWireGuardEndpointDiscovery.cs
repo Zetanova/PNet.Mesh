@@ -1,22 +1,23 @@
 ﻿using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Net;
 
 namespace PNet.Mesh
 {
     public sealed class PNetMeshWireGuardEndpointDiscovery
     {
-        readonly EndPoint _relayEndpoint;
+        readonly EndPoint? _relayEndpoint;
         readonly TimeSpan _hintTtl;
         readonly TimeSpan _probeTtl;
 
-        EndPoint _candidateEndpoint;
+        EndPoint? _candidateEndpoint;
         DateTimeOffset _candidateExpiresAt;
         DateTimeOffset _probeExpiresAt;
         bool _probeActive;
         bool _probeAttempted;
 
         public PNetMeshWireGuardEndpointDiscovery(
-            EndPoint relayEndpoint,
+            EndPoint? relayEndpoint,
             TimeSpan hintTtl,
             TimeSpan probeTtl)
         {
@@ -28,11 +29,11 @@ namespace PNet.Mesh
             _probeTtl = probeTtl;
         }
 
-        public EndPoint CurrentEndpoint => DirectEndpoint ?? _relayEndpoint;
+        public EndPoint? CurrentEndpoint => DirectEndpoint ?? _relayEndpoint;
 
-        public EndPoint DirectEndpoint { get; private set; }
+        public EndPoint? DirectEndpoint { get; private set; }
 
-        public EndPoint CandidateEndpoint => _candidateEndpoint;
+        public EndPoint? CandidateEndpoint => _candidateEndpoint;
 
         public bool TryApplyEndpointHint(EndPoint candidateEndpoint, DateTimeOffset now)
         {
@@ -65,7 +66,7 @@ namespace PNet.Mesh
             return true;
         }
 
-        public bool TryBeginDirectProbe(DateTimeOffset now, out EndPoint candidateEndpoint)
+        public bool TryBeginDirectProbe(DateTimeOffset now, [NotNullWhen(true)] out EndPoint? candidateEndpoint)
         {
             candidateEndpoint = null;
             if (_probeAttempted)
@@ -90,13 +91,16 @@ namespace PNet.Mesh
             _probeActive = true;
             _probeAttempted = true;
             _probeExpiresAt = now + _probeTtl;
-            candidateEndpoint = _candidateEndpoint;
+            if (_candidateEndpoint is not { } candidate)
+                return false;
+
+            candidateEndpoint = candidate;
             return true;
         }
 
         public bool TryPromoteAuthenticatedDirectEndpoint(EndPoint endpoint, DateTimeOffset now)
         {
-            if (endpoint is null || !HasFreshCandidate(now))
+            if (endpoint is null || !HasFreshCandidate(now) || _candidateEndpoint is not { } candidate)
                 return false;
 
             if (!_probeActive || _probeExpiresAt <= now)
@@ -105,10 +109,10 @@ namespace PNet.Mesh
                 return false;
             }
 
-            if (!EndPointsEqual(_candidateEndpoint, endpoint))
+            if (!EndPointsEqual(candidate, endpoint))
                 return false;
 
-            DirectEndpoint = _candidateEndpoint;
+            DirectEndpoint = candidate;
             ClearCandidate();
             return true;
         }

@@ -4,6 +4,7 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Net;
 using System.Threading;
@@ -16,17 +17,17 @@ namespace PNet.Mesh
     {
         readonly ILogger _logger;
 
-        Channel<ReadOnlyMemory<byte>> _inboundChannel;
+        Channel<ReadOnlyMemory<byte>>? _inboundChannel;
 
-        Channel<PNetMeshRoutePath> _routePathChannel;
+        Channel<PNetMeshRoutePath>? _routePathChannel;
 
-        Channel<PNetMeshChannelCommands.Command> _controlChannel;
-        Channel<PNetMeshChannelCommands.Relay> _relayChannel;
+        Channel<PNetMeshChannelCommands.Command>? _controlChannel;
+        Channel<PNetMeshChannelCommands.Relay>? _relayChannel;
         Task _controlTask = Task.CompletedTask;
         Task _relayTask;
 
         ImmutableList<PNetMeshSession> _sessions = ImmutableList<PNetMeshSession>.Empty;
-        PNetMeshSession _currentSession;
+        PNetMeshSession? _currentSession;
         TaskCompletionSource _relayStateChanged = CreateRelayStateChanged();
         bool _disposed;
 
@@ -40,7 +41,15 @@ namespace PNet.Mesh
 
         internal bool HasRoutableSession => HasRelaySessionCandidate();
 
-        public PNetMeshChannel(ILogger<PNetMeshChannel> logger = null)
+        Channel<ReadOnlyMemory<byte>> InboundChannel => _inboundChannel ?? throw new ObjectDisposedException(nameof(PNetMeshChannel));
+
+        Channel<PNetMeshRoutePath> RoutePathChannel => _routePathChannel ?? throw new ObjectDisposedException(nameof(PNetMeshChannel));
+
+        Channel<PNetMeshChannelCommands.Command> ControlChannel => _controlChannel ?? throw new ObjectDisposedException(nameof(PNetMeshChannel));
+
+        Channel<PNetMeshChannelCommands.Relay> RelayChannel => _relayChannel ?? throw new ObjectDisposedException(nameof(PNetMeshChannel));
+
+        public PNetMeshChannel(ILogger<PNetMeshChannel>? logger = null)
         {
             _logger = logger ?? NullLogger<PNetMeshChannel>.Instance;
 
@@ -107,7 +116,7 @@ namespace PNet.Mesh
             _sessions = _sessions.Add(session);
             Timestamp = Math.Max(session.Timestamp, Timestamp);
 
-            session.AttachTo(_inboundChannel.Writer, _controlChannel.Writer);
+            session.AttachTo(InboundChannel.Writer, ControlChannel.Writer);
             session.StatusChanged += OnSessionStatusChanged;
             session.MessageReceived += OnSessionMessageReceived;
             OnSessionStatusChanged(session, EventArgs.Empty);
@@ -119,9 +128,10 @@ namespace PNet.Mesh
                 session.SenderIndex, session.RemoteEndPoint);
         }
 
-        private void OnSessionStatusChanged(object sender, EventArgs e)
+        private void OnSessionStatusChanged(object? sender, EventArgs e)
         {
-            var session = sender as PNetMeshSession;
+            if (sender is not PNetMeshSession session)
+                return;
 
             switch (session.Status)
             {
@@ -140,7 +150,7 @@ namespace PNet.Mesh
             SignalRelayStateChanged();
         }
 
-        private void OnSessionMessageReceived(object sender, EventArgs e)
+        private void OnSessionMessageReceived(object? sender, EventArgs e)
         {
             var session = sender as PNetMeshSession;
             if (session?.Status == PNetMeshSessionStatus.Open)
@@ -149,7 +159,7 @@ namespace PNet.Mesh
 
         async Task ProcessControl()
         {
-            var reader = _controlChannel.Reader;
+            var reader = ControlChannel.Reader;
 
             do
             {
@@ -161,7 +171,8 @@ namespace PNet.Mesh
                             try
                             {
                                 cmd.CancellationToken.ThrowIfCancellationRequested();
-                                _currentSession.WritePayload(cmd.Payload.Span, cmd.Result, cmd.UnreliablePayloadDelivery);
+                                var session = _currentSession ?? throw new InvalidOperationException("No current session is available.");
+                                session.WritePayload(cmd.Payload.Span, cmd.Result, cmd.UnreliablePayloadDelivery);
                             }
                             catch (OperationCanceledException ex)
                             {
@@ -201,7 +212,7 @@ namespace PNet.Mesh
 
         async Task ProcessRelays()
         {
-            var reader = _relayChannel.Reader;
+            var reader = RelayChannel.Reader;
             var pending = new Queue<PNetMeshChannelCommands.Relay>();
 
             do
@@ -222,7 +233,7 @@ namespace PNet.Mesh
             try
             {
                 cmd.CancellationToken.ThrowIfCancellationRequested();
-                await _relayChannel.Writer.WriteAsync(cmd, cmd.CancellationToken);
+                await RelayChannel.Writer.WriteAsync(cmd, cmd.CancellationToken);
                 SignalRelayStateChanged();
             }
             catch (OperationCanceledException ex)
@@ -311,7 +322,7 @@ namespace PNet.Mesh
             ClearAndDispose(cmd.MemoryOwner);
         }
 
-        static void DrainControlCommands(Channel<PNetMeshChannelCommands.Command> channel)
+        static void DrainControlCommands(Channel<PNetMeshChannelCommands.Command>? channel)
         {
             if (channel == null)
                 return;
@@ -332,32 +343,32 @@ namespace PNet.Mesh
 
         public ValueTask<bool> WaitToReadAsync(CancellationToken cancellationToken = default)
         {
-            return _inboundChannel.Reader.WaitToReadAsync(cancellationToken);
+            return InboundChannel.Reader.WaitToReadAsync(cancellationToken);
         }
 
         public bool TryRead(out ReadOnlyMemory<byte> payload)
         {
-            return _inboundChannel.Reader.TryRead(out payload);
+            return InboundChannel.Reader.TryRead(out payload);
         }
 
         public ValueTask<bool> WaitToReadRoutePathAsync(CancellationToken cancellationToken = default)
         {
-            return _routePathChannel.Reader.WaitToReadAsync(cancellationToken);
+            return RoutePathChannel.Reader.WaitToReadAsync(cancellationToken);
         }
 
-        public bool TryReadRoutePath(out PNetMeshRoutePath routePath)
+        public bool TryReadRoutePath([NotNullWhen(true)] out PNetMeshRoutePath? routePath)
         {
-            return _routePathChannel.Reader.TryRead(out routePath);
+            return RoutePathChannel.Reader.TryRead(out routePath);
         }
 
         internal bool TryWriteRoutePath(PNetMeshRoutePath routePath)
         {
-            return _routePathChannel.Writer.TryWrite(routePath);
+            return RoutePathChannel.Writer.TryWrite(routePath);
         }
 
-        public bool TryWrite(ReadOnlyMemory<byte> payload, IMemoryOwner<byte> memoryOwner = default)
+        public bool TryWrite(ReadOnlyMemory<byte> payload, IMemoryOwner<byte>? memoryOwner = default)
         {
-            return _controlChannel.Writer.TryWrite(new PNetMeshChannelCommands.Send
+            return ControlChannel.Writer.TryWrite(new PNetMeshChannelCommands.Send
             {
                 Payload = payload,
                 MemoryOwner = memoryOwner,
@@ -374,7 +385,7 @@ namespace PNet.Mesh
                 CancellationToken = cancellationToken
             };
 
-            await _controlChannel.Writer.WriteAsync(cmd, cancellationToken);
+            await ControlChannel.Writer.WriteAsync(cmd, cancellationToken);
             await cmd.Result.Task;
         }
 
@@ -455,7 +466,7 @@ namespace PNet.Mesh
 
         async ValueTask EnqueueWriteCommandAsync(
             ReadOnlyMemory<byte> payload,
-            IMemoryOwner<byte> memoryOwner,
+            IMemoryOwner<byte>? memoryOwner,
             bool unreliablePayloadDelivery,
             CancellationToken cancellationToken)
         {
@@ -470,7 +481,7 @@ namespace PNet.Mesh
 
             try
             {
-                await _controlChannel.Writer.WriteAsync(cmd, cancellationToken);
+                await ControlChannel.Writer.WriteAsync(cmd, cancellationToken);
                 memoryOwner = null;
             }
             finally
@@ -479,9 +490,9 @@ namespace PNet.Mesh
             }
         }
 
-        internal bool TryRelay(PNetMeshRelayPacket packet, IMemoryOwner<byte> memoryOwner = default)
+        internal bool TryRelay(PNetMeshRelayPacket packet, IMemoryOwner<byte>? memoryOwner = default)
         {
-            return _controlChannel.Writer.TryWrite(new PNetMeshChannelCommands.Relay
+            return ControlChannel.Writer.TryWrite(new PNetMeshChannelCommands.Relay
             {
                 Packet = packet,
                 MemoryOwner = memoryOwner,
@@ -489,28 +500,28 @@ namespace PNet.Mesh
             });
         }
 
-        internal async Task RelayAsync(PNetMeshRelayPacket packet, IMemoryOwner<byte> memoryOwner = default, CancellationToken cancellationToken = default)
+        internal async Task RelayAsync(PNetMeshRelayPacket packet, IMemoryOwner<byte>? memoryOwner = default, CancellationToken cancellationToken = default)
         {
+            var result = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var cmd = new PNetMeshChannelCommands.Relay
             {
                 Packet = packet,
                 MemoryOwner = memoryOwner,
-                Result = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
+                Result = result,
                 CancellationToken = cancellationToken
             };
             if (cancellationToken.CanBeCanceled)
             {
                 cmd.CancellationRegistration = cancellationToken.Register(
-                    static state => ((PNetMeshChannel)state).SignalRelayStateChanged(),
-                    this);
+                    () => SignalRelayStateChanged());
             }
 
             var queued = false;
             try
             {
-                await _controlChannel.Writer.WriteAsync(cmd, cancellationToken);
+                await ControlChannel.Writer.WriteAsync(cmd, cancellationToken);
                 queued = true;
-                await cmd.Result.Task;
+                await result.Task;
             }
             finally
             {
@@ -530,10 +541,10 @@ namespace PNet.Mesh
             signal.TrySetResult();
         }
 
-        bool TryGetRelaySession(out PNetMeshSession session)
+        bool TryGetRelaySession([NotNullWhen(true)] out PNetMeshSession? session)
         {
             session = _currentSession;
-            if (IsRelaySession(session))
+            if (session is not null && IsRelaySession(session))
                 return true;
 
             foreach (var candidate in _sessions)
@@ -563,12 +574,12 @@ namespace PNet.Mesh
             return false;
         }
 
-        static bool IsRelaySession(PNetMeshSession session)
+        static bool IsRelaySession(PNetMeshSession? session)
         {
             return session?.Status == PNetMeshSessionStatus.Open && session.RemoteEndPoint is not null;
         }
 
-        static bool IsRelaySessionCandidate(PNetMeshSession session)
+        static bool IsRelaySessionCandidate(PNetMeshSession? session)
         {
             return session?.RemoteEndPoint is not null
                    && (session.Status == PNetMeshSessionStatus.Open
@@ -580,7 +591,7 @@ namespace PNet.Mesh
             return new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         }
 
-        static void ClearAndDispose(IMemoryOwner<byte> memoryOwner)
+        static void ClearAndDispose(IMemoryOwner<byte>? memoryOwner)
         {
             if (memoryOwner == null)
                 return;
@@ -592,13 +603,13 @@ namespace PNet.Mesh
 
     public sealed class PNetMeshRoutePath
     {
-        public byte[] DestinationAddress { get; init; }
+        public required byte[] DestinationAddress { get; init; }
 
         public ImmutableArray<byte[]> Route { get; init; }
 
         public ushort RemainingHopCount { get; init; }
 
-        public EndPoint RemoteEndPoint { get; init; }
+        public EndPoint? RemoteEndPoint { get; init; }
 
         public override string ToString()
         {
@@ -606,7 +617,7 @@ namespace PNet.Mesh
             return string.Join(" -> ", route.Select(address => Convert.ToHexString(address ?? Array.Empty<byte>())));
         }
 
-        internal static PNetMeshRoutePath FromRelayPacket(PNetMeshRelayPacket packet, EndPoint remoteEndPoint)
+        internal static PNetMeshRoutePath FromRelayPacket(PNetMeshRelayPacket packet, EndPoint? remoteEndPoint)
         {
             return new PNetMeshRoutePath
             {
@@ -639,9 +650,9 @@ namespace PNet.Mesh
         {
             public ReadOnlyMemory<byte> Payload { get; init; }
 
-            public IMemoryOwner<byte> MemoryOwner { get; init; }
+            public IMemoryOwner<byte>? MemoryOwner { get; init; }
 
-            public TaskCompletionSource Result { get; init; }
+            public TaskCompletionSource? Result { get; init; }
 
             public bool UnreliablePayloadDelivery { get; init; }
 
@@ -650,16 +661,16 @@ namespace PNet.Mesh
 
         public sealed class Invoke : Command
         {
-            public Action Handler { get; init; }
+            public required Action Handler { get; init; }
         }
 
         public sealed class Relay : Command
         {
-            public PNetMeshRelayPacket Packet { get; init; }
+            public required PNetMeshRelayPacket Packet { get; init; }
 
-            public IMemoryOwner<byte> MemoryOwner { get; set; }
+            public IMemoryOwner<byte>? MemoryOwner { get; set; }
 
-            public TaskCompletionSource Result { get; init; }
+            public TaskCompletionSource? Result { get; init; }
 
             public CancellationToken CancellationToken { get; init; }
 

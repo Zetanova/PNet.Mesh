@@ -189,7 +189,7 @@ namespace PNet.Actor.UnitTests.Mesh
 
         static PNetMeshWireGuardRelayRegistry CreateRegistry(
             PNetMeshWireGuardRelayMac1Matcher matcher,
-            PNetMeshWireGuardRelayOptions options = null)
+            PNetMeshWireGuardRelayOptions? options = null)
         {
             return new PNetMeshWireGuardRelayRegistry(options ?? new PNetMeshWireGuardRelayOptions(), matcher);
         }

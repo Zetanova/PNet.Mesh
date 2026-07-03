@@ -18,12 +18,12 @@ namespace PNet.Mesh.TestNode
         readonly IHostApplicationLifetime _lifetime;
         readonly ILogger _logger;
 
-        UdpClient _udp;
-        PNetMeshWireGuardRelayRegistry _registry;
-        string _name;
-        string _targetEndpointText;
-        IPEndPoint _targetEndpoint;
-        IPEndPoint _clientEndpoint;
+        UdpClient? _udp;
+        PNetMeshWireGuardRelayRegistry? _registry;
+        string? _name;
+        string? _targetEndpointText;
+        IPEndPoint? _targetEndpoint;
+        IPEndPoint? _clientEndpoint;
         TimeSpan _runDuration;
 
         public WireGuardRelayService(
@@ -100,7 +100,8 @@ namespace PNet.Mesh.TestNode
         {
             while (true)
             {
-                var datagram = await _udp.ReceiveAsync(cancellationToken);
+                var udp = _udp ?? throw new InvalidOperationException("UDP socket is not initialized.");
+                var datagram = await udp.ReceiveAsync(cancellationToken);
                 if (IsTargetEndpoint(datagram.RemoteEndPoint))
                 {
                     await RelayFromTargetAsync(datagram, cancellationToken);
@@ -117,6 +118,7 @@ namespace PNet.Mesh.TestNode
             {
                 if (!PNetMeshPacketFraming.TryReadMessageType(datagram.Buffer, out var messageType)
                     || messageType != PNetMeshMessageType.HandshakeInitiation
+                    || _registry is null
                     || !_registry.TryRoute(datagram.Buffer, datagram.RemoteEndPoint, DateTimeOffset.UtcNow, out _, out _))
                 {
                     _logger.LogWarning("WireGuardRelay[{nodeName}] dropped unroutable client packet", _name);
@@ -124,7 +126,8 @@ namespace PNet.Mesh.TestNode
                 }
 
                 _clientEndpoint = datagram.RemoteEndPoint;
-                await _udp.SendAsync(datagram.Buffer, _targetEndpoint, cancellationToken);
+                await (_udp ?? throw new InvalidOperationException("UDP socket is not initialized."))
+                    .SendAsync(datagram.Buffer, _targetEndpoint ?? throw new InvalidOperationException("Target endpoint is not initialized."), cancellationToken);
                 _logger.LogInformation("WireGuardRelay[{nodeName}] routed handshake initiation to {targetEndpoint}", _name, _targetEndpointText);
                 return;
             }
@@ -142,7 +145,8 @@ namespace PNet.Mesh.TestNode
                 return;
             }
 
-            await _udp.SendAsync(datagram.Buffer, _targetEndpoint, cancellationToken);
+            await (_udp ?? throw new InvalidOperationException("UDP socket is not initialized."))
+                .SendAsync(datagram.Buffer, _targetEndpoint ?? throw new InvalidOperationException("Target endpoint is not initialized."), cancellationToken);
             _logger.LogInformation("WireGuardRelay[{nodeName}] relayed packet data to {targetEndpoint}", _name, _targetEndpointText);
         }
 
@@ -160,7 +164,8 @@ namespace PNet.Mesh.TestNode
                 return;
             }
 
-            await _udp.SendAsync(datagram.Buffer, _clientEndpoint, cancellationToken);
+            await (_udp ?? throw new InvalidOperationException("UDP socket is not initialized."))
+                .SendAsync(datagram.Buffer, _clientEndpoint, cancellationToken);
 
             if (messageType == PNetMeshMessageType.HandshakeResponse)
             {
@@ -182,7 +187,7 @@ namespace PNet.Mesh.TestNode
             return SameEndpoint(endpoint, _targetEndpoint);
         }
 
-        static bool SameEndpoint(IPEndPoint left, IPEndPoint right)
+        static bool SameEndpoint(IPEndPoint? left, IPEndPoint? right)
         {
             return left is not null
                    && right is not null

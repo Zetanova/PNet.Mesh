@@ -21,16 +21,16 @@ namespace PNet.Mesh
 
     public sealed class PNetMeshPeer : IEquatable<PNetMeshPeer>
     {
-        public byte[] PublicKey { get; init; }
+        public required byte[] PublicKey { get; init; }
 
-        public string[] EndPoints { get; init; }
+        public string[]? EndPoints { get; init; }
 
-        public override bool Equals(object obj)
+        public override bool Equals(object? obj)
         {
             return Equals(obj as PNetMeshPeer);
         }
 
-        public bool Equals(PNetMeshPeer other)
+        public bool Equals(PNetMeshPeer? other)
         {
             return other != null
                 && PNetMeshByteArrayComparer.Default.Equals(PublicKey, other.PublicKey);
@@ -41,12 +41,12 @@ namespace PNet.Mesh
             return PNetMeshByteArrayComparer.Default.GetHashCode(PublicKey);
         }
 
-        public static bool operator ==(PNetMeshPeer left, PNetMeshPeer right)
+        public static bool operator ==(PNetMeshPeer? left, PNetMeshPeer? right)
         {
             return EqualityComparer<PNetMeshPeer>.Default.Equals(left, right);
         }
 
-        public static bool operator !=(PNetMeshPeer left, PNetMeshPeer right)
+        public static bool operator !=(PNetMeshPeer? left, PNetMeshPeer? right)
         {
             return !(left == right);
         }
@@ -63,7 +63,7 @@ namespace PNet.Mesh
 
         public uint CheckPacing { get; init; }
 
-        public string UserPass { get; init; }
+        public string? UserPass { get; init; }
 
         public ImmutableArray<PNetMeshCandidate> Candidates { get; init; }
     }
@@ -73,7 +73,7 @@ namespace PNet.Mesh
         /// <summary>
         /// transport address
         /// </summary>
-        public EndPoint Address { get; init; }
+        public EndPoint? Address { get; init; }
 
         public PNetMeshProtocolType Protocol { get; init; }
 
@@ -86,7 +86,7 @@ namespace PNet.Mesh
         /// If a relayed candidate is identical to a host candidate(which can happen in rare cases), 
         /// the relayed candidate MUST be discarded.
         /// </summary>
-        public EndPoint Base { get; init; }
+        public EndPoint? Base { get; init; }
 
         /// <summary>
         ///   o  They have the same type (host, relayed, server reflexive, or peer  reflexive).
@@ -95,7 +95,7 @@ namespace PNet.Mesh
         ///   have the same IP address(the IP address used by the agent to contact the STUN or TURN server).
         ///   o They were obtained using the same transport protocol(TCP, UDP).
         /// </summary>
-        public string Foundation { get; init; }
+        public string? Foundation { get; init; }
 
         public byte ComponentId { get; init; } = 1; //ICE: not used
 
@@ -139,9 +139,9 @@ namespace PNet.Mesh
         pair priority = 2^32*MIN(G,D) + 2*MAX(G,D) + (G>D?1:0)
         */
 
-        public readonly PNetMeshCandidate Local;
+        public readonly PNetMeshCandidate? Local;
 
-        public readonly PNetMeshCandidate Remote;
+        public readonly PNetMeshCandidate? Remote;
 
         public readonly bool Default;
 

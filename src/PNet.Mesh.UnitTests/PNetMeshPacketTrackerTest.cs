@@ -124,9 +124,9 @@ namespace PNet.Actor.UnitTests.Mesh
         {
             using var tracker = new PNetMeshPacketTracker(counterSize);
 
-            var wordCount = (int)typeof(PNetMeshPacketTracker)
-                .GetField("_wordCount", BindingFlags.Instance | BindingFlags.NonPublic)
-                .GetValue(tracker);
+            var field = typeof(PNetMeshPacketTracker).GetField("_wordCount", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("_wordCount field was not found.");
+            var wordCount = Assert.IsType<int>(field.GetValue(tracker));
 
             Assert.Equal(expectedSize, tracker.Size);
             Assert.Equal(expectedWordCount, wordCount);

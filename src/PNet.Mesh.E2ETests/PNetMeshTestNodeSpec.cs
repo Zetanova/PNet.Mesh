@@ -110,7 +110,7 @@ public sealed class PNetMeshTestNodeSpec
 
     public static PNetMeshTestNodeSpec WireGuardPeerContainerPeer(
         bool publishUdpPort = true,
-        string networkName = null)
+        string? networkName = null)
     {
         return new PNetMeshTestNodeSpec
         {

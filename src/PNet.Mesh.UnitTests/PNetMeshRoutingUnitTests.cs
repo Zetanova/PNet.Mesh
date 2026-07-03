@@ -153,14 +153,14 @@ namespace PNet.Actor.UnitTests.Mesh
         public void endpoint_proto_mapping_preserves_ip_address_bytes()
         {
             var ipv4 = new IPEndPoint(IPAddress.Parse("172.18.0.3"), 12402);
-            var ipv4Proto = PNetMeshUtils.MapToProtos(ipv4);
+            var ipv4Proto = Required(PNetMeshUtils.MapToProtos(ipv4));
             var ipv4RoundTrip = Assert.IsType<IPEndPoint>(PNetMeshUtils.MapToItem(ipv4Proto));
 
             Assert.Equal(ipv4.Address, ipv4RoundTrip.Address);
             Assert.Equal(ipv4.Port, ipv4RoundTrip.Port);
 
             var ipv6 = new IPEndPoint(IPAddress.Parse("2001:db8::5"), 12403);
-            var ipv6Proto = PNetMeshUtils.MapToProtos(ipv6);
+            var ipv6Proto = Required(PNetMeshUtils.MapToProtos(ipv6));
             var ipv6RoundTrip = Assert.IsType<IPEndPoint>(PNetMeshUtils.MapToItem(ipv6Proto));
 
             Assert.Equal(ipv6.Address, ipv6RoundTrip.Address);
@@ -492,6 +492,7 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.Equal(receiver.LocalAddress, relayed.Packet.Route[2]);
 
             var exchange = relayed.Packet.CandidateExchange;
+            Assert.NotNull(exchange);
             Assert.True(exchange.Lite);
             Assert.Equal(250u, exchange.CheckPacing);
             Assert.Equal("user:pass", exchange.UserPass);
@@ -1501,6 +1502,7 @@ namespace PNet.Actor.UnitTests.Mesh
             sender.ReadMessage(syn.Span);
 
             var queueControl = typeof(PNetMeshSession).GetMethod("QueueControl", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(queueControl);
 
             for (var i = 0; i < 40 && sender.Status == PNetMeshSessionStatus.Open; i++)
             {
@@ -2885,7 +2887,7 @@ namespace PNet.Actor.UnitTests.Mesh
             bootstrapSender.Dispose();
 
             staleCandidate.WriteInitialize(1, staleReceiverKey.PublicKey);
-            Assert.IsType<PNetMeshOutboundMessages.Packet>(ReadMessage(staleSenderOutbound)).MemoryOwner.Dispose();
+            DisposeRequired(Assert.IsType<PNetMeshOutboundMessages.Packet>(ReadMessage(staleSenderOutbound)).MemoryOwner);
             channel.AddSession(staleCandidate);
             Assert.Equal(PNetMeshSessionStatus.Opening, staleCandidate.Status);
 
@@ -2945,7 +2947,7 @@ namespace PNet.Actor.UnitTests.Mesh
             sender.RemoteEndPoint = null;
 
             relayCandidate.WriteInitialize(3, receiverKey.PublicKey);
-            Assert.IsType<PNetMeshOutboundMessages.Packet>(ReadMessage(senderOutbound)).MemoryOwner.Dispose();
+            DisposeRequired(Assert.IsType<PNetMeshOutboundMessages.Packet>(ReadMessage(senderOutbound)).MemoryOwner);
 
             using var channel = new PNetMeshChannel();
             channel.AddSession(sender);
@@ -3019,7 +3021,7 @@ namespace PNet.Actor.UnitTests.Mesh
             bootstrapSender.Dispose();
 
             relayCandidate.WriteInitialize(3, receiverKey.PublicKey);
-            Assert.IsType<PNetMeshOutboundMessages.Packet>(ReadMessage(senderOutbound)).MemoryOwner.Dispose();
+            DisposeRequired(Assert.IsType<PNetMeshOutboundMessages.Packet>(ReadMessage(senderOutbound)).MemoryOwner);
             channel.AddSession(relayCandidate);
             Assert.Equal(PNetMeshSessionStatus.Opening, relayCandidate.Status);
             Assert.True(channel.HasRoutableSession);
@@ -3271,7 +3273,7 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.Equal("original", Encoding.UTF8.GetString(send.Payload.Span));
             Assert.Equal(0, owner.DisposeCount);
 
-            send.MemoryOwner.Dispose();
+            DisposeRequired(send.MemoryOwner);
             Assert.Equal(1, owner.DisposeCount);
         }
 
@@ -3374,7 +3376,7 @@ namespace PNet.Actor.UnitTests.Mesh
             sender.RemoteEndPoint = null;
 
             relayCandidate.WriteInitialize(3, receiverKey.PublicKey);
-            Assert.IsType<PNetMeshOutboundMessages.Packet>(ReadMessage(senderOutbound)).MemoryOwner.Dispose();
+            DisposeRequired(Assert.IsType<PNetMeshOutboundMessages.Packet>(ReadMessage(senderOutbound)).MemoryOwner);
 
             using var channel = new PNetMeshChannel();
             channel.AddSession(sender);
@@ -3452,7 +3454,7 @@ namespace PNet.Actor.UnitTests.Mesh
             readonly TaskCompletionSource _write = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             readonly TaskCompletionSource<bool> _wait = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-            public override bool TryComplete(Exception error = null)
+            public override bool TryComplete(Exception? error = null)
             {
                 return false;
             }
@@ -3636,69 +3638,93 @@ namespace PNet.Actor.UnitTests.Mesh
             };
         }
 
+        static T Required<T>(T? value) where T : class
+        {
+            return value ?? throw new InvalidOperationException($"{typeof(T).Name} was expected to be non-null.");
+        }
+
+        static void DisposeRequired(IMemoryOwner<byte>? memoryOwner)
+        {
+            Required(memoryOwner).Dispose();
+        }
+
+        static T GetPrivateField<T>(object instance, string name)
+        {
+            var field = instance.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException($"Field '{name}' was not found on {instance.GetType().Name}.");
+            var value = field.GetValue(instance);
+            if (value is not T typed)
+                throw new InvalidOperationException($"Field '{name}' was not a {typeof(T).Name}.");
+            return typed;
+        }
+
+        static PropertyInfo GetRequiredProperty(Type type, string name)
+        {
+            return type.GetProperty(name)
+                ?? throw new InvalidOperationException($"Property '{name}' was not found on {type.Name}.");
+        }
+
+        static MethodInfo GetRequiredMethod(Type type, string name)
+        {
+            return type.GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException($"Method '{name}' was not found on {type.Name}.");
+        }
+
         static PNetMeshTransport2 GetTransport(PNetMeshSession session)
         {
-            var field = typeof(PNetMeshSession).GetField("_transport", BindingFlags.Instance | BindingFlags.NonPublic);
-            return Assert.IsType<PNetMeshTransport2>(field.GetValue(session));
+            return GetPrivateField<PNetMeshTransport2>(session, "_transport");
         }
 
         static ulong GetRemoteAckSeqNumber(PNetMeshSession session)
         {
-            var field = typeof(PNetMeshSession).GetField("_remoteAck", BindingFlags.Instance | BindingFlags.NonPublic);
-            var ack = field.GetValue(session);
-            var seqNumber = ack.GetType().GetProperty("SeqNumber");
-            return (ulong)seqNumber.GetValue(ack);
+            var ack = GetPrivateField<object>(session, "_remoteAck");
+            var seqNumber = GetRequiredProperty(ack.GetType(), "SeqNumber");
+            return Assert.IsType<ulong>(seqNumber.GetValue(ack));
         }
 
         static byte[] GetRemoteAckOutOfOrder(PNetMeshSession session)
         {
-            var field = typeof(PNetMeshSession).GetField("_remoteAck", BindingFlags.Instance | BindingFlags.NonPublic);
-            var ack = field.GetValue(session);
-            var outOfOrder = ack.GetType().GetProperty("OutOfOrder");
-            return ((ReadOnlyMemory<byte>)outOfOrder.GetValue(ack)).ToArray();
+            var ack = GetPrivateField<object>(session, "_remoteAck");
+            var outOfOrder = GetRequiredProperty(ack.GetType(), "OutOfOrder");
+            return Assert.IsType<ReadOnlyMemory<byte>>(outOfOrder.GetValue(ack)).ToArray();
         }
 
         static ulong GetReceiveCounter(PNetMeshSession session)
         {
-            var field = typeof(PNetMeshSession).GetField("_receiveCounter", BindingFlags.Instance | BindingFlags.NonPublic);
-            return (ulong)field.GetValue(session);
+            return GetPrivateField<ulong>(session, "_receiveCounter");
         }
 
         static ulong GetReceiveAck(PNetMeshSession session)
         {
-            var field = typeof(PNetMeshSession).GetField("_receiveAck", BindingFlags.Instance | BindingFlags.NonPublic);
-            return (ulong)field.GetValue(session);
+            return GetPrivateField<ulong>(session, "_receiveAck");
         }
 
         static int GetRetransBufferCount(PNetMeshSession session)
         {
-            var field = typeof(PNetMeshSession).GetField("_retransBuffer", BindingFlags.Instance | BindingFlags.NonPublic);
-            var buffer = (PNetMeshPacketBuffer)field.GetValue(session);
+            var buffer = GetPrivateField<PNetMeshPacketBuffer>(session, "_retransBuffer");
             return buffer.Count;
         }
 
         static int GetCumAckMax(PNetMeshSession session)
         {
-            var field = typeof(PNetMeshSession).GetField("_cumAck_max", BindingFlags.Instance | BindingFlags.NonPublic);
-            return (int)field.GetValue(session);
+            return GetPrivateField<int>(session, "_cumAck_max");
         }
 
         static int GetOutOfOrderMax(PNetMeshSession session)
         {
-            var field = typeof(PNetMeshSession).GetField("_outOfOrder_max", BindingFlags.Instance | BindingFlags.NonPublic);
-            return (int)field.GetValue(session);
+            return GetPrivateField<int>(session, "_outOfOrder_max");
         }
 
         static void InvokeCumAckTimeout(PNetMeshSession session)
         {
-            var method = typeof(PNetMeshSession).GetMethod("OnCumAckTimeout", BindingFlags.Instance | BindingFlags.NonPublic);
-            method.Invoke(session, new object[] { null });
+            var method = GetRequiredMethod(typeof(PNetMeshSession), "OnCumAckTimeout");
+            method.Invoke(session, new object?[] { null });
         }
 
         static void InvokeRetransTimeout(PNetMeshSession session)
         {
-            var method = typeof(PNetMeshSession).GetMethod("OnRetransTimeout", BindingFlags.Instance | BindingFlags.NonPublic);
-            method.Invoke(session, new object[] { null });
+            var method = GetRequiredMethod(typeof(PNetMeshSession), "OnRetransTimeout");
+            method.Invoke(session, new object?[] { null });
         }
 
         static async Task WaitForStatusAsync(PNetMeshSession session, PNetMeshSessionStatus expected)
@@ -3712,20 +3738,17 @@ namespace PNet.Actor.UnitTests.Mesh
 
         static Channel<PNetMeshChannelCommands.Command> GetControlChannel(PNetMeshChannel channel)
         {
-            var field = typeof(PNetMeshChannel).GetField("_controlChannel", BindingFlags.Instance | BindingFlags.NonPublic);
-            return Assert.IsAssignableFrom<Channel<PNetMeshChannelCommands.Command>>(field.GetValue(channel));
+            return GetPrivateField<Channel<PNetMeshChannelCommands.Command>>(channel, "_controlChannel");
         }
 
         static Channel<ReadOnlyMemory<byte>> GetInboundChannel(PNetMeshChannel channel)
         {
-            var field = typeof(PNetMeshChannel).GetField("_inboundChannel", BindingFlags.Instance | BindingFlags.NonPublic);
-            return Assert.IsAssignableFrom<Channel<ReadOnlyMemory<byte>>>(field.GetValue(channel));
+            return GetPrivateField<Channel<ReadOnlyMemory<byte>>>(channel, "_inboundChannel");
         }
 
         static Channel<PNetMeshControlCommands.Command> GetServerControlChannel(PNetMeshServer server)
         {
-            var field = typeof(PNetMeshServer).GetField("_controlChannel", BindingFlags.Instance | BindingFlags.NonPublic);
-            return Assert.IsAssignableFrom<Channel<PNetMeshControlCommands.Command>>(field.GetValue(server));
+            return GetPrivateField<Channel<PNetMeshControlCommands.Command>>(server, "_controlChannel");
         }
 
         static PNetMeshOutboundMessages.Packet ReadPacket(Channel<PNetMeshOutboundMessages.Message> channel)
@@ -3763,7 +3786,7 @@ namespace PNet.Actor.UnitTests.Mesh
             return address;
         }
 
-        static void AssertDnsEndPoint(string host, int port, EndPoint endPoint)
+        static void AssertDnsEndPoint(string host, int port, EndPoint? endPoint)
         {
             var dnsEndPoint = Assert.IsType<DnsEndPoint>(endPoint);
             Assert.Equal(host, dnsEndPoint.Host);

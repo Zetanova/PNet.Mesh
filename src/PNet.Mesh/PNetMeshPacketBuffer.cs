@@ -8,7 +8,7 @@ namespace PNet.Mesh
     {
         sealed class BufferEntry
         {
-            public IMemoryOwner<byte> MemoryOwner { get; set; }
+            public IMemoryOwner<byte>? MemoryOwner { get; set; }
 
             public Memory<byte> Memory { get; set; }
 
@@ -16,8 +16,8 @@ namespace PNet.Mesh
         }
 
 
-        Queue<BufferEntry> _items;
-        BufferEntry _current;
+        readonly Queue<BufferEntry> _items;
+        BufferEntry? _current;
         int _trackedCount;
 
         public ulong Current => _items.Count == 0 ? Latest - 1 : Latest + (ulong)_items.Count - 1;
@@ -46,6 +46,9 @@ namespace PNet.Mesh
 
         public Memory<byte> SliceCurrent(int size)
         {
+            if (_current is null)
+                throw new InvalidOperationException("No current packet buffer is available.");
+
             _current.Memory = _current.Memory.Slice(0, size);
             return _current.Memory;
         }
@@ -64,9 +67,9 @@ namespace PNet.Mesh
                 while (_items.Count > 0)
                 {
                     var item = _items.Dequeue();
-                    if (item.IsTracked)
+                    if (item.MemoryOwner is { } owner)
                     {
-                        item.MemoryOwner.Dispose();
+                        owner.Dispose();
                         _trackedCount--;
                     }
                 }
@@ -80,9 +83,9 @@ namespace PNet.Mesh
                 for (var i = Latest; i <= counter; i++)
                 {
                     entry = _items.Dequeue();
-                    if (entry.IsTracked)
+                    if (entry.MemoryOwner is { } owner)
                     {
-                        entry.MemoryOwner.Dispose();
+                        owner.Dispose();
                         _trackedCount--;
                     }
                 }
@@ -103,9 +106,9 @@ namespace PNet.Mesh
             for (var i = 0; i < items.Length - 1; i++)
                 _items.Enqueue(items[i]);
 
-            if (_current.IsTracked)
+            if (_current.MemoryOwner is { } owner)
             {
-                _current.MemoryOwner.Dispose();
+                owner.Dispose();
                 _trackedCount--;
             }
 
@@ -212,10 +215,10 @@ namespace PNet.Mesh
                 if (index >= bitCount)
                     break;
 
-                if (!IsSet(receivedBitmap, index++) || !entry.IsTracked)
+                if (!IsSet(receivedBitmap, index++) || entry.MemoryOwner is not { } owner)
                     continue;
 
-                entry.MemoryOwner.Dispose();
+                owner.Dispose();
                 entry.MemoryOwner = null;
                 entry.Memory = Memory<byte>.Empty;
                 _trackedCount--;

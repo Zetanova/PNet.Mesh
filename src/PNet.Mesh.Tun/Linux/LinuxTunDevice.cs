@@ -31,7 +31,7 @@ namespace PNet.Mesh.Tun.Linux
             if (mtu <= 0)
                 throw new ArgumentOutOfRangeException(nameof(mtu));
 
-            SafeFileHandle handle = null;
+            SafeFileHandle? handle = null;
             try
             {
                 handle = File.OpenHandle(

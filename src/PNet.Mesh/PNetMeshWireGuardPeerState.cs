@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 
 namespace PNet.Mesh
@@ -63,7 +64,7 @@ namespace PNet.Mesh
 
         public ulong LastReceivedCounter { get; private set; }
 
-        public PNetMeshWireGuardPeer Peer { get; internal set; }
+        public PNetMeshWireGuardPeer? Peer { get; internal set; }
 
         public void RecordTransportActivity(DateTimeOffset at)
         {
@@ -127,11 +128,11 @@ namespace PNet.Mesh
 
         public byte[] PublicKey => (byte[])_publicKey.Clone();
 
-        public PNetMeshWireGuardKeypair CurrentKeypair { get; internal set; }
+        public PNetMeshWireGuardKeypair? CurrentKeypair { get; internal set; }
 
-        public PNetMeshWireGuardKeypair PreviousKeypair { get; internal set; }
+        public PNetMeshWireGuardKeypair? PreviousKeypair { get; internal set; }
 
-        public PNetMeshWireGuardKeypair NextKeypair { get; internal set; }
+        public PNetMeshWireGuardKeypair? NextKeypair { get; internal set; }
     }
 
     public sealed class PNetMeshWireGuardPeerTable
@@ -198,8 +199,8 @@ namespace PNet.Mesh
 
         public bool TryGetByReceiverIndex(
             uint receiverIndex,
-            out PNetMeshWireGuardPeer peer,
-            out PNetMeshWireGuardKeypair keypair)
+            [NotNullWhen(true)] out PNetMeshWireGuardPeer? peer,
+            [NotNullWhen(true)] out PNetMeshWireGuardKeypair? keypair)
         {
             if (_receiverIndexes.TryGetValue(receiverIndex, out var entry))
             {
@@ -262,7 +263,7 @@ namespace PNet.Mesh
             return keypair;
         }
 
-        void Index(PNetMeshWireGuardPeer peer, PNetMeshWireGuardKeypair keypair)
+        void Index(PNetMeshWireGuardPeer peer, PNetMeshWireGuardKeypair? keypair)
         {
             if (keypair != null)
             {
@@ -271,7 +272,7 @@ namespace PNet.Mesh
             }
         }
 
-        void Unindex(PNetMeshWireGuardKeypair keypair)
+        void Unindex(PNetMeshWireGuardKeypair? keypair)
         {
             if (keypair != null
                 && _receiverIndexes.TryGetValue(keypair.LocalReceiverIndex, out var entry)

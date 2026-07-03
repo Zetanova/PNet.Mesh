@@ -41,7 +41,7 @@ namespace PNet.Mesh
             return (ulong)(DateTime.UtcNow.Ticks - DateTime.UnixEpoch.Ticks);
         }
 
-        public static EndPoint MapToItem(Protos.EndPoint item)
+        public static EndPoint? MapToItem(Protos.EndPoint? item)
         {
             if (item is null)
                 return null;
@@ -60,7 +60,7 @@ namespace PNet.Mesh
             };
         }
 
-        public static Protos.EndPoint MapToProtos(EndPoint item)
+        public static Protos.EndPoint? MapToProtos(EndPoint? item)
         {
             return item switch
             {

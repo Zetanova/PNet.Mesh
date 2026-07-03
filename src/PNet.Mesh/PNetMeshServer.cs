@@ -6,6 +6,7 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -17,15 +18,15 @@ namespace PNet.Mesh
 {
     public sealed class PNetMeshServerSettings
     {
-        public byte[] PublicKey { get; init; }
+        public required byte[] PublicKey { get; init; }
 
-        public byte[] PrivateKey { get; init; }
+        public required byte[] PrivateKey { get; init; }
 
-        public byte[] Psk { get; init; }
+        public byte[]? Psk { get; init; }
 
-        public string[] BindTo { get; init; }
+        public required string[] BindTo { get; init; }
 
-        public PNetMeshPeer[] Peers { get; init; }
+        public PNetMeshPeer[]? Peers { get; init; }
     }
 
     public sealed class PNetMeshServer : IDisposable
@@ -33,21 +34,23 @@ namespace PNet.Mesh
         readonly PNetMeshServerSettings _settings;
         readonly PNetMeshProtocol _protocol;
         readonly PNetMeshRouter _router;
-        readonly IServiceProvider _services;
+        readonly IServiceProvider? _services;
         readonly ILogger _logger;
         readonly PNetMeshPeer _localPeer;
         readonly Func<PNetMeshChannel> _channelFactory;
 
-        Channel<PNetMeshOutboundMessages.Message> _outboundChannel;
+        Channel<PNetMeshOutboundMessages.Message>? _outboundChannel;
         Task _outboundTask = Task.CompletedTask;
 
-        Channel<PNetMeshControlCommands.Command> _controlChannel;
+        Channel<PNetMeshControlCommands.Command>? _controlChannel;
         Task _controlTask = Task.CompletedTask;
 
         ImmutableArray<Socket> _sockets = ImmutableArray<Socket>.Empty;
 
 
-        public PNetMeshServer(PNetMeshServerSettings settings, IServiceProvider services = null, ILogger<PNetMeshServer> logger = null)
+        Channel<PNetMeshControlCommands.Command> ControlChannel => _controlChannel ?? throw new InvalidOperationException("Server is not started.");
+
+        public PNetMeshServer(PNetMeshServerSettings settings, IServiceProvider? services = null, ILogger<PNetMeshServer>? logger = null)
         {
             _settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _services = services;
@@ -75,7 +78,7 @@ namespace PNet.Mesh
                 {
                     PNetMeshUtils.GetAddressFromPublicKey(entry.PublicKey, address);
 
-                    foreach (var endpoint in entry.EndPoints)
+                    foreach (var endpoint in entry.EndPoints ?? Array.Empty<string>())
                     {
                         var ep = PNetMeshUtils.ParseEndPoint(endpoint);
                         _router.SetEntry(address, ep);
@@ -106,9 +109,12 @@ namespace PNet.Mesh
                 FullMode = BoundedChannelFullMode.Wait
             });
 
-            _outboundTask = Task.Run(ProcessOutbound);
+            var outboundChannel = _outboundChannel;
+            var controlChannel = _controlChannel;
+
+            _outboundTask = Task.Run(() => ProcessOutbound(outboundChannel));
             _ = _outboundTask.ContinueWith(t => _logger.LogError(t.Exception, "outbound process error"), TaskContinuationOptions.OnlyOnFaulted);
-            _controlTask = Task.Run(ProcessControl);
+            _controlTask = Task.Run(() => ProcessControl(controlChannel, outboundChannel.Writer));
             _ = _controlTask.ContinueWith(t => _logger.LogError(t.Exception, "control process error"), TaskContinuationOptions.OnlyOnFaulted);
 
             var sockets = ImmutableArray.CreateBuilder<Socket>();
@@ -136,7 +142,7 @@ namespace PNet.Mesh
                 {
                     MemoryOwner = MemoryPool<byte>.Shared.Rent(ushort.MaxValue),
                     Protocol = _protocol,
-                    Writer = _controlChannel.Writer,
+                    Writer = controlChannel.Writer,
                     Logger = _logger
                 };
                 var args = new SocketAsyncEventArgs();
@@ -197,21 +203,23 @@ namespace PNet.Mesh
             };
 
             //todo if (cancellationToken.IsCancellationRequested)
-            await using CancellationTokenRegistration reg = cancellationToken.Register(state => ((TaskCompletionSource<PNetMeshChannel>)state).TrySetCanceled(), cmd.Result);
+            await using CancellationTokenRegistration reg = cancellationToken.Register(() => cmd.Result.TrySetCanceled(cancellationToken));
 
-            await _controlChannel.Writer.WriteAsync(cmd, cancellationToken);
+            await ControlChannel.Writer.WriteAsync(cmd, cancellationToken);
 
             return await cmd.Result.Task;
         }
 
-        async Task ProcessControl()
+        async Task ProcessControl(
+            Channel<PNetMeshControlCommands.Command> controlChannel,
+            ChannelWriter<PNetMeshOutboundMessages.Message> outboundWriter)
         {
-            var reader = _controlChannel.Reader;
+            var reader = controlChannel.Reader;
 
             Dictionary<byte[], PNetMeshChannel> channels = new Dictionary<byte[], PNetMeshChannel>(PNetMeshByteArrayComparer.Default);
             var sessions = new Dictionary<uint, PNetMeshSession>();
             var senderIndex = 0u;
-            PNetMeshSession session;
+            PNetMeshSession? session;
 
             var localAddresses = new HashSet<byte[]>(PNetMeshByteArrayComparer.Default);
 
@@ -253,7 +261,7 @@ namespace PNet.Mesh
                                     case PNetMeshMessageType.HandshakeInitiation:
                                         {
                                             //create new sesssion
-                                            session = new PNetMeshSession(_protocol, _outboundChannel.Writer, _logger)
+                                            session = new PNetMeshSession(_protocol, outboundWriter, _logger)
                                             {
                                                 LocalEndPoint = cmd.LocalEndPoint,
                                                 RemoteEndPoint = cmd.RelayCandidateEndPoint is null ? cmd.RemoteEndPoint : null
@@ -393,7 +401,7 @@ namespace PNet.Mesh
                                             //maybe endpoints = new[] { null };
 
                                             //no endpoint
-                                            session = new PNetMeshSession(_protocol, _outboundChannel.Writer, _logger)
+                                            session = new PNetMeshSession(_protocol, outboundWriter, _logger)
                                             {
                                                 RemoteEndPoint = null //broadcast
                                             };
@@ -418,7 +426,7 @@ namespace PNet.Mesh
                                     foreach (var ep in endpoints)
                                     {
                                         //create new sesssion
-                                        session = new PNetMeshSession(_protocol, _outboundChannel.Writer, _logger)
+                                        session = new PNetMeshSession(_protocol, outboundWriter, _logger)
                                         {
                                             //LocalEndPoint = cmd.LocalEndPoint,
                                             RemoteEndPoint = ep
@@ -449,7 +457,8 @@ namespace PNet.Mesh
 
                                 //maybe push ice candidates into router entry
 
-                                if (localAddresses.Contains(packet.Address))
+                                var packetAddress = packet.Address;
+                                if (packetAddress is not null && localAddresses.Contains(packetAddress))
                                 {
                                     //var localEndPoint = default(EndPoint);
                                     var remoteAddress = packet.Route[0];
@@ -478,7 +487,7 @@ namespace PNet.Mesh
                                         MemoryBuffer = packet.Payload
                                     };
 
-                                    if (!_controlChannel.Writer.TryWrite(receive))
+                                    if (!controlChannel.Writer.TryWrite(receive))
                                     {
                                         cmd.MemoryOwner?.Dispose();
                                         //todo better error message
@@ -504,7 +513,7 @@ namespace PNet.Mesh
                                         cmd.Result?.SetResult();
                                     }
                                 }
-                                else if (channels.TryGetValue(packet.Address, out var channel) && channel.CanRelayDirect)
+                                else if (packetAddress is not null && channels.TryGetValue(packetAddress, out var channel) && channel.CanRelayDirect)
                                 {
                                     //relay to known peer
                                     if (cmd.Result != null)
@@ -599,7 +608,7 @@ namespace PNet.Mesh
                 }
 
                 //session cleanup
-                List<uint> closedSessions = null;
+                List<uint>? closedSessions = null;
                 foreach (var entry in sessions)
                 {
                     if (entry.Value.Status == PNetMeshSessionStatus.Closed)
@@ -620,9 +629,9 @@ namespace PNet.Mesh
             _logger.LogDebug("control process completed");
         }
 
-        async Task ProcessOutbound()
+        async Task ProcessOutbound(Channel<PNetMeshOutboundMessages.Message> outboundChannel)
         {
-            var reader = _outboundChannel.Reader;
+            var reader = outboundChannel.Reader;
 
             var sendChannel = Channel.CreateUnbounded<SocketAsyncEventArgs>(new UnboundedChannelOptions()
             {
@@ -651,7 +660,7 @@ namespace PNet.Mesh
                     {
                         case PNetMeshOutboundMessages.Packet msg when msg.RemoteEndPoint != null:
                             {
-                                Socket socket = null;
+                                Socket? socket = null;
 
                                 if (msg.LocalEndPoint != null)
                                     foreach (var s in _sockets)
@@ -686,6 +695,13 @@ namespace PNet.Mesh
                             break;
                         case PNetMeshOutboundMessages.Packet msg:
                             {
+                                if (msg.RemoteAddress is null || msg.LocalAddress is null)
+                                {
+                                    _logger.LogWarning("event=relay_packet_enqueue_failed reason=missing_address");
+                                    msg.MemoryOwner?.Dispose();
+                                    break;
+                                }
+
                                 //todo prealloc candidates
                                 var candidates = ImmutableArray.CreateBuilder<PNetMeshCandidate>();
 
@@ -773,7 +789,8 @@ namespace PNet.Mesh
 
         void ApplyAuthenticatedEndpointUpdate(PNetMeshSession session, PNetMeshControlCommands.Receive cmd)
         {
-            session.UpdateLocalEndpoint(cmd.LocalEndPoint);
+            if (cmd.LocalEndPoint is not null)
+                session.UpdateLocalEndpoint(cmd.LocalEndPoint);
 
             if (cmd.RelayCandidateEndPoint is not null)
             {
@@ -808,6 +825,9 @@ namespace PNet.Mesh
                 return;
 
             var remoteEndPoint = NormalizeRemoteEndPoint(cmd.RemoteEndPoint);
+            if (remoteEndPoint is null)
+                return;
+
             if (EndPointsEqual(session.RemoteEndPoint, remoteEndPoint))
             {
                 _router.SetEntry(session.RemoteAddress, session.RemoteEndPoint);
@@ -835,7 +855,8 @@ namespace PNet.Mesh
 
         void ApplyLegacyEndpointUpdate(PNetMeshSession session, PNetMeshControlCommands.Receive cmd)
         {
-            session.UpdateLocalEndpoint(cmd.LocalEndPoint);
+            if (cmd.LocalEndPoint is not null)
+                session.UpdateLocalEndpoint(cmd.LocalEndPoint);
 
             var remoteEndPoint = cmd.RelayCandidateEndPoint ?? cmd.RemoteEndPoint;
             if (remoteEndPoint is null)
@@ -873,7 +894,7 @@ namespace PNet.Mesh
             return !routeSet.Contains(peerAddress);
         }
 
-        internal static EndPoint SelectRelayRemoteEndPoint(
+        internal static EndPoint? SelectRelayRemoteEndPoint(
             PNetMeshRouter router,
             byte[] remoteAddress,
             ImmutableArray<PNetMeshCandidate> candidates)
@@ -886,7 +907,7 @@ namespace PNet.Mesh
             return SelectCandidateRemoteEndPoint(candidates);
         }
 
-        internal static EndPoint SelectRelayRemoteEndPoint(
+        internal static EndPoint? SelectRelayRemoteEndPoint(
             PNetMeshRouter router,
             byte[] remoteAddress,
             ImmutableArray<PNetMeshCandidate> candidates,
@@ -907,7 +928,7 @@ namespace PNet.Mesh
             PNetMeshRouter router,
             byte[] remoteAddress,
             ImmutableArray<PNetMeshCandidate> candidates,
-            out EndPoint remoteEndPoint)
+            [NotNullWhen(true)] out EndPoint? remoteEndPoint)
         {
             if (router.TryGetEntry(remoteAddress, out var entry)
                 && entry.EndPoint != null
@@ -921,7 +942,7 @@ namespace PNet.Mesh
             return false;
         }
 
-        static EndPoint SelectCandidateRemoteEndPoint(ImmutableArray<PNetMeshCandidate> candidates)
+        static EndPoint? SelectCandidateRemoteEndPoint(ImmutableArray<PNetMeshCandidate> candidates)
         {
             // Until ICE checks rank candidate pairs, prefer the observed reflexive address over advertised host endpoints.
             return candidates.FirstOrDefault(n =>
@@ -931,7 +952,7 @@ namespace PNet.Mesh
                 ?? candidates.FirstOrDefault(n => n.Address != null)?.Address;
         }
 
-        static bool IsUsableRemoteEndPoint(EndPoint endPoint)
+        static bool IsUsableRemoteEndPoint(EndPoint? endPoint)
         {
             return endPoint switch
             {
@@ -942,7 +963,7 @@ namespace PNet.Mesh
             };
         }
 
-        internal static IEnumerable<EndPoint> ResolveRemoteEndPoints(IEnumerable<EndPoint> endpoints)
+        internal static IEnumerable<EndPoint> ResolveRemoteEndPoints(IEnumerable<EndPoint?> endpoints)
         {
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -957,13 +978,16 @@ namespace PNet.Mesh
 
                 foreach (var candidate in resolved.Select(NormalizeRemoteEndPoint))
                 {
+                    if (candidate is null)
+                        continue;
+
                     if (seen.Add(GetEndPointKey(candidate)))
                         yield return candidate;
                 }
             }
         }
 
-        internal static EndPoint NormalizeRemoteEndPoint(EndPoint endpoint)
+        internal static EndPoint? NormalizeRemoteEndPoint(EndPoint? endpoint)
         {
             return endpoint switch
             {
@@ -973,9 +997,9 @@ namespace PNet.Mesh
         }
 
         internal static PNetMeshControlCommands.Receive CreateReceiveCommand(
-            IMemoryOwner<byte> memoryOwner,
-            EndPoint localEndPoint,
-            EndPoint remoteEndPoint,
+            IMemoryOwner<byte>? memoryOwner,
+            EndPoint? localEndPoint,
+            EndPoint? remoteEndPoint,
             ReadOnlyMemory<byte> memoryBuffer)
         {
             return new PNetMeshControlCommands.Receive
@@ -987,36 +1011,37 @@ namespace PNet.Mesh
             };
         }
 
-        static string GetEndPointKey(EndPoint endpoint)
+        static string GetEndPointKey(EndPoint? endpoint)
         {
             return endpoint switch
             {
                 IPEndPoint ip => $"ip:{ip.AddressFamily}:{ip.Address}:{ip.Port}",
                 DnsEndPoint dns => $"dns:{dns.Host}:{dns.Port}",
                 null => "null",
-                _ => endpoint.ToString()
+                _ => endpoint.ToString() ?? "unknown"
             };
         }
 
-        static bool EndPointsEqual(EndPoint left, EndPoint right)
+        static bool EndPointsEqual(EndPoint? left, EndPoint? right)
         {
             return string.Equals(GetEndPointKey(left), GetEndPointKey(right), StringComparison.OrdinalIgnoreCase);
         }
 
-        static void ProcessSend(object sender, SocketAsyncEventArgs args)
+        static void ProcessSend(object? sender, SocketAsyncEventArgs args)
         {
-            var item = args.UserToken as PNetMeshSocketSendWorkItem;
+            if (args.UserToken is not PNetMeshSocketSendWorkItem item)
+                return;
 
             item.MemoryOwner?.Dispose();
             item.Writer.TryWrite(args);
         }
 
-        static void ProcessReceive(object sender, SocketAsyncEventArgs args)
+        static void ProcessReceive(object? sender, SocketAsyncEventArgs args)
         {
             //receive data from any socket
 
-            var socket = sender as Socket;
-            var item = args.UserToken as PNetMeshSocketReceiveWorkItem;
+            if (sender is not Socket socket || args.UserToken is not PNetMeshSocketReceiveWorkItem item)
+                return;
 
             while (true)
             {
@@ -1137,20 +1162,20 @@ namespace PNet.Mesh
 
     internal sealed class PNetMeshSocketReceiveWorkItem
     {
-        public PNetMeshProtocol Protocol { get; set; }
+        public required PNetMeshProtocol Protocol { get; set; }
 
-        public IMemoryOwner<byte> MemoryOwner { get; set; }
+        public required IMemoryOwner<byte> MemoryOwner { get; set; }
 
-        public ChannelWriter<PNetMeshControlCommands.Command> Writer { get; set; }
+        public required ChannelWriter<PNetMeshControlCommands.Command> Writer { get; set; }
 
-        public ILogger Logger { get; set; }
+        public required ILogger Logger { get; set; }
     }
 
     internal sealed class PNetMeshSocketSendWorkItem
     {
-        public IMemoryOwner<byte> MemoryOwner { get; set; }
+        public IMemoryOwner<byte>? MemoryOwner { get; set; }
 
-        public ChannelWriter<SocketAsyncEventArgs> Writer { get; set; }
+        public required ChannelWriter<SocketAsyncEventArgs> Writer { get; set; }
     }
 
     public sealed class PNetMeshRelayPacket
@@ -1159,7 +1184,7 @@ namespace PNet.Mesh
         /// destination address (hashed)
         /// not-set indicate a broadcast
         /// </summary>
-        public byte[] Address { get; init; }
+        public byte[]? Address { get; init; }
 
         /// <summary>
         /// senders relay sequence number
@@ -1187,7 +1212,7 @@ namespace PNet.Mesh
         public ReadOnlyMemory<byte> Payload { get; init; }
 
 
-        public PNetMeshCandidateExchange CandidateExchange { get; init; }
+        public PNetMeshCandidateExchange? CandidateExchange { get; init; }
     }
 
     internal static class PNetMeshControlCommands
@@ -1198,22 +1223,22 @@ namespace PNet.Mesh
 
         public sealed class Receive : Command
         {
-            public IMemoryOwner<byte> MemoryOwner { get; set; }
+            public IMemoryOwner<byte>? MemoryOwner { get; set; }
 
-            public EndPoint RemoteEndPoint { get; set; }
+            public EndPoint? RemoteEndPoint { get; set; }
 
-            public EndPoint RelayCandidateEndPoint { get; set; }
+            public EndPoint? RelayCandidateEndPoint { get; set; }
 
-            public EndPoint LocalEndPoint { get; set; }
+            public EndPoint? LocalEndPoint { get; set; }
 
             public ReadOnlyMemory<byte> MemoryBuffer { get; set; }
         }
 
         public sealed class OpenChannel : Command
         {
-            public PNetMeshPeer Peer { get; init; }
+            public required PNetMeshPeer Peer { get; init; }
 
-            public TaskCompletionSource<PNetMeshChannel> Result { get; init; }
+            public required TaskCompletionSource<PNetMeshChannel> Result { get; init; }
         }
 
         //public sealed class PulseChannel : Command
@@ -1223,11 +1248,11 @@ namespace PNet.Mesh
 
         public sealed class RelayPacket : Command
         {
-            public PNetMeshRelayPacket Packet { get; init; }
+            public required PNetMeshRelayPacket Packet { get; init; }
 
-            public IMemoryOwner<byte> MemoryOwner { get; set; }
+            public IMemoryOwner<byte>? MemoryOwner { get; set; }
 
-            public TaskCompletionSource Result { get; init; }
+            public TaskCompletionSource? Result { get; init; }
         }
     }
 
@@ -1239,28 +1264,28 @@ namespace PNet.Mesh
         }
         public sealed class Packet : Message
         {
-            public IMemoryOwner<byte> MemoryOwner { get; set; }
+            public IMemoryOwner<byte>? MemoryOwner { get; set; }
 
             /// <summary>
             /// hash of remote public key
             /// </summary>
-            public byte[] RemoteAddress { get; set; }
+            public byte[]? RemoteAddress { get; set; }
 
-            public EndPoint RemoteEndPoint { get; set; }
+            public EndPoint? RemoteEndPoint { get; set; }
 
             /// <summary>
             /// hash of local public key
             /// </summary>
-            public byte[] LocalAddress { get; set; }
+            public byte[]? LocalAddress { get; set; }
 
-            public EndPoint LocalEndPoint { get; set; }
+            public EndPoint? LocalEndPoint { get; set; }
 
             public Memory<byte> MemoryBuffer { get; set; }
         }
 
         public sealed class Relay : Message
         {
-            public PNetMeshRelayPacket Packet { get; init; }
+            public required PNetMeshRelayPacket Packet { get; init; }
         }
     }
 }

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Net;
 
 namespace PNet.Mesh
@@ -9,16 +10,16 @@ namespace PNet.Mesh
         /// <summary>
         /// Peer Address are the first 10 bytes from the SHA-1 of the PublicKey
         /// </summary>
-        public byte[] Address { get; init; }
+        public required byte[] Address { get; init; }
 
-        public EndPoint EndPoint { get; set; }
+        public EndPoint? EndPoint { get; set; }
 
         public DateTime LastSeen { get; set; }
 
         /// <summary>
         /// relay tracker
         /// </summary>
-        public PNetMeshPacketTracker Tracker { get; set; }
+        public PNetMeshPacketTracker? Tracker { get; set; }
     }
 
     public sealed class PNetMeshRouter
@@ -32,17 +33,17 @@ namespace PNet.Mesh
             _entries = new Dictionary<byte[], PNetMeshRoutingEntry>(PNetMeshByteArrayComparer.Default);
         }
 
-        public bool TryGetEntry(byte[] address, out PNetMeshRoutingEntry entry)
+        public bool TryGetEntry(byte[] address, [NotNullWhen(true)] out PNetMeshRoutingEntry? entry)
         {
             return _entries.TryGetValue(address, out entry);
         }
 
-        public bool TryGetEntry(ReadOnlySpan<byte> address, out PNetMeshRoutingEntry entry)
+        public bool TryGetEntry(ReadOnlySpan<byte> address, [NotNullWhen(true)] out PNetMeshRoutingEntry? entry)
         {
             return _entries.GetAlternateLookup<ReadOnlySpan<byte>>().TryGetValue(address, out entry);
         }
 
-        public void SetEntry(byte[] address, EndPoint endPoint)
+        public void SetEntry(byte[] address, EndPoint? endPoint)
         {
             if (address?.Length != 10) throw new ArgumentOutOfRangeException(nameof(address));
 

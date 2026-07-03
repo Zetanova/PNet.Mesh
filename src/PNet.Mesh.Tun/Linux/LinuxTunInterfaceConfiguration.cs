@@ -1,11 +1,11 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace PNet.Mesh.Tun.Linux
 {
     public sealed class LinuxTunInterfaceConfiguration
     {
-        public string InterfaceName { get; init; }
+        public required string InterfaceName { get; init; }
 
         public int Mtu { get; init; } = 1280;
 

@@ -24,7 +24,7 @@ namespace PNet.Mesh
         readonly PNetMeshProtocol _protocol;
         readonly Dictionary<string, Queue<DateTimeOffset>> _rateLimits = new Dictionary<string, Queue<DateTimeOffset>>();
 
-        byte[] _secret;
+        byte[]? _secret;
         DateTimeOffset _secretCreatedAt;
 
         public PNetMeshCookieGate(PNetMeshProtocol protocol)
@@ -178,7 +178,9 @@ namespace PNet.Mesh
                 case DnsEndPoint dns:
                     return Encoding.UTF8.GetBytes($"{dns.Host.ToLowerInvariant()}:{dns.Port}");
                 default:
-                    return Encoding.UTF8.GetBytes(remoteEndPoint.ToString());
+                    return Encoding.UTF8.GetBytes(
+                        remoteEndPoint.ToString()
+                        ?? throw new ArgumentException("Endpoint must provide a textual representation.", nameof(remoteEndPoint)));
             }
         }
 

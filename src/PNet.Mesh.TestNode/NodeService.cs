@@ -15,13 +15,13 @@ namespace PNet.Mesh.TestNode
     {
         public string NodeName { get; set; } = Environment.MachineName;
 
-        public string PublicKey { get; set; }
+        public required string PublicKey { get; set; }
 
-        public string PrivateKey { get; set; }
+        public required string PrivateKey { get; set; }
 
-        public string Psk { get; set; }
+        public required string Psk { get; set; }
 
-        public string[] BindTo { get; set; }
+        public required string[] BindTo { get; set; }
 
         public Peer[] Peers { get; set; } = Array.Empty<Peer>();
 
@@ -41,16 +41,16 @@ namespace PNet.Mesh.TestNode
 
         public sealed class Peer
         {
-            public string PublicKey { get; set; }
+            public required string PublicKey { get; set; }
 
-            public string[] Endpoints { get; set; }
+            public required string[] Endpoints { get; set; }
         }
 
         public sealed class Node
         {
-            public string Name { get; set; }
+            public required string Name { get; set; }
 
-            public string PublicKey { get; set; }
+            public required string PublicKey { get; set; }
         }
     }
 
@@ -65,17 +65,17 @@ namespace PNet.Mesh.TestNode
 
         readonly ILogger _logger;
 
-        IServiceScope _scope;
+        IServiceScope? _scope;
 
-        PNetMeshServer _server;
+        PNetMeshServer? _server;
 
-        string _name;
+        string? _name;
 
-        Dictionary<string, PNetMeshPeer> _peers;
+        Dictionary<string, PNetMeshPeer>? _peers;
 
-        HashSet<string> _pingNodes;
+        HashSet<string>? _pingNodes;
 
-        byte[] _pingPayload;
+        byte[]? _pingPayload;
 
         TimeSpan _connectDelay;
 
@@ -147,9 +147,10 @@ namespace PNet.Mesh.TestNode
 
             await base.StopAsync(cancellationToken);
 
-            await _server.ShutdownAsync(cancellationToken);
+            if (_server is not null)
+                await _server.ShutdownAsync(cancellationToken);
 
-            _scope.Dispose();
+            _scope?.Dispose();
 
             _logger.LogInformation($"Node[{_name}] stopped");
         }
@@ -159,11 +160,17 @@ namespace PNet.Mesh.TestNode
             //tmp delay traffic
             await Task.Delay(_connectDelay, stoppingToken);
 
+            var server = _server ?? throw new InvalidOperationException("Node server is not initialized.");
+            var peers = _peers ?? throw new InvalidOperationException("Node peers are not initialized.");
+            var pingPayload = _pingPayload ?? throw new InvalidOperationException("Ping payload is not initialized.");
+            var pingNodes = _pingNodes;
+            var name = _name ?? "unknown";
+
             var channels = new List<(string Name, PNetMeshPeer Peer, PNetMeshChannel Channel)>();
 
-            foreach (var entry in _peers)
+            foreach (var entry in peers)
             {
-                var channel = await _server.ConnectToAsync(entry.Value, stoppingToken);
+                var channel = await server.ConnectToAsync(entry.Value, stoppingToken);
 
                 channels.Add((entry.Key, entry.Value, channel));
             }
@@ -174,17 +181,18 @@ namespace PNet.Mesh.TestNode
             {
                 _ = Task.Factory.StartNew(async (state) =>
                 {
-                    var index = (int)state;
+                    if (state is not int index)
+                        return;
 
                     var entry = channels[index];
 
                     var channel = entry.Channel;
-                    var sendsPings = _pingNodes == null || _pingNodes.Contains(entry.Name);
+                    var sendsPings = pingNodes == null || pingNodes.Contains(entry.Name);
 
                     ReadOnlyMemory<byte> payload;
                     if (sendsPings)
                     {
-                        await channel.EnqueueWriteAsync(_pingPayload, stoppingToken);
+                        await channel.EnqueueWriteAsync(pingPayload, stoppingToken);
                     }
 
                     do
@@ -193,18 +201,18 @@ namespace PNet.Mesh.TestNode
                         {
                             if (IsPingPayload(payload))
                             {
-                                _logger.LogInformation("ping from {remoteName} to {nodeName}", entry.Name, _name);
+                                _logger.LogInformation("ping from {remoteName} to {nodeName}", entry.Name, name);
                                 if (payload.Length != PingPayloadPrefix.Length)
-                                    _logger.LogInformation("ping payload {payloadBytes} bytes from {remoteName} to {nodeName}", payload.Length, entry.Name, _name);
+                                    _logger.LogInformation("ping payload {payloadBytes} bytes from {remoteName} to {nodeName}", payload.Length, entry.Name, name);
                                 await channel.EnqueueWriteAsync(PongPayload, stoppingToken);
                             }
                             else if (IsPongPayload(payload))
                             {
-                                _logger.LogInformation("pong from {remoteName} to {nodeName}", entry.Name, _name);
+                                _logger.LogInformation("pong from {remoteName} to {nodeName}", entry.Name, name);
                                 pongs[index] = true;
                                 if (sendsPings)
                                 {
-                                    await channel.EnqueueWriteAsync(_pingPayload, stoppingToken);
+                                    await channel.EnqueueWriteAsync(pingPayload, stoppingToken);
                                 }
                             }
                         }
@@ -219,7 +227,7 @@ namespace PNet.Mesh.TestNode
 
             var pongCount = pongs.Count(n => n);
 
-            _logger.LogInformation("{nodeName} got {pongCount} pongs", _name, pongCount);
+            _logger.LogInformation("{nodeName} got {pongCount} pongs", name, pongCount);
 
             //stop application
             _lifetime.StopApplication();

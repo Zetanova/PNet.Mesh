@@ -145,6 +145,7 @@ namespace PNet.Actor.UnitTests.Mesh
                 out var plaintext));
             Assert.Equal(counter, plaintext.Counter);
             Assert.Same(responderTransport.WireGuardKeypair, plaintext.Keypair);
+            Assert.NotNull(responderTransport.WireGuardKeypair);
             Assert.Same(responderTransport.WireGuardKeypair.Peer, plaintext.Peer);
             Assert.Equal(16, plaintext.BytesWritten);
             Assert.True(payload.AsSpan().SequenceEqual(buffer2.Slice(0, payload.Length)));

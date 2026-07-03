@@ -5,6 +5,7 @@ using PNet.Mesh.Tun;
 using PNet.Mesh.Tun.Linux;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -69,9 +70,9 @@ namespace PNet.Mesh.Tun.Cli
                 var peerRoutes = options.CreatePeerRoutes();
                 var settings = new PNetMeshServerSettings
                 {
-                    PublicKey = Convert.FromBase64String(options.PublicKey),
-                    PrivateKey = Convert.FromBase64String(options.PrivateKey),
-                    Psk = Convert.FromBase64String(options.Psk),
+                    PublicKey = Convert.FromBase64String(RequiredValue(options.PublicKey, nameof(options.PublicKey))),
+                    PrivateKey = Convert.FromBase64String(RequiredValue(options.PrivateKey, nameof(options.PrivateKey))),
+                    Psk = Convert.FromBase64String(RequiredValue(options.Psk, nameof(options.Psk))),
                     BindTo = options.BindTo.ToArray(),
                     Peers = peerRoutes.Select(route => route.Peer).ToArray()
                 };
@@ -145,13 +146,13 @@ namespace PNet.Mesh.Tun.Cli
 
             public List<string> BindTo { get; } = new List<string>();
 
-            public string PublicKey { get; private set; }
+            public string? PublicKey { get; private set; }
 
-            public string PrivateKey { get; private set; }
+            public string? PrivateKey { get; private set; }
 
-            public string Psk { get; private set; }
+            public string? Psk { get; private set; }
 
-            public static bool TryParse(string[] args, out TunCliOptions options, out string error)
+            public static bool TryParse(string[] args, [NotNullWhen(true)] out TunCliOptions? options, out string? error)
             {
                 options = new TunCliOptions();
                 error = null;
@@ -254,14 +255,14 @@ namespace PNet.Mesh.Tun.Cli
                     Name = peer.Name,
                     Peer = new PNetMeshPeer
                     {
-                        PublicKey = Convert.FromBase64String(peer.PublicKey),
+                        PublicKey = Convert.FromBase64String(RequiredValue(peer.PublicKey, nameof(peer.PublicKey))),
                         EndPoints = new[] { peer.Endpoint }
                     },
                     AllowedIPs = _allowedIps[peer.Name].ToArray()
                 }).ToArray();
             }
 
-            bool Validate(ref string error)
+            bool Validate(ref string? error)
             {
                 if (string.IsNullOrWhiteSpace(InterfaceName))
                 {
@@ -295,11 +296,11 @@ namespace PNet.Mesh.Tun.Cli
 
                 try
                 {
-                    Convert.FromBase64String(PublicKey);
-                    Convert.FromBase64String(PrivateKey);
-                    Convert.FromBase64String(Psk);
+                    Convert.FromBase64String(RequiredValue(PublicKey, nameof(PublicKey)));
+                    Convert.FromBase64String(RequiredValue(PrivateKey, nameof(PrivateKey)));
+                    Convert.FromBase64String(RequiredValue(Psk, nameof(Psk)));
                     foreach (var peer in _peers)
-                        Convert.FromBase64String(peer.PublicKey);
+                        Convert.FromBase64String(RequiredValue(peer.PublicKey, nameof(peer.PublicKey)));
                 }
                 catch (FormatException ex)
                 {
@@ -310,7 +311,7 @@ namespace PNet.Mesh.Tun.Cli
                 return true;
             }
 
-            bool TryAddAllowedIp(string value, ref string error)
+            bool TryAddAllowedIp(string value, ref string? error)
             {
                 if (string.IsNullOrWhiteSpace(value))
                 {
@@ -342,7 +343,7 @@ namespace PNet.Mesh.Tun.Cli
                 return true;
             }
 
-            static bool TryAddPrefix(List<IpPrefix> prefixes, string value, string option, ref string error)
+            static bool TryAddPrefix(List<IpPrefix> prefixes, string value, string option, ref string? error)
             {
                 if (!IpPrefix.TryParse(value, out var prefix))
                 {
@@ -354,7 +355,7 @@ namespace PNet.Mesh.Tun.Cli
                 return true;
             }
 
-            static string NextValue(string[] args, ref int index, string option, ref string error)
+            static string NextValue(string[] args, ref int index, string option, ref string? error)
             {
                 if (index >= args.Length)
                 {
@@ -365,9 +366,9 @@ namespace PNet.Mesh.Tun.Cli
                 return args[index++];
             }
 
-            static bool TryReadKeyFile(string path, string option, out string value, ref string error)
+            static bool TryReadKeyFile(string path, string option, [NotNullWhen(true)] out string? value, ref string? error)
             {
-                value = string.Empty;
+                value = null;
                 if (error != null)
                     return false;
 
@@ -396,13 +397,13 @@ namespace PNet.Mesh.Tun.Cli
 
         sealed class PeerSpec
         {
-            public string Name { get; init; }
+            public required string Name { get; init; }
 
-            public string PublicKey { get; init; }
+            public required string PublicKey { get; init; }
 
-            public string Endpoint { get; init; }
+            public required string Endpoint { get; init; }
 
-            public static bool TryParse(string value, out PeerSpec peer, out string error)
+            public static bool TryParse(string value, [NotNullWhen(true)] out PeerSpec? peer, out string? error)
             {
                 peer = null;
                 error = null;
@@ -428,6 +429,11 @@ namespace PNet.Mesh.Tun.Cli
                 };
                 return true;
             }
+        }
+
+        static string RequiredValue(string? value, string name)
+        {
+            return value ?? throw new InvalidOperationException($"{name} is required.");
         }
     }
 }

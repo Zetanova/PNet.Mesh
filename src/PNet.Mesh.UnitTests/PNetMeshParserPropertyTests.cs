@@ -131,6 +131,7 @@ namespace PNet.Actor.UnitTests.Mesh
                 else if (matchCount == 1)
                 {
                     Assert.True(routed);
+                    Assert.NotNull(lease);
                     Assert.Equal(Address(1), lease.ReturnAddress.ToArray());
                     Assert.Equal(PNetMeshWireGuardRelayRouteResult.Routed, result);
                 }
@@ -173,7 +174,7 @@ namespace PNet.Actor.UnitTests.Mesh
 
         static PNetMeshWireGuardRelayRegistry CreateRegistry(
             PNetMeshWireGuardRelayMac1Matcher matcher,
-            PNetMeshWireGuardRelayOptions options = null)
+            PNetMeshWireGuardRelayOptions? options = null)
         {
             return new PNetMeshWireGuardRelayRegistry(options ?? new PNetMeshWireGuardRelayOptions(), matcher);
         }

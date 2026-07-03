@@ -2,6 +2,7 @@
 using Noise;
 using PNet.Mesh;
 using System;
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -96,7 +97,7 @@ namespace PNet.Actor.UnitTests.Mesh
 
             session.WriteInitialize(42, remoteKey.PublicKey);
             Assert.True(outbound.Reader.TryRead(out var initialize));
-            Assert.IsType<PNetMeshOutboundMessages.Packet>(initialize).MemoryOwner.Dispose();
+            DisposeRequired(Assert.IsType<PNetMeshOutboundMessages.Packet>(initialize).MemoryOwner);
 
             Assert.True(session.TryApplyDirectEndpointHint(candidate, DateTimeOffset.Parse("2026-07-01T00:00:00Z")));
             Assert.True(session.TryGetDirectProbeEndpoint(DateTimeOffset.Parse("2026-07-01T00:00:01Z"), out var probeEndpoint));
@@ -138,7 +139,7 @@ namespace PNet.Actor.UnitTests.Mesh
 
             session.WriteInitialize(7, remoteKey.PublicKey);
             Assert.True(outbound.Reader.TryRead(out var initialize));
-            Assert.IsType<PNetMeshOutboundMessages.Packet>(initialize).MemoryOwner.Dispose();
+            DisposeRequired(Assert.IsType<PNetMeshOutboundMessages.Packet>(initialize).MemoryOwner);
 
             ApplyAuthenticatedEndpointUpdate(server, session, new PNetMeshControlCommands.Receive
             {
@@ -186,7 +187,7 @@ namespace PNet.Actor.UnitTests.Mesh
 
             session.WriteInitialize(8, remoteKey.PublicKey);
             Assert.True(outbound.Reader.TryRead(out var initialize));
-            Assert.IsType<PNetMeshOutboundMessages.Packet>(initialize).MemoryOwner.Dispose();
+            DisposeRequired(Assert.IsType<PNetMeshOutboundMessages.Packet>(initialize).MemoryOwner);
 
             ApplyAuthenticatedEndpointUpdate(server, session, new PNetMeshControlCommands.Receive
             {
@@ -339,7 +340,8 @@ namespace PNet.Actor.UnitTests.Mesh
 
             public string JoinedEntries => string.Join("\n", _entries);
 
-            public IDisposable BeginScope<TState>(TState state)
+            public IDisposable? BeginScope<TState>(TState state)
+                where TState : notnull
             {
                 return NoopDisposable.Instance;
             }
@@ -353,11 +355,16 @@ namespace PNet.Actor.UnitTests.Mesh
                 LogLevel logLevel,
                 EventId eventId,
                 TState state,
-                Exception exception,
-                Func<TState, Exception, string> formatter)
+                Exception? exception,
+                Func<TState, Exception?, string> formatter)
             {
                 _entries.Add(formatter(state, exception));
             }
+        }
+
+        static void DisposeRequired(IMemoryOwner<byte>? memoryOwner)
+        {
+            (memoryOwner ?? throw new InvalidOperationException("Packet memory owner was expected.")).Dispose();
         }
 
         sealed class NoopDisposable : IDisposable

@@ -4,6 +4,7 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Net;
 using System.Security.Cryptography;
@@ -86,8 +87,8 @@ namespace PNet.Mesh
 
         public PNetMeshWireGuardRelayRegistry(
             PNetMeshProtocol protocol,
-            PNetMeshWireGuardRelayOptions options = null,
-            ILogger<PNetMeshWireGuardRelayRegistry> logger = null)
+            PNetMeshWireGuardRelayOptions? options = null,
+            ILogger<PNetMeshWireGuardRelayRegistry>? logger = null)
             : this(options ?? new PNetMeshWireGuardRelayOptions(), CreateMac1Matcher(protocol), logger)
         {
         }
@@ -95,7 +96,7 @@ namespace PNet.Mesh
         internal PNetMeshWireGuardRelayRegistry(
             PNetMeshWireGuardRelayOptions options,
             PNetMeshWireGuardRelayMac1Matcher mac1Matcher,
-            ILogger logger = null)
+            ILogger? logger = null)
         {
             _options = ValidateOptions(options);
             _mac1Matcher = mac1Matcher ?? throw new ArgumentNullException(nameof(mac1Matcher));
@@ -109,7 +110,7 @@ namespace PNet.Mesh
             ReadOnlySpan<byte> returnAddress,
             DateTimeOffset expiresAt,
             DateTimeOffset now,
-            IEnumerable<EndPoint> allowedRemoteEndpoints = null,
+            IEnumerable<EndPoint>? allowedRemoteEndpoints = null,
             ImmutableArray<byte[]> returnRoute = default)
         {
             if (publicKey.Length != 32) throw new ArgumentOutOfRangeException(nameof(publicKey));
@@ -172,7 +173,7 @@ namespace PNet.Mesh
             ReadOnlySpan<byte> packet,
             EndPoint remoteEndPoint,
             DateTimeOffset now,
-            out PNetMeshWireGuardRelayLease lease,
+            [NotNullWhen(true)] out PNetMeshWireGuardRelayLease? lease,
             out PNetMeshWireGuardRelayRouteResult result)
         {
             if (remoteEndPoint == null) throw new ArgumentNullException(nameof(remoteEndPoint));
@@ -230,7 +231,7 @@ namespace PNet.Mesh
             ReadOnlySpan<byte> packet,
             EndPoint remoteEndPoint,
             DateTimeOffset now,
-            out PNetMeshWireGuardRelayLease lease,
+            [NotNullWhen(true)] out PNetMeshWireGuardRelayLease? lease,
             out PNetMeshWireGuardRelayRouteResult result)
         {
             lease = null;
@@ -267,7 +268,7 @@ namespace PNet.Mesh
             EndPoint remoteEndPoint,
             uint receiverIndex,
             DateTimeOffset now,
-            out PNetMeshWireGuardRelayLease lease,
+            [NotNullWhen(true)] out PNetMeshWireGuardRelayLease? lease,
             out PNetMeshWireGuardRelayRouteResult result)
         {
             lease = null;
@@ -376,7 +377,7 @@ namespace PNet.Mesh
             EndPoint remoteEndPoint,
             uint? receiverIndex,
             PNetMeshWireGuardRelayRouteResult result,
-            PNetMeshWireGuardRelayLease lease)
+            PNetMeshWireGuardRelayLease? lease)
         {
             var eventName = messageType == PNetMeshMessageType.PacketData
                 ? "wireguard_relay_fast_path"
@@ -446,7 +447,7 @@ namespace PNet.Mesh
             return builder.ToImmutable();
         }
 
-        static ImmutableArray<EndPoint> CloneEndpoints(IEnumerable<EndPoint> endpoints)
+        static ImmutableArray<EndPoint> CloneEndpoints(IEnumerable<EndPoint>? endpoints)
         {
             if (endpoints is null)
                 return ImmutableArray<EndPoint>.Empty;
@@ -461,7 +462,7 @@ namespace PNet.Mesh
             {
                 IPEndPoint ip => $"{ip.Address}|{ip.Port}",
                 DnsEndPoint dns => $"{dns.Host}|{dns.Port}",
-                _ => endPoint.ToString()
+                _ => endPoint.ToString() ?? throw new ArgumentException("Endpoint must provide a textual representation.", nameof(endPoint))
             };
         }
 

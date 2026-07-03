@@ -20,9 +20,9 @@ namespace PNet.Mesh.TestNode
         readonly IHostApplicationLifetime _lifetime;
         readonly ILogger _logger;
 
-        UdpClient _udp;
-        PNetMeshProtocol _protocol;
-        string _name;
+        UdpClient? _udp;
+        PNetMeshProtocol? _protocol;
+        string? _name;
         TimeSpan _runDuration;
 
         public WireGuardPeerService(
@@ -90,9 +90,11 @@ namespace PNet.Mesh.TestNode
         {
             var buffer = new byte[4098];
             var plaintext = new byte[4098];
+            var udp = _udp ?? throw new InvalidOperationException("UDP socket is not initialized.");
+            var protocol = _protocol ?? throw new InvalidOperationException("WireGuard protocol is not initialized.");
 
-            var initiation = await _udp.ReceiveAsync(cancellationToken);
-            using var responder = _protocol.CreateResponder(0x2001);
+            var initiation = await udp.ReceiveAsync(cancellationToken);
+            using var responder = protocol.CreateResponder(0x2001);
             if (!responder.TryReadInitiationMessage(initiation.Buffer))
             {
                 _logger.LogWarning("WireGuardPeer[{nodeName}] rejected handshake initiation", _name);
@@ -106,11 +108,11 @@ namespace PNet.Mesh.TestNode
             }
 
             _logger.LogInformation("WireGuardPeer[{nodeName}] handshake complete", _name);
-            await _udp.SendAsync(buffer.AsMemory(0, bytesWritten), initiation.RemoteEndPoint, cancellationToken);
+            await udp.SendAsync(buffer.AsMemory(0, bytesWritten), initiation.RemoteEndPoint, cancellationToken);
 
             using (transport)
             {
-                var request = await _udp.ReceiveAsync(cancellationToken);
+                var request = await udp.ReceiveAsync(cancellationToken);
                 if (!transport.TryReadPlaintext(request.Buffer, plaintext, out var received)
                     || !StartsWithPayloadAndZeroPadding(plaintext, received.BytesWritten, ExpectedRequest))
                 {
@@ -121,7 +123,7 @@ namespace PNet.Mesh.TestNode
                 _logger.LogInformation("WireGuardPeer[{nodeName}] received plaintext {payload}", _name, Encoding.UTF8.GetString(ExpectedRequest));
 
                 transport.WriteMessage(Response, buffer, out bytesWritten, out _);
-                await _udp.SendAsync(buffer.AsMemory(0, bytesWritten), request.RemoteEndPoint, cancellationToken);
+                await udp.SendAsync(buffer.AsMemory(0, bytesWritten), request.RemoteEndPoint, cancellationToken);
                 _logger.LogInformation("WireGuardPeer[{nodeName}] sent encrypted response {payload}", _name, Encoding.UTF8.GetString(Response));
             }
         }

@@ -6,6 +6,7 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Net;
 using System.Threading;
@@ -48,17 +49,17 @@ namespace PNet.Mesh
         // endpoint discovery, and pending control commands are updated through one ownership path instead of independent locks.
         readonly object _sessionOwnerLock = new object();
 
-        PNetMeshHandshake _handshake;
+        PNetMeshHandshake? _handshake;
 
-        PNetMeshTransport2 _transport;
+        PNetMeshTransport2? _transport;
 
         readonly PNetMeshWireGuardEndpointDiscovery _endpointDiscovery =
             new PNetMeshWireGuardEndpointDiscovery(null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(10));
 
-        EndPoint _localEndPoint;
-        EndPoint _remoteEndPoint;
+        EndPoint? _localEndPoint;
+        EndPoint? _remoteEndPoint;
 
-        public EndPoint LocalEndPoint
+        public EndPoint? LocalEndPoint
         {
             get
             {
@@ -72,7 +73,7 @@ namespace PNet.Mesh
             }
         }
 
-        public EndPoint RemoteEndPoint
+        public EndPoint? RemoteEndPoint
         {
             get
             {
@@ -125,19 +126,23 @@ namespace PNet.Mesh
             StatusChanged?.Invoke(this, EventArgs.Empty);
         }
 
-        public byte[] LocalPublicKey => _handshake.LocalPublicKey;
+        PNetMeshHandshake Handshake => _handshake ?? throw new InvalidOperationException("Session handshake is not initialized.");
+
+        PNetMeshTransport2 Transport => _transport ?? throw new InvalidOperationException("Session transport is not initialized.");
+
+        public byte[] LocalPublicKey => Handshake.LocalPublicKey;
 
         public byte[] LocalAddress { get; private set; } = Array.Empty<byte>();
 
-        public byte[] RemotePublicKey => _handshake.RemotePublicKey;
+        public byte[] RemotePublicKey => Handshake.RemotePublicKey;
 
         public byte[] RemoteAddress { get; private set; } = Array.Empty<byte>();
 
-        public long Timestamp => _handshake.Timestamp;
+        public long Timestamp => Handshake.Timestamp;
 
-        public uint SenderIndex => _handshake.SenderIndex;
+        public uint SenderIndex => Handshake.SenderIndex;
 
-        internal EndPoint PendingDirectEndpoint
+        internal EndPoint? PendingDirectEndpoint
         {
             get
             {
@@ -201,7 +206,7 @@ namespace PNet.Mesh
             }
         }
 
-        internal bool TryGetDirectProbeEndpoint(DateTimeOffset now, out EndPoint endpoint)
+        internal bool TryGetDirectProbeEndpoint(DateTimeOffset now, [NotNullWhen(true)] out EndPoint? endpoint)
         {
             if (!SupportsDirectEndpointDiscovery)
             {
@@ -213,7 +218,7 @@ namespace PNet.Mesh
                 return TryGetDirectProbeEndpointCore(now, out endpoint);
         }
 
-        bool TryGetDirectProbeEndpointCore(DateTimeOffset now, out EndPoint endpoint)
+        bool TryGetDirectProbeEndpointCore(DateTimeOffset now, [NotNullWhen(true)] out EndPoint? endpoint)
         {
             if (!SupportsDirectEndpointDiscovery)
             {
@@ -235,20 +240,20 @@ namespace PNet.Mesh
             return started;
         }
 
-        public event EventHandler StatusChanged;
+        public event EventHandler? StatusChanged;
 
-        internal event EventHandler MessageReceived;
+        internal event EventHandler? MessageReceived;
 
         //public PNetMeshChannel Channel { get; set; }
 
-        ChannelWriter<ReadOnlyMemory<byte>> _inboundWriter;
-        ChannelWriter<PNetMeshChannelCommands.Command> _controlWriter;
+        ChannelWriter<ReadOnlyMemory<byte>>? _inboundWriter;
+        ChannelWriter<PNetMeshChannelCommands.Command>? _controlWriter;
         readonly Queue<PNetMeshChannelCommands.Invoke> _pendingControlCommands = new Queue<PNetMeshChannelCommands.Invoke>();
         bool _controlQueueDraining;
         const int MaxPendingControlCommands = 32;
 
-        Protos.Packet _openPacket;
-        readonly List<TaskCompletionSource> _openPacketResults = new List<TaskCompletionSource>();
+        Protos.Packet _openPacket = new Protos.Packet();
+        readonly List<TaskCompletionSource?> _openPacketResults = new List<TaskCompletionSource?>();
         bool _disposing;
 
         Ack _remoteAck = new Ack { SeqNumber = 0, OutOfOrder = ReadOnlyMemory<byte>.Empty };
@@ -270,10 +275,10 @@ namespace PNet.Mesh
 
         int _retrans_timeout = 250;
 
-        Timer _retransTimer;
-        Timer _cumAckTimer;
+        Timer? _retransTimer;
+        Timer? _cumAckTimer;
 
-        internal PNetMeshSession(PNetMeshProtocol protocol, ChannelWriter<PNetMeshOutboundMessages.Message> writer, ILogger logger = null)
+        internal PNetMeshSession(PNetMeshProtocol protocol, ChannelWriter<PNetMeshOutboundMessages.Message> writer, ILogger? logger = null)
         {
             _protocol = protocol;
             _outboundWriter = writer;
@@ -284,7 +289,7 @@ namespace PNet.Mesh
         public void Dispose()
         {
             var exception = new ObjectDisposedException(nameof(PNetMeshSession));
-            TaskCompletionSource[] results;
+            TaskCompletionSource?[]? results;
             lock (_sessionOwnerLock)
             {
                 _disposing = true;
@@ -300,7 +305,7 @@ namespace PNet.Mesh
             _transport?.Dispose();
         }
 
-        internal void AttachTo(ChannelWriter<ReadOnlyMemory<byte>> inboundWriter, ChannelWriter<PNetMeshChannelCommands.Command> controlWriter)
+        internal void AttachTo(ChannelWriter<ReadOnlyMemory<byte>> inboundWriter, ChannelWriter<PNetMeshChannelCommands.Command>? controlWriter)
         {
             lock (_sessionOwnerLock)
             {
@@ -312,7 +317,7 @@ namespace PNet.Mesh
             }
         }
 
-        void OnRetransTimeout(object state)
+        void OnRetransTimeout(object? state)
         {
             //var writer = state as ChannelWriter<PNetMeshChannelCommands.Command>;
             lock (_sessionOwnerLock)
@@ -327,7 +332,7 @@ namespace PNet.Mesh
             });
         }
 
-        void OnCumAckTimeout(object state)
+        void OnCumAckTimeout(object? state)
         {
             //var writer = state as ChannelWriter<PNetMeshChannelCommands.Command>;
             lock (_sessionOwnerLock)
@@ -426,7 +431,7 @@ namespace PNet.Mesh
             {
                 var buffer = MemoryPool<byte>.Shared.Rent(PNetMeshHandshake.ResponseMessageSize);
 
-                if (!_handshake.TryWriteResponseMessage(buffer.Memory.Span,
+                if (!Handshake.TryWriteResponseMessage(buffer.Memory.Span,
                     out var bytesWritten, out _transport))
                 {
                     //invalid noise sequence
@@ -484,7 +489,7 @@ namespace PNet.Mesh
         {
             lock (_sessionOwnerLock)
             {
-                if (!_handshake.TryReadResponseMessage(payload, out _transport))
+                if (!Handshake.TryReadResponseMessage(payload, out _transport))
                 {
                     //invalid session
                     Status = PNetMeshSessionStatus.Closed;
@@ -509,15 +514,15 @@ namespace PNet.Mesh
             WritePayload(payload, null);
         }
 
-        public void WritePayload(ReadOnlySpan<byte> payload, TaskCompletionSource result)
+        public void WritePayload(ReadOnlySpan<byte> payload, TaskCompletionSource? result)
         {
             WritePayload(payload, result, UnreliablePayloadDelivery);
         }
 
-        internal void WritePayload(ReadOnlySpan<byte> payload, TaskCompletionSource result, bool unreliablePayloadDelivery)
+        internal void WritePayload(ReadOnlySpan<byte> payload, TaskCompletionSource? result, bool unreliablePayloadDelivery)
         {
-            TaskCompletionSource[] results = null;
-            Exception resultException = null;
+            TaskCompletionSource?[]? results = null;
+            Exception? resultException = null;
             try
             {
                 lock (_sessionOwnerLock)
@@ -572,10 +577,10 @@ namespace PNet.Mesh
             WriteRelay(packet, null);
         }
 
-        public void WriteRelay(PNetMeshRelayPacket packet, TaskCompletionSource result)
+        public void WriteRelay(PNetMeshRelayPacket packet, TaskCompletionSource? result)
         {
-            TaskCompletionSource[] results = null;
-            Exception resultException = null;
+            TaskCompletionSource?[]? results = null;
+            Exception? resultException = null;
             try
             {
                 lock (_sessionOwnerLock)
@@ -607,17 +612,27 @@ namespace PNet.Mesh
                             m.UserPass = exg.UserPass;
 
                         foreach (var c in exg.Candidates)
-                            m.Candidates.Add(new Protos.Candidate
+                        {
+                            var address = PNetMeshUtils.MapToProtos(c.Address);
+                            if (address is null)
+                                continue;
+
+                            var candidate = new Protos.Candidate
                             {
-                                Address = PNetMeshUtils.MapToProtos(c.Address),
-                                RelatedAddress = PNetMeshUtils.MapToProtos(c.Base),
+                                Address = address,
                                 ComponentId = c.ComponentId,
-                                Foundation = c.Foundation,
+                                Foundation = c.Foundation ?? string.Empty,
                                 Priority = c.Priority,
                                 Protocol = (Protos.Candidate.Types.Protocol)c.Protocol,
                                 Type = (Protos.Candidate.Types.Type)c.Type
+                            };
 
-                            });
+                            var relatedAddress = PNetMeshUtils.MapToProtos(c.Base);
+                            if (relatedAddress is not null)
+                                candidate.RelatedAddress = relatedAddress;
+
+                            m.Candidates.Add(candidate);
+                        }
 
                         item.CandidateExchange = m;
                     }
@@ -674,8 +689,8 @@ namespace PNet.Mesh
 
         void FlushOpenPacket()
         {
-            TaskCompletionSource[] results = null;
-            Exception resultException = null;
+            TaskCompletionSource?[]? results = null;
+            Exception? resultException = null;
             try
             {
                 lock (_sessionOwnerLock)
@@ -697,8 +712,8 @@ namespace PNet.Mesh
 
         void FlushAckTimeoutPacket()
         {
-            TaskCompletionSource[] results = null;
-            Exception resultException = null;
+            TaskCompletionSource?[]? results = null;
+            Exception? resultException = null;
             try
             {
                 lock (_sessionOwnerLock)
@@ -754,8 +769,8 @@ namespace PNet.Mesh
 
         public void WritePacket()
         {
-            TaskCompletionSource[] results = null;
-            Exception resultException = null;
+            TaskCompletionSource?[]? results = null;
+            Exception? resultException = null;
             try
             {
                 lock (_sessionOwnerLock)
@@ -772,12 +787,12 @@ namespace PNet.Mesh
             }
         }
 
-        TaskCompletionSource[] WritePacket(string sizeParamName)
+        TaskCompletionSource?[]? WritePacket(string sizeParamName)
         {
             return WritePacket(sizeParamName, trackForRetransmit: true);
         }
 
-        TaskCompletionSource[] WritePacket(string sizeParamName, bool trackForRetransmit)
+        TaskCompletionSource?[]? WritePacket(string sizeParamName, bool trackForRetransmit)
         {
             return WritePacket(_openPacket.Clone(), clearOpenPacket: true, sizeParamName, trackForRetransmit);
         }
@@ -787,7 +802,7 @@ namespace PNet.Mesh
             WritePacket(new Protos.Packet(), clearOpenPacket: false, "packet", trackForRetransmit: false);
         }
 
-        TaskCompletionSource[] WritePacket(Protos.Packet packet, bool clearOpenPacket, string sizeParamName, bool trackForRetransmit = true)
+        TaskCompletionSource?[]? WritePacket(Protos.Packet packet, bool clearOpenPacket, string sizeParamName, bool trackForRetransmit = true)
         {
             ThrowIfDisposing();
             if (_status != PNetMeshSessionStatus.Open)
@@ -813,7 +828,7 @@ namespace PNet.Mesh
                 {
                     var buffer = _retransBuffer.Rent(packetSize);
                     rented = true;
-                    _transport.WriteMessage(frame, buffer.Span, out var byteWritten, out var counter);
+                    Transport.WriteMessage(frame, buffer.Span, out var byteWritten, out var counter);
                     Debug.Assert(counter == _retransBuffer.Current);
                     var item = new PNetMeshOutboundMessages.Packet
                     {
@@ -850,7 +865,7 @@ namespace PNet.Mesh
                 try
                 {
                     var buffer = bufferOwner.Memory;
-                    _transport.WriteMessage(frame, buffer.Span, out var byteWritten, out var counter);
+                    Transport.WriteMessage(frame, buffer.Span, out var byteWritten, out var counter);
 
                     var item = new PNetMeshOutboundMessages.Packet
                     {
@@ -889,7 +904,7 @@ namespace PNet.Mesh
             return null;
         }
 
-        void TryWriteDirectProbe(Memory<byte> packet, EndPoint directProbeEndPoint)
+        void TryWriteDirectProbe(Memory<byte> packet, EndPoint? directProbeEndPoint)
         {
             if (directProbeEndPoint is null)
                 return;
@@ -914,8 +929,8 @@ namespace PNet.Mesh
             string sizeParamName,
             bool failBatchOnSizeError,
             bool trackForRetransmit,
-            out TaskCompletionSource[] results,
-            out Exception resultException)
+            out TaskCompletionSource?[]? results,
+            out Exception? resultException)
         {
             results = null;
             resultException = null;
@@ -936,19 +951,19 @@ namespace PNet.Mesh
             }
         }
 
-        TaskCompletionSource[] CompleteOpenPacket()
+        TaskCompletionSource?[]? CompleteOpenPacket()
         {
             _openPacket = new Protos.Packet();
             return DetachOpenPacketResults();
         }
 
-        TaskCompletionSource[] FailOpenPacket()
+        TaskCompletionSource?[]? FailOpenPacket()
         {
             _openPacket = new Protos.Packet();
             return DetachOpenPacketResults();
         }
 
-        TaskCompletionSource[] DetachOpenPacketResults()
+        TaskCompletionSource?[]? DetachOpenPacketResults()
         {
             if (_openPacketResults.Count == 0)
                 return null;
@@ -958,7 +973,7 @@ namespace PNet.Mesh
             return results;
         }
 
-        static void CompleteOpenPacketResults(TaskCompletionSource[] results, Exception exception)
+        static void CompleteOpenPacketResults(TaskCompletionSource?[]? results, Exception? exception)
         {
             if (results is null)
                 return;
@@ -991,7 +1006,7 @@ namespace PNet.Mesh
                 var ackSeqNumber = _receiveCounter;
 
                 Span<byte> bitmap = stackalloc byte[16];
-                _transport.Tracker.GetBitmap(ackSeqNumber, bitmap, out var bytesWritten);
+                Transport.Tracker.GetBitmap(ackSeqNumber, bitmap, out var bytesWritten);
                 bitmap = bitmap.Slice(0, bytesWritten);
 
                 ackSeqNumber += PNetMeshPacketTracker.RightShift(bitmap, out bytesWritten);
@@ -1098,7 +1113,7 @@ namespace PNet.Mesh
             out bool payloadReceived)
         {
             payloadReceived = false;
-            if (!_transport.TryReadMessage(payload, buffer.Span, out var bytesWritten, out var counter))
+            if (!Transport.TryReadMessage(payload, buffer.Span, out var bytesWritten, out var counter))
             {
                 //buffer.Dispose();
 
@@ -1257,7 +1272,7 @@ namespace PNet.Mesh
                     //tmp add RemoteEndPoint as candidate
 
                     //todo sending peer need to add peer reflexive form learned from probe
-                    if (!candidates.Any(n => n.Address.Equals(_remoteEndPoint)))
+                    if (!candidates.Any(n => n.Address is not null && n.Address.Equals(_remoteEndPoint)))
                     {
                         candidates.Add(new PNetMeshCandidate
                         {
@@ -1292,7 +1307,7 @@ namespace PNet.Mesh
                         Payload = relay.PayloadCase switch
                         {
                             Protos.Relay.PayloadOneofCase.Packet => relay.Packet.Memory,
-                            _ => null //todo not supported error
+                            _ => ReadOnlyMemory<byte>.Empty //todo not supported error
                         },
                         CandidateExchange = new PNetMeshCandidateExchange
                         {
@@ -1338,7 +1353,7 @@ namespace PNet.Mesh
                 switch (p.DataCase)
                 {
                     case Protos.Payload.DataOneofCase.Raw:
-                        if (_inboundWriter.TryWrite(p.Raw.Memory))
+                        if (_inboundWriter is not null && _inboundWriter.TryWrite(p.Raw.Memory))
                         {
                             payloadReceived = true;
                         }
@@ -1414,8 +1429,8 @@ namespace PNet.Mesh
         {
             var startDrain = false;
             var overflow = false;
-            Exception failException = null;
-            ChannelWriter<PNetMeshChannelCommands.Command> writer;
+            Exception? failException = null;
+            ChannelWriter<PNetMeshChannelCommands.Command>? writer;
             lock (_sessionOwnerLock)
             {
                 if (_disposing || _status != PNetMeshSessionStatus.Open)
@@ -1458,7 +1473,7 @@ namespace PNet.Mesh
                 return;
             }
 
-            if (startDrain)
+            if (startDrain && writer is not null)
                 _ = DrainControlQueueAsync(writer);
         }
 
@@ -1503,7 +1518,7 @@ namespace PNet.Mesh
 
         void FailControlQueue(Exception exception)
         {
-            TaskCompletionSource[] results;
+            TaskCompletionSource?[]? results;
             lock (_sessionOwnerLock)
             {
                 if (_disposing || _status == PNetMeshSessionStatus.Disposed)

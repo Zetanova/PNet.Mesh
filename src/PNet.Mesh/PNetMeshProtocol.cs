@@ -5,6 +5,7 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Text;
 using CryptographicException = System.Security.Cryptography.CryptographicException;
@@ -94,7 +95,7 @@ namespace PNet.Mesh
         readonly byte[] _localStaticPrivKey;
         readonly byte[] _localStaticPubKey;
 
-        readonly byte[][] _psk;
+        readonly byte[][]? _psk;
 
         readonly byte[] _mac1KeyBytes;
 
@@ -138,7 +139,7 @@ namespace PNet.Mesh
         public PNetMeshProtocol(
             byte[] localStaticPrivKey,
             byte[] localStaticPubKey,
-            byte[] psk = null)
+            byte[]? psk = null)
         {
             _localStaticPrivKey = localStaticPrivKey ?? throw new ArgumentNullException(nameof(localStaticPrivKey));
             _localStaticPubKey = localStaticPubKey ?? throw new ArgumentNullException(nameof(localStaticPrivKey));
@@ -277,9 +278,9 @@ namespace PNet.Mesh
             }
         }
 
-        public PNetMeshHandshake Create(uint senderIndex, bool initiator, byte[] remoteStaticPubKey)
+        public PNetMeshHandshake Create(uint senderIndex, bool initiator, byte[]? remoteStaticPubKey)
         {
-            var handshake = _profile.Protocol.Create(initiator, _profile.Prologue, _localStaticPrivKey, remoteStaticPubKey, _psk);
+            var handshake = _profile.Protocol.Create(initiator, _profile.Prologue, _localStaticPrivKey, remoteStaticPubKey!, _psk);
 
             return new PNetMeshHandshake(this, senderIndex, _localStaticPubKey, handshake);
         }
@@ -552,7 +553,7 @@ namespace PNet.Mesh
 
         public byte[] LocalPublicKey => _localStaticPubKey;
 
-        public byte[] RemotePublicKey { get; private set; }
+        public byte[] RemotePublicKey { get; private set; } = Array.Empty<byte>();
 
         public long Timestamp { get; private set; }
 
@@ -637,7 +638,7 @@ namespace PNet.Mesh
             return _protocol.TryAddHandshakeInitiationTimestamp(RemotePublicKey, temp);
         }
 
-        public bool TryWriteResponseMessage(Span<byte> buffer, out int bytesWritten, out PNetMeshTransport2 transport)
+        public bool TryWriteResponseMessage(Span<byte> buffer, out int bytesWritten, [NotNullWhen(true)] out PNetMeshTransport2? transport)
         {
             if (buffer.Length < ResponseMessageSize)
                 throw new ArgumentOutOfRangeException(nameof(buffer));
@@ -683,7 +684,7 @@ namespace PNet.Mesh
             return true;
         }
 
-        public bool TryReadResponseMessage(ReadOnlySpan<byte> payload, out PNetMeshTransport2 transport)
+        public bool TryReadResponseMessage(ReadOnlySpan<byte> payload, [NotNullWhen(true)] out PNetMeshTransport2? transport)
         {
             if (payload.Length != ResponseMessageSize)
                 throw new ArgumentOutOfRangeException(nameof(payload));
@@ -768,7 +769,7 @@ namespace PNet.Mesh
         public PNetMeshTransportPlaintext(
             int bytesWritten,
             ulong counter,
-            PNetMeshWireGuardKeypair keypair)
+            PNetMeshWireGuardKeypair? keypair)
         {
             BytesWritten = bytesWritten;
             Counter = counter;
@@ -779,9 +780,9 @@ namespace PNet.Mesh
 
         public ulong Counter { get; }
 
-        public PNetMeshWireGuardKeypair Keypair { get; }
+        public PNetMeshWireGuardKeypair? Keypair { get; }
 
-        public PNetMeshWireGuardPeer Peer => Keypair?.Peer;
+        public PNetMeshWireGuardPeer? Peer => Keypair?.Peer;
     }
 
     public sealed class PNetMeshTransport2 : IDisposable
@@ -798,7 +799,7 @@ namespace PNet.Mesh
 
         readonly Action<ulong> _setReadNonce;
 
-        PNetMeshWireGuardKeypair _wireGuardKeypair;
+        PNetMeshWireGuardKeypair? _wireGuardKeypair;
 
         ulong _sendCounter;
 
@@ -808,7 +809,7 @@ namespace PNet.Mesh
 
         public PNetMeshPacketTracker Tracker => _tracker;
 
-        public PNetMeshWireGuardKeypair WireGuardKeypair => _wireGuardKeypair;
+        public PNetMeshWireGuardKeypair? WireGuardKeypair => _wireGuardKeypair;
 
         public PNetMeshTransport2(uint senderIndex, uint receiverIndex, Transport transport)
         {
@@ -850,7 +851,7 @@ namespace PNet.Mesh
             //zero padding to 16            
             if (padding > 0)
             {
-                byte[] rented_padded_payload = null;
+                byte[]? rented_padded_payload = null;
                 Span<byte> padded_payload = paddedSize >= 1468
                     ? (rented_padded_payload = ArrayPool<byte>.Shared.Rent(paddedSize))
                     : stackalloc byte[paddedSize];
@@ -964,9 +965,12 @@ namespace PNet.Mesh
         static (Action<ulong> write, Action<ulong> read) CreateNonceSetters(Transport transport)
         {
             var transportType = transport.GetType();
-            var initiator = (bool)GetRequiredField(transportType, "initiator").GetValue(transport);
-            var c1 = GetRequiredField(transportType, "c1").GetValue(transport);
-            var c2 = GetRequiredField(transportType, "c2").GetValue(transport);
+            var initiator = (bool)(GetRequiredField(transportType, "initiator").GetValue(transport)
+                ?? throw new NotSupportedException("Noise transport field 'initiator' was null."));
+            var c1 = GetRequiredField(transportType, "c1").GetValue(transport)
+                ?? throw new NotSupportedException("Noise transport field 'c1' was null.");
+            var c2 = GetRequiredField(transportType, "c2").GetValue(transport)
+                ?? throw new NotSupportedException("Noise transport field 'c2' was null.");
 
             var writeState = initiator ? c1 : c2;
             var readState = initiator ? c2 : c1;

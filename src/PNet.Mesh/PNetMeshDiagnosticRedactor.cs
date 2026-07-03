@@ -12,7 +12,12 @@ namespace PNet.Mesh
             return Hash("addr", address);
         }
 
-        public static string EndpointId(EndPoint endpoint)
+        public static string AddressId(byte[]? address)
+        {
+            return address is null ? "addr:none" : AddressId(address.AsSpan());
+        }
+
+        public static string EndpointId(EndPoint? endpoint)
         {
             if (endpoint is null)
                 return "ep:none";

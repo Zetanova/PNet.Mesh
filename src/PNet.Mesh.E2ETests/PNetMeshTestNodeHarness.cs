@@ -22,13 +22,13 @@ public sealed class PNetMeshTestNodeHarness : IAsyncDisposable
     const string DefaultNetworkName = "default";
     static readonly string SharedImageName = $"localhost/pnet-mesh-test-node:{Guid.NewGuid():N}";
     static readonly SemaphoreSlim SharedImageLock = new SemaphoreSlim(1, 1);
-    static Task<IFutureDockerImage> SharedImageTask;
+    static Task<IFutureDockerImage>? SharedImageTask;
 
     readonly string _runId = Guid.NewGuid().ToString("N");
     readonly List<IContainer> _containers = new List<IContainer>();
     readonly Dictionary<string, INetwork> _networks = new Dictionary<string, INetwork>(StringComparer.Ordinal);
 
-    IFutureDockerImage _image;
+    IFutureDockerImage? _image;
 
     internal string TestNodeImageName => SharedImageName;
 
@@ -226,7 +226,7 @@ public sealed class PNetMeshTestNodeHarness : IAsyncDisposable
         return missing;
     }
 
-    static InvalidOperationException CreateMissingLogsException(IContainer container, IReadOnlyCollection<string> missing, string logs, Exception innerException)
+    static InvalidOperationException CreateMissingLogsException(IContainer container, IReadOnlyCollection<string> missing, string logs, Exception? innerException)
     {
         var message = $"Container '{container.Name}' did not emit expected logs: {string.Join(", ", missing)}.{Environment.NewLine}Container logs:{Environment.NewLine}{logs}";
         return new InvalidOperationException(message, innerException);
@@ -250,8 +250,7 @@ public sealed class PNetMeshTestNodeHarness : IAsyncDisposable
         await SharedImageLock.WaitAsync(cancellationToken);
         try
         {
-            SharedImageTask ??= CreateSharedImageAsync(cancellationToken);
-            imageTask = SharedImageTask;
+            imageTask = SharedImageTask ??= CreateSharedImageAsync(cancellationToken);
         }
         finally
         {
@@ -271,7 +270,7 @@ public sealed class PNetMeshTestNodeHarness : IAsyncDisposable
 
     static async Task<IFutureDockerImage> CreateSharedImageAsync(CancellationToken cancellationToken)
     {
-        Exception lastFailure = null;
+        Exception? lastFailure = null;
         for (var attempt = 0; attempt < 2; attempt++)
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
