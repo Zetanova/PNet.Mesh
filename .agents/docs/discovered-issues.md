@@ -1,7 +1,7 @@
 ---
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
 last-entry: 2026-07-03
-last-opened: 2026-07-03-082
+last-opened: 2026-07-03-091
 open-count: 2
 last-completed: 2026-07-03
 ---
@@ -36,6 +36,15 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 
 | # | Date | Completed | Summary | Commits | File |
 |---|------|-----------|---------|---------|------|
+| 091 | 2026-07-03 | 2026-07-03 | Split TUN benchmark report models and assembly helpers into a focused file. | 4cb0090 | [091-tunpnetbenchmarkrunner-report-models](issues/091-tunpnetbenchmarkrunner-report-models.md) |
+| 090 | 2026-07-03 | 2026-07-03 | Split TUN benchmark execution parsers and metrics helpers into focused files. | 4cb0090 | [090-tunpnetbenchmarkrunner-execution-parsers-and-metrics](issues/090-tunpnetbenchmarkrunner-execution-parsers-and-metrics.md) |
+| 089 | 2026-07-03 | 2026-07-03 | Split TUN benchmark options and CLI helpers into a focused file. | 4cb0090 | [089-tunpnetbenchmarkrunner-options-and-cli-surface](issues/089-tunpnetbenchmarkrunner-options-and-cli-surface.md) |
+| 088 | 2026-07-03 | 2026-07-03 | Split server control commands and socket work-item types into focused files. | 4cb0090 | [088-pnetmeshserver-control-commands-and-work-items](issues/088-pnetmeshserver-control-commands-and-work-items.md) |
+| 087 | 2026-07-03 | 2026-07-03 | Split shared server contract types into focused files. | 4cb0090 | [087-pnetmeshserver-shared-contract-types](issues/087-pnetmeshserver-shared-contract-types.md) |
+| 086 | 2026-07-03 | 2026-07-03 | Split TUN benchmark runner options, parsers, metrics, and report models into cohesive files. | 4cb0090 | [086-refactor-tun-pnet-benchmark-runner](issues/086-refactor-tun-pnet-benchmark-runner.md) |
+| 085 | 2026-07-03 | 2026-07-03 | Split server DTO, command, and socket work-item types out of the PNetMeshServer implementation file. | 4cb0090 | [085-refactor-pnetmeshserver-message-types](issues/085-refactor-pnetmeshserver-message-types.md) |
+| 084 | 2026-07-03 | 2026-07-03 | Clarify PNetMeshChannel concurrent ownership and tighten session/dispose state publication. | 4cb0090 | [084-refactor-pnetmeshchannel-state-ownership](issues/084-refactor-pnetmeshchannel-state-ownership.md) |
+| 083 | 2026-07-03 | 2026-07-03 | Replace the touched PNetMeshSession object owner lock with System.Threading.Lock. | 4cb0090 | [083-refactor-session-owner-lock](issues/083-refactor-session-owner-lock.md) |
 | 081 | 2026-07-03 | 2026-07-03 | Reduce nullable-warning debt across core, tests, TUN CLI, and TestNode. | b89ea91 | [081-nullability-warning-debt](issues/081-nullability-warning-debt.md) |
 | 051 | 2026-07-01 | 2026-07-02 | Review transitive NuGet package updates reported by the dependency audit. | — | [051-review-transitive-nuget-package-updates](issues/051-review-transitive-nuget-package-updates.md) |
 | 073 | 2026-07-02 | 2026-07-02 | Refactor PNetMeshSession control flow to remove premature locks with channel-owned state and benchmark gates. | e480ba9, a8c2a6b, c89ada0 | [073-refactor-session-control-flow-lock-free](issues/073-refactor-session-control-flow-lock-free.md) |
