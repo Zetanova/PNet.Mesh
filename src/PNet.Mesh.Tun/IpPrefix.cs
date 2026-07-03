@@ -7,6 +7,9 @@ namespace PNet.Mesh.Tun
     public readonly struct IpPrefix : IEquatable<IpPrefix>
     {
         readonly byte[] _addressBytes;
+        readonly int _fullBytes;
+        readonly int _remainingBits;
+        readonly byte _remainingBitsMask;
 
         public IpPrefix(IPAddress address, int prefixLength)
         {
@@ -18,6 +21,9 @@ namespace PNet.Mesh.Tun
 
             PrefixLength = prefixLength;
             _addressBytes = address.GetAddressBytes();
+            _fullBytes = prefixLength / 8;
+            _remainingBits = prefixLength % 8;
+            _remainingBitsMask = _remainingBits == 0 ? (byte)0 : (byte)(0xff << (8 - _remainingBits));
         }
 
         public IPAddress Address { get; }
@@ -34,20 +40,17 @@ namespace PNet.Mesh.Tun
             Span<byte> candidate = stackalloc byte[_addressBytes.Length];
             if (!address.TryWriteBytes(candidate, out var bytesWritten) || bytesWritten != _addressBytes.Length)
                 return false;
-            var fullBytes = PrefixLength / 8;
-            var remainingBits = PrefixLength % 8;
 
-            for (var i = 0; i < fullBytes; i++)
+            for (var i = 0; i < _fullBytes; i++)
             {
                 if (_addressBytes[i] != candidate[i])
                     return false;
             }
 
-            if (remainingBits == 0)
+            if (_remainingBits == 0)
                 return true;
 
-            var mask = (byte)(0xff << (8 - remainingBits));
-            return (_addressBytes[fullBytes] & mask) == (candidate[fullBytes] & mask);
+            return (_addressBytes[_fullBytes] & _remainingBitsMask) == (candidate[_fullBytes] & _remainingBitsMask);
         }
 
         public override string ToString()
@@ -61,7 +64,7 @@ namespace PNet.Mesh.Tun
                    && Equals(Address, other.Address);
         }
 
-        public override bool Equals(object obj)
+        public override bool Equals(object? obj)
         {
             return obj is IpPrefix other && Equals(other);
         }

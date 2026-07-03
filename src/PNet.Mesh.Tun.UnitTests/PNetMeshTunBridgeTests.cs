@@ -166,6 +166,10 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             Assert.True(IpPrefix.Parse("fd80::/64").Contains(IPAddress.Parse("fd80::abcd")));
             Assert.False(IpPrefix.Parse("fd80::/64").Contains(IPAddress.Parse("fd80:1::abcd")));
             Assert.False(IpPrefix.Parse("10.80.0.0/24").Contains(IPAddress.Parse("fd80::1")));
+            Assert.True(IpPrefix.Parse("10.80.0.42/32").Contains(IPAddress.Parse("10.80.0.42")));
+            Assert.False(IpPrefix.Parse("10.80.0.42/32").Contains(IPAddress.Parse("10.80.0.43")));
+            Assert.True(IpPrefix.Parse("fd80::42/128").Contains(IPAddress.Parse("fd80::42")));
+            Assert.False(IpPrefix.Parse("fd80::42/128").Contains(IPAddress.Parse("fd80::43")));
         }
 
         [Fact]
@@ -361,7 +365,8 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             var peerStateType = typeof(PNetMeshTunBridge).GetNestedType("PeerState", BindingFlags.NonPublic);
             Assert.NotNull(peerStateType);
 
-            return Activator.CreateInstance(peerStateType, route);
+            return Activator.CreateInstance(peerStateType, route)
+                   ?? throw new InvalidOperationException("PeerState could not be created.");
         }
 
         static PNetMeshTunPeerRoute CreateRoute(string name, byte[] publicKey, string endpoint, params string[] prefixes)
@@ -450,9 +455,9 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             var tryTakePacket = peerState.GetType().GetMethod("TryTakePacket", BindingFlags.Instance | BindingFlags.Public);
             Assert.NotNull(tryTakePacket);
 
-            var args = new object[] { null };
+            var args = new object?[] { null };
             var result = Assert.IsType<bool>(tryTakePacket.Invoke(peerState, args));
-            queuedPacket = args[0];
+            queuedPacket = args[0] ?? throw new InvalidOperationException("TryTakePacket did not populate the queued packet.");
             return result;
         }
 

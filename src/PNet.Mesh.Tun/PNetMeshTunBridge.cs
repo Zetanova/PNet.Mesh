@@ -18,12 +18,22 @@ namespace PNet.Mesh.Tun
         readonly ITunDevice _tunDevice;
         readonly PeerState[] _peers;
         readonly ILogger _logger;
+        static readonly Action<ILogger, int, string, string, IPAddress, IPAddress, Exception?> QueuedTunPacket =
+            LoggerMessage.Define<int, string, string, IPAddress, IPAddress>(
+                LogLevel.Debug,
+                new EventId(1000, nameof(LogQueuedTunPacket)),
+                "queued {packetLength} byte packet from TUN {interfaceName} to peer {peerName}: {sourceAddress} -> {destinationAddress}");
+        static readonly Action<ILogger, int, string, string, IPAddress, IPAddress, Exception?> ForwardedPeerPacket =
+            LoggerMessage.Define<int, string, string, IPAddress, IPAddress>(
+                LogLevel.Debug,
+                new EventId(1001, nameof(LogForwardedPeerPacket)),
+                "forwarded {packetLength} byte packet from peer {peerName} to TUN {interfaceName}: {sourceAddress} -> {destinationAddress}");
 
         public PNetMeshTunBridge(
             PNetMeshServer server,
             ITunDevice tunDevice,
             IEnumerable<PNetMeshTunPeerRoute> peerRoutes,
-            ILogger<PNetMeshTunBridge> logger = null)
+            ILogger<PNetMeshTunBridge>? logger = null)
         {
             _server = server ?? throw new ArgumentNullException(nameof(server));
             _tunDevice = tunDevice ?? throw new ArgumentNullException(nameof(tunDevice));
@@ -53,7 +63,7 @@ namespace PNet.Mesh.Tun
         {
             while (true)
             {
-                IMemoryOwner<byte> packetOwner = MemoryPool<byte>.Shared.Rent(_tunDevice.Mtu);
+                IMemoryOwner<byte>? packetOwner = MemoryPool<byte>.Shared.Rent(_tunDevice.Mtu);
 
                 try
                 {
@@ -84,13 +94,8 @@ namespace PNet.Mesh.Tun
 
                     packetOwner = null;
 
-                    _logger.LogDebug(
-                        "queued {packetLength} byte packet from TUN {interfaceName} to peer {peerName}: {sourceAddress} -> {destinationAddress}",
-                        packet.TotalLength,
-                        _tunDevice.Name,
-                        peer.Route.Name,
-                        packet.SourceAddress,
-                        packet.DestinationAddress);
+                    if (_logger.IsEnabled(LogLevel.Debug))
+                        LogQueuedTunPacket(peer, packet);
                 }
                 finally
                 {
@@ -107,11 +112,11 @@ namespace PNet.Mesh.Tun
                 {
                     while (peer.TryTakePacket(out var queuedPacket))
                     {
-                        var memoryOwner = queuedPacket.MemoryOwner;
+                        IMemoryOwner<byte>? memoryOwner = queuedPacket.MemoryOwner;
                         try
                         {
                             var channel = await peer.GetChannelAsync(_server, cancellationToken);
-                            var transferOwner = memoryOwner;
+                            var transferOwner = memoryOwner!;
                             memoryOwner = null;
                             await channel.EnqueueUnreliableWriteAsync(queuedPacket.Payload, transferOwner, cancellationToken);
                         }
@@ -160,20 +165,15 @@ namespace PNet.Mesh.Tun
                     }
 
                     await _tunDevice.WritePacketAsync(payload[..packet.TotalLength], cancellationToken);
-                    _logger.LogDebug(
-                        "forwarded {packetLength} byte packet from peer {peerName} to TUN {interfaceName}: {sourceAddress} -> {destinationAddress}",
-                        packet.TotalLength,
-                        peer.Route.Name,
-                        _tunDevice.Name,
-                        packet.SourceAddress,
-                        packet.DestinationAddress);
+                    if (_logger.IsEnabled(LogLevel.Debug))
+                        LogForwardedPeerPacket(peer, packet);
                 }
             }
         }
 
-        PeerState FindPeerByDestination(IPAddress destinationAddress)
+        PeerState? FindPeerByDestination(IPAddress destinationAddress)
         {
-            PeerState match = null;
+            PeerState? match = null;
             var matchPrefixLength = -1;
 
             foreach (var peer in _peers)
@@ -211,13 +211,41 @@ namespace PNet.Mesh.Tun
                     throw new ArgumentException("Peer route names are required.", nameof(peerRoutes));
                 if (!names.Add(route.Name))
                     throw new ArgumentException($"Duplicate peer route name '{route.Name}'.", nameof(peerRoutes));
-                if (route.Peer == null)
+                if (route.Peer is null)
                     throw new ArgumentException($"Peer route '{route.Name}' is missing a peer.", nameof(peerRoutes));
                 if (route.AllowedIPs == null || route.AllowedIPs.Count == 0)
                     throw new ArgumentException($"Peer route '{route.Name}' requires at least one AllowedIPs prefix.", nameof(peerRoutes));
             }
 
             return routes;
+        }
+
+        void LogQueuedTunPacket(
+            PeerState peer,
+            PNetMeshIpPacket packet)
+        {
+            QueuedTunPacket(
+                _logger,
+                packet.TotalLength,
+                _tunDevice.Name,
+                peer.Route.Name,
+                packet.SourceAddress,
+                packet.DestinationAddress,
+                null);
+        }
+
+        void LogForwardedPeerPacket(
+            PeerState peer,
+            PNetMeshIpPacket packet)
+        {
+            ForwardedPeerPacket(
+                _logger,
+                packet.TotalLength,
+                peer.Route.Name,
+                _tunDevice.Name,
+                packet.SourceAddress,
+                packet.DestinationAddress,
+                null);
         }
 
         sealed class PeerState
@@ -242,7 +270,13 @@ namespace PNet.Mesh.Tun
 
             public bool AllowsSource(IPAddress sourceAddress)
             {
-                return Route.AllowedIPs.Any(prefix => prefix.Contains(sourceAddress));
+                foreach (var prefix in Route.AllowedIPs)
+                {
+                    if (prefix.Contains(sourceAddress))
+                        return true;
+                }
+
+                return false;
             }
 
             public bool TryQueuePacket(ReadOnlyMemory<byte> packet, IMemoryOwner<byte> memoryOwner)
@@ -328,7 +362,7 @@ namespace PNet.Mesh.Tun
             public IMemoryOwner<byte> MemoryOwner { get; }
         }
 
-        static void ClearAndDispose(IMemoryOwner<byte> memoryOwner)
+        static void ClearAndDispose(IMemoryOwner<byte>? memoryOwner)
         {
             if (memoryOwner == null)
                 return;
