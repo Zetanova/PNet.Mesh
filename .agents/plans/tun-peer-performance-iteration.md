@@ -1,5 +1,5 @@
 ---
-title: PNet.Mesh.Tun Peer Performance Iteration
+title: PNet.Mesh TUN Peer Performance Iteration
 created: 2026-07-03
 last-refined: 2026-07-03
 status: complete
@@ -7,9 +7,9 @@ assumptions-date: 2026-07-03
 baseline-artifact: artifacts/benchmarks/tun-comparison/20260703T103637Z/comparison.json
 ---
 
-# PNet.Mesh.Tun Peer Performance Iteration
+# PNet.Mesh TUN Peer Performance Iteration
 
-Iteratively improve PNet.Mesh.Tun against `wireguard-go` on the `tun-mtu-64k` peer comparison without running full suites after every micro-change.
+Iteratively improve the primary PNet.Mesh/PNet.Mesh.Tun hot path against `wireguard-go` on the `tun-mtu-64k` peer comparison without running full suites after every micro-change.
 
 ## Goal
 
@@ -114,15 +114,15 @@ When diminishing returns is reached:
 
 ## Completion Report
 
-Completed on 2026-07-03 after one kept batch, four reverted batches, and a final closeout comparison.
+Completed on 2026-07-03 after one kept batch, four reverted batches, and a current-HEAD final closeout comparison.
 
 | Field | Value |
 |---|---|
 | Starting baseline | `artifacts/benchmarks/tun-comparison/20260703T103637Z/comparison.json` |
 | Best kept checkpoint | `artifacts/benchmarks/tun-comparison/20260703T114429Z/comparison.json` |
-| Final closeout artifact | `artifacts/benchmarks/tun-comparison/20260703T122011Z/comparison.json` |
-| Final result vs start | IPv6 ping -14.5%, RSS -0.4%, IPv4 ping +8.7%, CPU +21.9%; capped throughput and packet loss stable. |
-| Validation | Scoped Release build, whitespace verification, focused `PNetMeshTunBridgeTests`, Docker image rebuild, final full TUN comparison. |
+| Final closeout artifact | `artifacts/benchmarks/tun-comparison/20260703T162643Z/comparison.json` |
+| Final result vs start | IPv4 ping -3.3%, IPv6 ping -13.7%, RSS -1.2%, CPU +9.0%; thread count unchanged; capped throughput and packet loss stable. |
+| Validation | Current-HEAD scoped Release build, whitespace verification, focused `PNetMeshTunBridgeTests`, Docker image rebuild, final full TUN comparison. |
 
 | Batch | Outcome | Evidence |
 |---|---|---|

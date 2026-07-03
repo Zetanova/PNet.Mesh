@@ -3,7 +3,7 @@ last-refined: 2026-07-03
 status: report-only
 peer: wireguard-go
 scenario: tun-mtu-64k
-last-artifact: artifacts/benchmarks/tun-comparison/20260703T122011Z/comparison.json
+last-artifact: artifacts/benchmarks/tun-comparison/20260703T162643Z/comparison.json
 ---
 
 # WireGuard-Go TUN Comparison
@@ -31,7 +31,7 @@ Use `--baseline <previous-comparison.json>` only after a previous comparison art
 | Scenario | Dual-container Linux TUN topology, IPv4/IPv6 ping, and UDP `iperf3`. |
 | Equivalence | Same topology name, Docker network, container image, MTU, payload mode, ping count, warmup, `iperf3` duration, port, and datagram size. |
 | Metrics | Ping latency, packet loss, `iperf3` throughput, RSS/HWM RSS, threads, CPU ticks, and managed-runtime counter availability. |
-| Current artifact | `artifacts/benchmarks/tun-comparison/20260703T122011Z/comparison.json` |
+| Current artifact | `artifacts/benchmarks/tun-comparison/20260703T162643Z/comparison.json` |
 
 ## Current Caveats
 
@@ -63,9 +63,9 @@ Use `--baseline <previous-comparison.json>` only after a previous comparison art
 
 | Field | PNet.Mesh | wireguard-go |
 |---|---|---|
-| Artifact | `artifacts/benchmarks/tun-comparison/20260703T122011Z/comparison.json` | `artifacts/benchmarks/tun-comparison/20260703T122011Z/comparison.json` |
-| Run timestamp | `2026-07-03T12:20:45Z` | `2026-07-03T12:21:10Z` |
-| Git commit | `4751e57156b4` | `4751e57156b4` |
+| Artifact | `artifacts/benchmarks/tun-comparison/20260703T162643Z/comparison.json` | `artifacts/benchmarks/tun-comparison/20260703T162643Z/comparison.json` |
+| Run timestamp | `2026-07-03T16:27:14Z` | `2026-07-03T16:27:41Z` |
+| Git commit | `653f6e9a17d1` | `653f6e9a17d1` |
 | Version | `1.0.0.0` | `0.0.20230223-1ubuntu0.24.04.2` |
 | MTU | `1420` | `1420` |
 | Payload mode | `mtu` | `mtu` |
@@ -81,9 +81,9 @@ Use `--baseline <previous-comparison.json>` only after a previous comparison art
 |---|---|
 | Starting baseline | `artifacts/benchmarks/tun-comparison/20260703T103637Z/comparison.json` |
 | Best kept checkpoint | `artifacts/benchmarks/tun-comparison/20260703T114429Z/comparison.json` |
-| Final closeout artifact | `artifacts/benchmarks/tun-comparison/20260703T122011Z/comparison.json` |
-| Final relative movement | IPv6 ping -14.5%, RSS -0.4%, IPv4 ping +8.7%, CPU +21.9%; capped throughput and packet loss stayed stable. |
-| Stop reason | Further low-risk TUN hot-path attempts regressed latency, RSS, or CPU; remaining gains require larger parser/channel/runtime work. |
+| Final closeout artifact | `artifacts/benchmarks/tun-comparison/20260703T162643Z/comparison.json` |
+| Final relative movement | IPv4 ping -3.3%, IPv6 ping -13.7%, RSS -1.2%, CPU +9.0%; thread count unchanged; capped throughput and packet loss stayed stable. |
+| Stop reason | Further low-risk TUN hot-path attempts regressed latency, RSS, or CPU; current-HEAD revalidation preserved latency/RSS gains, and remaining gains require larger parser/channel/runtime work. |
 
 ## References
 

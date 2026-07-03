@@ -1,7 +1,7 @@
 ---
 last-entry: 2026-07-03
 last-refined: 2026-07-03
-last-artifact: artifacts/benchmarks/tun-comparison/20260703T122011Z/comparison.json
+last-artifact: artifacts/benchmarks/tun-comparison/20260703T162643Z/comparison.json
 ---
 
 # Peer Comparison Log
@@ -37,3 +37,12 @@ Compact index of project-vs-peer benchmark results. Detailed setup and caveats s
 | 2026-07-03 | tun-mtu-64k | RSS | lower | 138.4 MB | 13.1 MB | 10.53x higher | worse | `artifacts/benchmarks/tun-comparison/20260703T122011Z/comparison.json` |
 | 2026-07-03 | tun-mtu-64k | Threads | lower | 38 | 26 | 1.46x higher | worse | `artifacts/benchmarks/tun-comparison/20260703T122011Z/comparison.json` |
 | 2026-07-03 | tun-mtu-64k | CPU ticks | lower | 418 | 15 | 27.87x higher | worse | `artifacts/benchmarks/tun-comparison/20260703T122011Z/comparison.json` |
+| 2026-07-03 | tun-mtu-64k | IPv4 ping avg latency | lower | 1.951 ms | 1.398 ms | 1.40x higher | worse | `artifacts/benchmarks/tun-comparison/20260703T162643Z/comparison.json` |
+| 2026-07-03 | tun-mtu-64k | IPv6 ping avg latency | lower | 1.998 ms | 1.362 ms | 1.47x higher | worse | `artifacts/benchmarks/tun-comparison/20260703T162643Z/comparison.json` |
+| 2026-07-03 | tun-mtu-64k | IPv4 packet loss | lower | 0% | 0% | tied | neutral | `artifacts/benchmarks/tun-comparison/20260703T162643Z/comparison.json` |
+| 2026-07-03 | tun-mtu-64k | IPv6 packet loss | lower | 0% | 0% | tied | neutral | `artifacts/benchmarks/tun-comparison/20260703T162643Z/comparison.json` |
+| 2026-07-03 | tun-mtu-64k | IPv4 iperf throughput | higher | 64.265 Kbit/s | 64.269 Kbit/s | -0.007%, capped | neutral | `artifacts/benchmarks/tun-comparison/20260703T162643Z/comparison.json` |
+| 2026-07-03 | tun-mtu-64k | IPv6 iperf throughput | higher | 64.248 Kbit/s | 64.200 Kbit/s | +0.075%, capped | neutral | `artifacts/benchmarks/tun-comparison/20260703T162643Z/comparison.json` |
+| 2026-07-03 | tun-mtu-64k | RSS | lower | 137.1 MB | 13.2 MB | 10.40x higher | worse | `artifacts/benchmarks/tun-comparison/20260703T162643Z/comparison.json` |
+| 2026-07-03 | tun-mtu-64k | Threads | lower | 38 | 28 | 1.36x higher | worse | `artifacts/benchmarks/tun-comparison/20260703T162643Z/comparison.json` |
+| 2026-07-03 | tun-mtu-64k | CPU ticks | lower | 374 | 16 | 23.38x higher | worse | `artifacts/benchmarks/tun-comparison/20260703T162643Z/comparison.json` |
