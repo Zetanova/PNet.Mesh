@@ -47,7 +47,7 @@ namespace PNet.Mesh
         // multi-threading: server receive handling, channel control/relay sends, timers, and disposal can all enter a session concurrently.
         // The session owner gate serializes mutable session state so protocol counters, open packets, ACK state, retransmit buffers,
         // endpoint discovery, and pending control commands are updated through one ownership path instead of independent locks.
-        readonly object _sessionOwnerLock = new object();
+        readonly System.Threading.Lock _sessionOwnerLock = new System.Threading.Lock();
 
         PNetMeshHandshake? _handshake;
 
@@ -91,7 +91,14 @@ namespace PNet.Mesh
         bool _statusChangedQueued;
         public PNetMeshSessionStatus Status
         {
-            get => _status;
+            get
+            {
+                if (_sessionOwnerLock.IsHeldByCurrentThread)
+                    return _status;
+
+                lock (_sessionOwnerLock)
+                    return _status;
+            }
             private set
             {
                 if (_status != value)
@@ -101,7 +108,7 @@ namespace PNet.Mesh
                     if (handler is null)
                         return;
 
-                    if (Monitor.IsEntered(_sessionOwnerLock))
+                    if (_sessionOwnerLock.IsHeldByCurrentThread)
                         QueueStatusChanged();
                     else
                         handler.Invoke(this, EventArgs.Empty);

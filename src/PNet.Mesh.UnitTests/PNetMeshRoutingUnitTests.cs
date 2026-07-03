@@ -2599,6 +2599,52 @@ namespace PNet.Actor.UnitTests.Mesh
         }
 
         [Fact]
+        public void session_status_read_waits_for_owner_lock()
+        {
+            using var senderKey = KeyPair.Generate();
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            var senderProtocol = new PNetMeshProtocol(senderKey.PrivateKey, senderKey.PublicKey, psk);
+            var senderOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+
+            using var sender = new PNetMeshSession(senderProtocol, senderOutbound.Writer);
+            var ownerLockField = typeof(PNetMeshSession).GetField("_sessionOwnerLock", BindingFlags.NonPublic | BindingFlags.Instance);
+            var ownerLock = Assert.IsType<System.Threading.Lock>(ownerLockField?.GetValue(sender));
+            using var completed = new ManualResetEventSlim();
+            Exception? readException = null;
+
+            using (ownerLock.EnterScope())
+            {
+                var thread = new Thread(() =>
+                {
+                    try
+                    {
+                        _ = sender.Status;
+                    }
+                    catch (Exception ex)
+                    {
+                        readException = ex;
+                    }
+                    finally
+                    {
+                        completed.Set();
+                    }
+                })
+                {
+                    IsBackground = true
+                };
+                thread.Start();
+
+                Assert.False(completed.Wait(TimeSpan.FromMilliseconds(100), TestContext.Current.CancellationToken));
+            }
+
+            Assert.True(completed.Wait(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken));
+            if (readException is not null)
+                throw new InvalidOperationException("Status read failed.", readException);
+        }
+
+        [Fact]
         public void session_closes_when_ack_only_timeout_packet_exceeds_negotiated_size()
         {
             using var senderKey = KeyPair.Generate();

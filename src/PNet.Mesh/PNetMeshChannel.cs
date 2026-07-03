@@ -26,6 +26,8 @@ namespace PNet.Mesh
         Task _controlTask = Task.CompletedTask;
         Task _relayTask;
 
+        // multi-threading: public send/relay APIs, session callbacks, control/relay loops,
+        // cancellation callbacks, and Dispose publish or observe channel/session state concurrently.
         ImmutableList<PNetMeshSession> _sessions = ImmutableList<PNetMeshSession>.Empty;
         PNetMeshSession? _currentSession;
         TaskCompletionSource _relayStateChanged = CreateRelayStateChanged();
@@ -35,7 +37,7 @@ namespace PNet.Mesh
 
         public long Timestamp { get; private set; }
 
-        public bool IsOpen => _currentSession?.Status == PNetMeshSessionStatus.Open;
+        public bool IsOpen => Volatile.Read(ref _currentSession)?.Status == PNetMeshSessionStatus.Open;
 
         internal bool CanRelayDirect => TryGetRelaySession(out _);
 
@@ -90,9 +92,9 @@ namespace PNet.Mesh
 
         public void Dispose()
         {
-            _disposed = true;
-            _currentSession?.Dispose();
-            _currentSession = null;
+            Volatile.Write(ref _disposed, true);
+            Volatile.Read(ref _currentSession)?.Dispose();
+            Volatile.Write(ref _currentSession, null);
 
             _inboundChannel?.Writer.Complete();
             _inboundChannel = null;
@@ -113,7 +115,15 @@ namespace PNet.Mesh
 
         internal void AddSession(PNetMeshSession session)
         {
-            _sessions = _sessions.Add(session);
+            ImmutableList<PNetMeshSession> sessions;
+            ImmutableList<PNetMeshSession> updatedSessions;
+            do
+            {
+                sessions = Volatile.Read(ref _sessions);
+                updatedSessions = sessions.Add(session);
+            }
+            while (!ReferenceEquals(Interlocked.CompareExchange(ref _sessions, updatedSessions, sessions), sessions));
+
             Timestamp = Math.Max(session.Timestamp, Timestamp);
 
             session.AttachTo(InboundChannel.Writer, ControlChannel.Writer);
@@ -136,7 +146,7 @@ namespace PNet.Mesh
             switch (session.Status)
             {
                 case PNetMeshSessionStatus.Open:
-                    _currentSession = session; //undone close other
+                    Volatile.Write(ref _currentSession, session); //undone close other
                     if (_controlTask.IsCompleted)
                         _controlTask = Task.Run(ProcessControl)
                             .ContinueWith(t => _logger.LogError(t.Exception, "control process error"), TaskContinuationOptions.OnlyOnFaulted);
@@ -154,7 +164,7 @@ namespace PNet.Mesh
         {
             var session = sender as PNetMeshSession;
             if (session?.Status == PNetMeshSessionStatus.Open)
-                _currentSession = session;
+                Volatile.Write(ref _currentSession, session);
         }
 
         async Task ProcessControl()
@@ -171,7 +181,7 @@ namespace PNet.Mesh
                             try
                             {
                                 cmd.CancellationToken.ThrowIfCancellationRequested();
-                                var session = _currentSession ?? throw new InvalidOperationException("No current session is available.");
+                                var session = Volatile.Read(ref _currentSession) ?? throw new InvalidOperationException("No current session is available.");
                                 session.WritePayload(cmd.Payload.Span, cmd.Result, cmd.UnreliablePayloadDelivery);
                             }
                             catch (OperationCanceledException ex)
@@ -260,7 +270,7 @@ namespace PNet.Mesh
                 if (TryCompleteCanceledRelay(cmd))
                     continue;
 
-                if (_disposed)
+                if (Volatile.Read(ref _disposed))
                 {
                     cmd.Result?.TrySetException(new ObjectDisposedException(nameof(PNetMeshChannel)));
                     DisposeRelayCommand(cmd);
@@ -543,11 +553,11 @@ namespace PNet.Mesh
 
         bool TryGetRelaySession([NotNullWhen(true)] out PNetMeshSession? session)
         {
-            session = _currentSession;
+            session = Volatile.Read(ref _currentSession);
             if (session is not null && IsRelaySession(session))
                 return true;
 
-            foreach (var candidate in _sessions)
+            foreach (var candidate in Volatile.Read(ref _sessions))
             {
                 if (IsRelaySession(candidate))
                 {
@@ -562,10 +572,10 @@ namespace PNet.Mesh
 
         bool HasRelaySessionCandidate()
         {
-            if (IsRelaySessionCandidate(_currentSession))
+            if (IsRelaySessionCandidate(Volatile.Read(ref _currentSession)))
                 return true;
 
-            foreach (var candidate in _sessions)
+            foreach (var candidate in Volatile.Read(ref _sessions))
             {
                 if (IsRelaySessionCandidate(candidate))
                     return true;
