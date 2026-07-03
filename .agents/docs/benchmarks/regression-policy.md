@@ -11,6 +11,8 @@ baseline: 2026-07-02-baseline.md
 
 Benchmark checks are report-only. They inform review and optimization issue creation, but they do not block commits until repeated runs establish stable variance bounds.
 
+Any source change claimed to improve performance must include before/after micro and macro benchmark evidence. Regressions in latency, throughput, allocation, or GC behavior need an explicit, source-backed justification in the change report.
+
 ## Baseline
 
 Current baseline: [2026-07-02-baseline.md](2026-07-02-baseline.md).
@@ -42,7 +44,9 @@ Privileged TUN comparison runs use [tun-workflow.md](tun-workflow.md) because th
 
 4. Compare against the current baseline and include the comparison in the change report.
 
-5. File an optimization issue when the same hot path exceeds report thresholds on two comparable runs, or when a single run shows an obvious large regression with no workload explanation.
+5. For performance improvement changes, record whether the micro and macro results show improvement, no material change, or regression.
+
+6. File an optimization issue when the same hot path exceeds report thresholds on two comparable runs, or when a single run shows an obvious large regression with no workload explanation.
 
 ## Report Thresholds
 
@@ -80,6 +84,7 @@ When filing a performance issue, include:
 - Method/scenario, payload size, metric, baseline value, current value, and percent delta.
 - Whether the regression is CPU time, throughput, allocation, GC, or latency.
 - Any intentional workload/runtime changes that explain the result.
+- Source-backed justification for any accepted regression.
 
 ## Assumptions
 
