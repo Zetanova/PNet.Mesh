@@ -1,9 +1,9 @@
 ---
 brief: "open+outgoing-mrs+incoming-mrs+remote-issues+completed"
-last-entry: 2026-07-02
-last-opened: 2026-07-02-079
-open-count: 0
-last-completed: 2026-07-02
+last-entry: 2026-07-03
+last-opened: 2026-07-03-082
+open-count: 2
+last-completed: 2026-07-03
 ---
 
 # Discovered Issues
@@ -14,6 +14,8 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 
 | # | Date | Source | Summary | Priority | Status | File |
 |---|------|--------|---------|----------|--------|------|
+| 082 | 2026-07-03 | refine-version-check | Review direct Testcontainers package update from 4.12.0 to 4.13.0 and rerun affected e2e batches. | medium | migration | [082-testcontainers-4-13-package-review](issues/082-testcontainers-4-13-package-review.md) |
+| 080 | 2026-07-03 | refine-version-check | Update local .NET 10 SDK/runtime from 10.0.108/10.0.8 to Fedora 10.0.109/runtime 10.0.9 and rerun build/test gates. | medium | migration | [080-dotnet-10-sdk-runtime-update](issues/080-dotnet-10-sdk-runtime-update.md) |
 
 ## Outgoing MRs
 
@@ -34,6 +36,7 @@ Issue tracker for PNet.Mesh. Append during work, process via `/team-task fix iss
 
 | # | Date | Completed | Summary | Commits | File |
 |---|------|-----------|---------|---------|------|
+| 081 | 2026-07-03 | 2026-07-03 | Reduce nullable-warning debt across core, tests, TUN CLI, and TestNode. | b89ea91 | [081-nullability-warning-debt](issues/081-nullability-warning-debt.md) |
 | 051 | 2026-07-01 | 2026-07-02 | Review transitive NuGet package updates reported by the dependency audit. | — | [051-review-transitive-nuget-package-updates](issues/051-review-transitive-nuget-package-updates.md) |
 | 073 | 2026-07-02 | 2026-07-02 | Refactor PNetMeshSession control flow to remove premature locks with channel-owned state and benchmark gates. | e480ba9, a8c2a6b, c89ada0 | [073-refactor-session-control-flow-lock-free](issues/073-refactor-session-control-flow-lock-free.md) |
 | 077 | 2026-07-02 | 2026-07-02 | PNetMeshSession single-owner mailbox refactor. | e480ba9 | [077-pnetmeshsession-single-owner-mailbox-refactor](issues/077-pnetmeshsession-single-owner-mailbox-refactor.md) |
