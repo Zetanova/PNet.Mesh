@@ -4,12 +4,18 @@ using PNet.Mesh;
 using PNet.Mesh.Tun;
 using PNet.Mesh.Tun.Linux;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace PNet.Mesh.Tun.Cli
@@ -50,6 +56,18 @@ namespace PNet.Mesh.Tun.Cli
 
             try
             {
+                if (options.Mode == TunCliMode.IcmpEcho)
+                {
+                    await RunIcmpEchoResponderAsync(options, loggerFactory, shutdown.Token);
+                    return 0;
+                }
+
+                if (options.Mode == TunCliMode.TunIcmpEcho)
+                {
+                    await RunTunIcmpEchoResponderAsync(options, shutdown.Token);
+                    return 0;
+                }
+
                 await using var tunDevice = await LinuxTunDevice.CreateAsync(
                     options.InterfaceName,
                     options.Mtu,
@@ -105,6 +123,8 @@ namespace PNet.Mesh.Tun.Cli
         {
             Console.Error.WriteLine("Usage:");
             Console.Error.WriteLine("  PNet.Mesh.Tun.Cli run --interface pnet0 --mtu 1280 --address 10.80.0.1/32 --route 10.80.0.2/32 --bind 0.0.0.0:12401 --public-key <base64> --private-key <base64> --psk <base64> --peer node02:<base64-public-key>@node02:12402 --allowed-ip node02=10.80.0.2/32");
+            Console.Error.WriteLine("  PNet.Mesh.Tun.Cli icmp-echo --bind 0.0.0.0:12402 --public-key <base64> --private-key <base64> --psk <base64> --peer node01:<base64-public-key>@node01:51820");
+            Console.Error.WriteLine("  PNet.Mesh.Tun.Cli tun-icmp-echo --interface pnet0 --mtu 1280 --address 10.80.0.1/24 --route 10.80.0.2/32 --tun-echo-mode direct|bridge-queue");
             Console.Error.WriteLine();
             Console.Error.WriteLine("Options:");
             Console.Error.WriteLine("  --interface <name>          TUN interface name, default pnet0.");
@@ -122,13 +142,339 @@ namespace PNet.Mesh.Tun.Cli
             Console.Error.WriteLine("  --psk-file <path>           Read the mesh pre-shared key from a file.");
             Console.Error.WriteLine("  --peer <name:key@endpoint>  Remote peer identity and endpoint. Repeatable.");
             Console.Error.WriteLine("  --allowed-ip <name=prefix>  Allowed source/destination prefix for a peer. Repeatable.");
+            Console.Error.WriteLine("  --tun-echo-mode <mode>      TUN-only ICMP echo mode: direct or bridge-queue.");
             Console.Error.WriteLine("  --verbose                   Enable debug logging.");
+        }
+
+        static async Task RunIcmpEchoResponderAsync(
+            TunCliOptions options,
+            ILoggerFactory loggerFactory,
+            CancellationToken cancellationToken)
+        {
+            var bindTo = IPEndPoint.Parse(options.BindTo[0]);
+            using var udp = new UdpClient(bindTo);
+            var protocol = new PNetMeshProtocol(
+                Convert.FromBase64String(RequiredValue(options.PrivateKey, nameof(options.PrivateKey))),
+                Convert.FromBase64String(RequiredValue(options.PublicKey, nameof(options.PublicKey))),
+                Convert.FromBase64String(RequiredValue(options.Psk, nameof(options.Psk))));
+
+            var logger = loggerFactory.CreateLogger("PNet.Mesh.Tun.IcmpEcho");
+            var encrypted = new byte[ushort.MaxValue];
+            var plaintext = new byte[ushort.MaxValue];
+            var reply = new byte[ushort.MaxValue];
+            var senderIndex = 0x7000u;
+            PNetMeshTransport2? transport = null;
+
+            Console.WriteLine($"PNet.Mesh ICMP echo responder running on {bindTo}; press Ctrl+C to stop.");
+            try
+            {
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    var datagram = await udp.ReceiveAsync(cancellationToken);
+                    if (!protocol.ValidatePacket(datagram.Buffer)
+                        || !PNetMeshPacketFraming.TryReadMessageType(datagram.Buffer, out var messageType))
+                    {
+                        continue;
+                    }
+
+                    if (messageType == PNetMeshMessageType.HandshakeInitiation)
+                    {
+                        using var responder = protocol.CreateResponder(++senderIndex);
+                        if (!responder.TryReadInitiationMessage(datagram.Buffer)
+                            || !responder.TryWriteResponseMessage(encrypted, out var bytesWritten, out var nextTransport))
+                        {
+                            logger.LogWarning("ICMP echo responder rejected handshake initiation.");
+                            continue;
+                        }
+
+                        transport?.Dispose();
+                        transport = nextTransport;
+                        await udp.SendAsync(encrypted.AsMemory(0, bytesWritten), datagram.RemoteEndPoint, cancellationToken);
+                        logger.LogInformation("ICMP echo responder handshake complete.");
+                        continue;
+                    }
+
+                    if (messageType != PNetMeshMessageType.PacketData || transport is null)
+                        continue;
+
+                    if (!transport.TryReadPlaintext(datagram.Buffer, plaintext, out var received))
+                        continue;
+
+                    if (!PNetMeshIcmpEcho.TryCreateIPv4EchoReply(
+                            plaintext.AsSpan(0, received.BytesWritten),
+                            reply,
+                            out var replyBytes))
+                    {
+                        continue;
+                    }
+
+                    transport.WriteMessage(reply.AsSpan(0, replyBytes), encrypted, out var encryptedBytes, out _);
+                    await udp.SendAsync(encrypted.AsMemory(0, encryptedBytes), datagram.RemoteEndPoint, cancellationToken);
+                }
+            }
+            finally
+            {
+                transport?.Dispose();
+            }
+        }
+
+        static async Task RunTunIcmpEchoResponderAsync(
+            TunCliOptions options,
+            CancellationToken cancellationToken)
+        {
+            await using var tunDevice = await LinuxTunDevice.CreateAsync(
+                options.InterfaceName,
+                options.Mtu,
+                exclusive: options.ExclusiveInterface,
+                cancellationToken: cancellationToken);
+
+            if (options.ConfigureInterface)
+            {
+                await LinuxTunInterfaceConfigurator.ConfigureAsync(new LinuxTunInterfaceConfiguration
+                {
+                    InterfaceName = tunDevice.Name,
+                    Mtu = options.Mtu,
+                    Addresses = options.Addresses,
+                    Routes = options.Routes
+                }, cancellationToken: cancellationToken);
+            }
+
+            var stats = new TunIcmpEchoStats(options.TunEchoMode);
+            using var dumpSignal = PosixSignalRegistration.Create(PosixSignal.SIGHUP, context =>
+            {
+                context.Cancel = true;
+                stats.WriteSummary(Console.Out);
+            });
+
+            Console.WriteLine($"PNet.Mesh TUN ICMP echo responder running on {tunDevice.Name} mode={FormatTunEchoMode(options.TunEchoMode)}; send SIGHUP to dump metrics.");
+            try
+            {
+                if (options.TunEchoMode == TunIcmpEchoMode.BridgeQueue)
+                    await RunQueuedTunIcmpEchoAsync(tunDevice, stats, cancellationToken);
+                else
+                    await RunDirectTunIcmpEchoAsync(tunDevice, stats, cancellationToken);
+            }
+            finally
+            {
+                stats.WriteSummary(Console.Out);
+            }
+        }
+
+        static async Task RunDirectTunIcmpEchoAsync(
+            ITunDevice tunDevice,
+            TunIcmpEchoStats stats,
+            CancellationToken cancellationToken)
+        {
+            var packet = new byte[ushort.MaxValue];
+            var reply = new byte[ushort.MaxValue];
+
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                var bytesRead = await tunDevice.ReadPacketAsync(packet, cancellationToken);
+                var started = Stopwatch.GetTimestamp();
+                var transformed = Stopwatch.GetTimestamp();
+                if (!PNetMeshIcmpEcho.TryCreateIPv4EchoReply(packet.AsSpan(0, bytesRead), reply, out var replyBytes))
+                    continue;
+
+                var transformFinished = Stopwatch.GetTimestamp();
+                await tunDevice.WritePacketAsync(reply.AsMemory(0, replyBytes), cancellationToken);
+                var writeFinished = Stopwatch.GetTimestamp();
+                stats.Record(
+                    transformFinished - transformed,
+                    queueTicks: 0,
+                    writeFinished - transformFinished,
+                    writeFinished - started);
+            }
+        }
+
+        static async Task RunQueuedTunIcmpEchoAsync(
+            ITunDevice tunDevice,
+            TunIcmpEchoStats stats,
+            CancellationToken cancellationToken)
+        {
+            var queue = Channel.CreateBounded<QueuedTunPacket>(new BoundedChannelOptions(256)
+            {
+                AllowSynchronousContinuations = true,
+                SingleReader = true,
+                SingleWriter = true,
+                FullMode = BoundedChannelFullMode.Wait
+            });
+            var writer = Task.Run(() => RunQueuedTunIcmpEchoWriterAsync(tunDevice, queue.Reader, stats, cancellationToken), cancellationToken);
+
+            try
+            {
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    IMemoryOwner<byte>? owner = MemoryPool<byte>.Shared.Rent(ushort.MaxValue);
+                    try
+                    {
+                        var bytesRead = await tunDevice.ReadPacketAsync(owner.Memory, cancellationToken);
+                        await queue.Writer.WriteAsync(
+                            new QueuedTunPacket(owner, bytesRead, Stopwatch.GetTimestamp()),
+                            cancellationToken);
+                        owner = null;
+                    }
+                    finally
+                    {
+                        owner?.Dispose();
+                    }
+                }
+            }
+            finally
+            {
+                queue.Writer.TryComplete();
+                try
+                {
+                    await writer;
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                }
+            }
+        }
+
+        static async Task RunQueuedTunIcmpEchoWriterAsync(
+            ITunDevice tunDevice,
+            ChannelReader<QueuedTunPacket> reader,
+            TunIcmpEchoStats stats,
+            CancellationToken cancellationToken)
+        {
+            var reply = new byte[ushort.MaxValue];
+            while (await reader.WaitToReadAsync(cancellationToken))
+            {
+                while (reader.TryRead(out var packet))
+                {
+                    using var owner = packet.MemoryOwner;
+                    var dequeued = Stopwatch.GetTimestamp();
+                    if (!PNetMeshIcmpEcho.TryCreateIPv4EchoReply(
+                            owner.Memory.Span[..packet.Length],
+                            reply,
+                            out var replyBytes))
+                    {
+                        continue;
+                    }
+
+                    var transformed = Stopwatch.GetTimestamp();
+                    await tunDevice.WritePacketAsync(reply.AsMemory(0, replyBytes), cancellationToken);
+                    var written = Stopwatch.GetTimestamp();
+                    stats.Record(
+                        transformed - dequeued,
+                        dequeued - packet.EnqueuedTimestamp,
+                        written - transformed,
+                        written - packet.EnqueuedTimestamp);
+                }
+            }
+        }
+
+        static string FormatTunEchoMode(TunIcmpEchoMode mode)
+        {
+            return mode switch
+            {
+                TunIcmpEchoMode.Direct => "direct",
+                TunIcmpEchoMode.BridgeQueue => "bridge-queue",
+                _ => throw new ArgumentOutOfRangeException(nameof(mode))
+            };
+        }
+
+        readonly struct QueuedTunPacket
+        {
+            public QueuedTunPacket(IMemoryOwner<byte> memoryOwner, int length, long enqueuedTimestamp)
+            {
+                MemoryOwner = memoryOwner;
+                Length = length;
+                EnqueuedTimestamp = enqueuedTimestamp;
+            }
+
+            public IMemoryOwner<byte> MemoryOwner { get; }
+
+            public int Length { get; }
+
+            public long EnqueuedTimestamp { get; }
+        }
+
+        sealed class TunIcmpEchoStats
+        {
+            readonly object _gate = new object();
+            readonly TunIcmpEchoMode _mode;
+            long _packets;
+            long _transformTicks;
+            long _queueTicks;
+            long _writeTicks;
+            long _postReadTicks;
+            long _postReadMinTicks = long.MaxValue;
+            long _postReadMaxTicks;
+
+            public TunIcmpEchoStats(TunIcmpEchoMode mode)
+            {
+                _mode = mode;
+            }
+
+            public void Record(long transformTicks, long queueTicks, long writeTicks, long postReadTicks)
+            {
+                lock (_gate)
+                {
+                    _packets++;
+                    _transformTicks += transformTicks;
+                    _queueTicks += queueTicks;
+                    _writeTicks += writeTicks;
+                    _postReadTicks += postReadTicks;
+                    _postReadMinTicks = Math.Min(_postReadMinTicks, postReadTicks);
+                    _postReadMaxTicks = Math.Max(_postReadMaxTicks, postReadTicks);
+                }
+            }
+
+            public void WriteSummary(TextWriter writer)
+            {
+                long packets;
+                long transformTicks;
+                long queueTicks;
+                long writeTicks;
+                long postReadTicks;
+                long minTicks;
+                long maxTicks;
+
+                lock (_gate)
+                {
+                    packets = _packets;
+                    transformTicks = _transformTicks;
+                    queueTicks = _queueTicks;
+                    writeTicks = _writeTicks;
+                    postReadTicks = _postReadTicks;
+                    minTicks = _postReadMinTicks == long.MaxValue ? 0 : _postReadMinTicks;
+                    maxTicks = _postReadMaxTicks;
+                }
+
+                var divisor = Math.Max(1, packets);
+                writer.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"tun_icmp_echo_metrics mode={FormatTunEchoMode(_mode)} packets={packets} transform_avg_us={ToMicroseconds(transformTicks) / divisor:F3} queue_avg_us={ToMicroseconds(queueTicks) / divisor:F3} write_avg_us={ToMicroseconds(writeTicks) / divisor:F3} post_read_avg_us={ToMicroseconds(postReadTicks) / divisor:F3} post_read_min_us={ToMicroseconds(minTicks):F3} post_read_max_us={ToMicroseconds(maxTicks):F3}"));
+            }
+
+            static double ToMicroseconds(long ticks)
+            {
+                return ticks * 1_000_000.0 / Stopwatch.Frequency;
+            }
+        }
+
+        enum TunCliMode
+        {
+            Run,
+            IcmpEcho,
+            TunIcmpEcho
+        }
+
+        enum TunIcmpEchoMode
+        {
+            Direct,
+            BridgeQueue
         }
 
         sealed class TunCliOptions
         {
             readonly List<PeerSpec> _peers = new List<PeerSpec>();
             readonly Dictionary<string, List<IpPrefix>> _allowedIps = new Dictionary<string, List<IpPrefix>>(StringComparer.OrdinalIgnoreCase);
+
+            public TunCliMode Mode { get; private set; } = TunCliMode.Run;
 
             public string InterfaceName { get; private set; } = "pnet0";
 
@@ -152,6 +498,8 @@ namespace PNet.Mesh.Tun.Cli
 
             public string? Psk { get; private set; }
 
+            public TunIcmpEchoMode TunEchoMode { get; private set; } = TunIcmpEchoMode.Direct;
+
             public static bool TryParse(string[] args, [NotNullWhen(true)] out TunCliOptions? options, out string? error)
             {
                 options = new TunCliOptions();
@@ -162,7 +510,20 @@ namespace PNet.Mesh.Tun.Cli
 
                 var index = 0;
                 if (string.Equals(args[index], "run", StringComparison.OrdinalIgnoreCase))
+                {
+                    options.Mode = TunCliMode.Run;
                     index++;
+                }
+                else if (string.Equals(args[index], "icmp-echo", StringComparison.OrdinalIgnoreCase))
+                {
+                    options.Mode = TunCliMode.IcmpEcho;
+                    index++;
+                }
+                else if (string.Equals(args[index], "tun-icmp-echo", StringComparison.OrdinalIgnoreCase))
+                {
+                    options.Mode = TunCliMode.TunIcmpEcho;
+                    index++;
+                }
 
                 while (index < args.Length)
                 {
@@ -233,6 +594,14 @@ namespace PNet.Mesh.Tun.Cli
                             if (!options.TryAddAllowedIp(NextValue(args, ref index, option, ref error), ref error))
                                 return false;
                             break;
+                        case "--tun-echo-mode":
+                            if (!TryReadTunEchoMode(NextValue(args, ref index, option, ref error), out var tunEchoMode))
+                            {
+                                error = "--tun-echo-mode requires one of: direct, bridge-queue.";
+                                return false;
+                            }
+                            options.TunEchoMode = tunEchoMode;
+                            break;
                         case "--help":
                         case "-h":
                             return false;
@@ -269,6 +638,21 @@ namespace PNet.Mesh.Tun.Cli
                     error = "Interface name is required.";
                     return false;
                 }
+                if (Mode == TunCliMode.TunIcmpEcho)
+                {
+                    if (Addresses.Count == 0)
+                    {
+                        error = "At least one --address prefix is required.";
+                        return false;
+                    }
+                    if (Routes.Count == 0)
+                    {
+                        error = "At least one --route prefix is required.";
+                        return false;
+                    }
+
+                    return true;
+                }
                 if (BindTo.Count == 0)
                 {
                     error = "At least one --bind endpoint is required.";
@@ -285,12 +669,15 @@ namespace PNet.Mesh.Tun.Cli
                     return false;
                 }
 
-                foreach (var peer in _peers)
+                if (Mode == TunCliMode.Run)
                 {
-                    if (!_allowedIps.TryGetValue(peer.Name, out var prefixes) || prefixes.Count == 0)
+                    foreach (var peer in _peers)
                     {
-                        error = $"Peer '{peer.Name}' requires at least one --allowed-ip.";
-                        return false;
+                        if (!_allowedIps.TryGetValue(peer.Name, out var prefixes) || prefixes.Count == 0)
+                        {
+                            error = $"Peer '{peer.Name}' requires at least one --allowed-ip.";
+                            return false;
+                        }
                     }
                 }
 
@@ -341,6 +728,23 @@ namespace PNet.Mesh.Tun.Cli
 
                 prefixes.Add(prefix);
                 return true;
+            }
+
+            static bool TryReadTunEchoMode(string value, out TunIcmpEchoMode mode)
+            {
+                if (string.Equals(value, "direct", StringComparison.OrdinalIgnoreCase))
+                {
+                    mode = TunIcmpEchoMode.Direct;
+                    return true;
+                }
+                if (string.Equals(value, "bridge-queue", StringComparison.OrdinalIgnoreCase))
+                {
+                    mode = TunIcmpEchoMode.BridgeQueue;
+                    return true;
+                }
+
+                mode = default;
+                return false;
             }
 
             static bool TryAddPrefix(List<IpPrefix> prefixes, string value, string option, ref string? error)

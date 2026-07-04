@@ -80,6 +80,24 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             Assert.Equal("wireguard-go", wireGuardOptions.Scenario);
 
             Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
+                new[] { "wireguard-go-pnet-icmp-echo" },
+                TextWriter.Null,
+                out var icmpEchoOptions));
+            Assert.Equal("wireguard-go-pnet-icmp-echo", icmpEchoOptions.Scenario);
+
+            Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
+                new[] { "tun-icmp-echo-direct" },
+                TextWriter.Null,
+                out var tunDirectOptions));
+            Assert.Equal("tun-icmp-echo-direct", tunDirectOptions.Scenario);
+
+            Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
+                new[] { "tun-icmp-echo-bridge-queue" },
+                TextWriter.Null,
+                out var tunBridgeQueueOptions));
+            Assert.Equal("tun-icmp-echo-bridge-queue", tunBridgeQueueOptions.Scenario);
+
+            Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
                 new[] { "pnet-mesh-tun", "--mtu", "1420", "--payload-mode", "mtu" },
                 TextWriter.Null,
                 out var mtuOptions));
@@ -137,6 +155,7 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
                 Assert.DoesNotContain("'--public-key'", shellCommand);
                 Assert.DoesNotContain("'--private-key'", shellCommand);
                 Assert.DoesNotContain("'--psk'", shellCommand);
+                Assert.DoesNotContain("--verbose", shellCommand);
             });
 
             var reportedShellCommands = report.Commands
@@ -153,6 +172,7 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             {
                 Assert.Contains("<container-secret>", shellCommand);
                 Assert.Contains("<redacted>", shellCommand);
+                Assert.DoesNotContain("--verbose", shellCommand);
             });
 
             Assert.True(runner.CopiedSensitiveContents.Count >= 4);
@@ -256,6 +276,109 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
                 Assert.DoesNotContain(secret, actualArguments);
                 Assert.DoesNotContain(secret, reportedArguments);
             }
+        }
+
+        [Fact]
+        public void run_wireguard_go_pnet_icmp_echo_benchmark_records_focused_ping_and_redacts_secrets()
+        {
+            Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
+                new[] { "wireguard-go-pnet-icmp-echo", "--warmup", "0ms", "--iperf-duration", "1ms", "--timeout", "1s" },
+                TextWriter.Null,
+                out var options));
+
+            var runner = new FakeCommandRunner();
+
+            var report = TunPNetBenchmarkRunner.RunBenchmark(options, runner);
+
+            Assert.Equal("pass", report.Status);
+            Assert.Equal("wireguard-go-pnet-icmp-echo", report.Scenario);
+            var traffic = Assert.Single(report.Traffic);
+            Assert.Equal("ping", traffic.Tool);
+            Assert.Equal("ipv4", traffic.Protocol);
+            Assert.Equal("10.80.0.2", traffic.TargetAddress);
+            Assert.Equal(0, traffic.PacketLossPercent);
+
+            var actualConfigCommand = Assert.Single(runner.Calls
+                .Where(call => call.FileName == "docker"
+                               && call.Arguments.Count >= 5
+                               && call.Arguments[0] == "exec"
+                               && call.Arguments[^2] == "-c"
+                               && call.Arguments[^1].Contains("wg", StringComparison.Ordinal)
+                               && call.Arguments[^1].Contains("'endpoint' 'right:12402'", StringComparison.Ordinal))
+                .Select(call => call.Arguments[^1]));
+            Assert.Contains("'allowed-ips' '10.80.0.2/32,fd80::2/128'", actualConfigCommand, StringComparison.Ordinal);
+
+            var actualEchoCommand = Assert.Single(runner.Calls
+                .Where(call => call.FileName == "docker"
+                               && call.Arguments.Count >= 6
+                               && call.Arguments[0] == "exec"
+                               && call.Arguments[1] == "-d"
+                               && call.Arguments[^2] == "-c"
+                               && call.Arguments[^1].Contains("PNet.Mesh.Tun.Cli.dll", StringComparison.Ordinal)
+                               && call.Arguments[^1].Contains("'icmp-echo'", StringComparison.Ordinal))
+                .Select(call => call.Arguments[^1]));
+            Assert.Contains("'--public-key-file'", actualEchoCommand, StringComparison.Ordinal);
+            Assert.Contains("'--private-key-file'", actualEchoCommand, StringComparison.Ordinal);
+            Assert.Contains("'--psk-file'", actualEchoCommand, StringComparison.Ordinal);
+
+            var reportedArguments = string.Join('\n', report.Commands.SelectMany(command => command.Arguments));
+            Assert.Contains("endpoint right:12402", reportedArguments);
+            Assert.Contains("dotnet PNet.Mesh.Tun.Cli.dll icmp-echo", reportedArguments);
+            Assert.Contains("<container-secret>", reportedArguments);
+            Assert.Contains("<redacted>", reportedArguments);
+            Assert.DoesNotContain(actualEchoCommand, reportedArguments);
+            foreach (var secret in runner.CopiedSensitiveContents)
+                Assert.DoesNotContain(secret, reportedArguments);
+        }
+
+        [Theory]
+        [InlineData("tun-icmp-echo-direct", "direct")]
+        [InlineData("tun-icmp-echo-bridge-queue", "bridge-queue")]
+        public void run_tun_icmp_echo_benchmark_records_focused_ping_and_metrics_dump(string scenario, string mode)
+        {
+            Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
+                new[] { scenario, "--warmup", "0ms", "--iperf-duration", "1ms", "--timeout", "1s" },
+                TextWriter.Null,
+                out var options));
+
+            var runner = new FakeCommandRunner();
+
+            var report = TunPNetBenchmarkRunner.RunBenchmark(options, runner);
+
+            Assert.Equal("pass", report.Status);
+            Assert.Equal(scenario, report.Scenario);
+            var traffic = Assert.Single(report.Traffic);
+            Assert.Equal("ping", traffic.Tool);
+            Assert.Equal("ipv4", traffic.Protocol);
+            Assert.Equal("10.80.0.2", traffic.TargetAddress);
+            Assert.Equal(0, traffic.PacketLossPercent);
+            Assert.Single(report.Processes);
+
+            var actualCommand = Assert.Single(runner.Calls
+                .Where(call => call.FileName == "docker"
+                               && call.Arguments.Count >= 6
+                               && call.Arguments[0] == "exec"
+                               && call.Arguments[1] == "-d"
+                               && call.Arguments[^2] == "-c"
+                               && call.Arguments[^1].Contains("PNet.Mesh.Tun.Cli.dll", StringComparison.Ordinal)
+                               && call.Arguments[^1].Contains("'tun-icmp-echo'", StringComparison.Ordinal))
+                .Select(call => call.Arguments[^1]));
+            Assert.Contains($"'--tun-echo-mode' '{mode}'", actualCommand, StringComparison.Ordinal);
+            Assert.DoesNotContain("--public-key", actualCommand);
+            Assert.DoesNotContain("--private-key", actualCommand);
+            Assert.DoesNotContain("--psk", actualCommand);
+            Assert.DoesNotContain("--peer", actualCommand);
+
+            Assert.Contains(runner.Calls, call =>
+                call.FileName == "docker"
+                && call.Arguments.Count >= 5
+                && call.Arguments[0] == "exec"
+                && call.Arguments[^2] == "-c"
+                && call.Arguments[^1].Contains("kill -HUP", StringComparison.Ordinal));
+
+            var reportedArguments = string.Join('\n', report.Commands.SelectMany(command => command.Arguments));
+            Assert.Contains($"--tun-echo-mode {mode}", reportedArguments, StringComparison.Ordinal);
+            Assert.Contains("tail -n 120 /tmp/pnet-tun-icmp-echo.log", reportedArguments, StringComparison.Ordinal);
         }
 
         [Fact]

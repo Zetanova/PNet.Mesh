@@ -79,6 +79,26 @@ internal static partial class TunPNetBenchmarkRunner
                 null,
                 null,
                 unavailableReason),
+            WireGuardGoPNetIcmpEchoScenario => new TunBenchmarkManagedRuntimeMetrics(
+                true,
+                false,
+                null,
+                null,
+                null,
+                null,
+                null,
+                unavailableReason,
+                null),
+            var value when IsTunOnlyIcmpEchoScenario(value) => new TunBenchmarkManagedRuntimeMetrics(
+                true,
+                false,
+                null,
+                null,
+                null,
+                null,
+                null,
+                unavailableReason,
+                null),
             _ => throw new InvalidOperationException($"Unsupported TUN benchmark scenario '{scenario}'.")
         };
     }

@@ -12,6 +12,9 @@ internal static partial class TunPNetBenchmarkRunner
     const string Kind = "pnet-mesh-tun-benchmark";
     const string PNetMeshTunScenario = "pnet-mesh-tun";
     const string WireGuardGoScenario = "wireguard-go";
+    const string WireGuardGoPNetIcmpEchoScenario = "wireguard-go-pnet-icmp-echo";
+    const string TunIcmpEchoDirectScenario = "tun-icmp-echo-direct";
+    const string TunIcmpEchoBridgeQueueScenario = "tun-icmp-echo-bridge-queue";
     const string DefaultName = "pnet-tun-bench";
     const string DefaultImage = "localhost/pnet-mesh-tun:dev";
 
@@ -74,31 +77,55 @@ internal static partial class TunPNetBenchmarkRunner
             var right = spec.Nodes.Single(node => node.Role == "right");
             implementation = ReadImplementationInfo(commandRunner, options, left, commands);
 
+            var tunOnly = IsTunOnlyIcmpEchoScenario(options.Scenario);
+
             if (!StartBenchmarkProcesses(commandRunner, options, left, right, leftKey, rightKey, psk, commands))
             {
                 status = "fail";
                 message = $"{GetScenarioDisplayName(options.Scenario)} process could not be started in both topology containers.";
             }
-            else if (!WaitForBenchmarkProcess(commandRunner, options, left, commands) || !WaitForBenchmarkProcess(commandRunner, options, right, commands))
+            else if (!WaitForBenchmarkProcess(commandRunner, options, left, commands)
+                     || (!tunOnly && !WaitForBenchmarkProcess(commandRunner, options, right, commands)))
             {
                 status = "fail";
-                message = $"{GetScenarioDisplayName(options.Scenario)} process did not stay running in both topology containers.";
+                message = tunOnly
+                    ? $"{GetScenarioDisplayName(options.Scenario)} process did not stay running in the topology container."
+                    : $"{GetScenarioDisplayName(options.Scenario)} process did not stay running in both topology containers.";
             }
             else
             {
                 Thread.Sleep(options.Warmup);
-                WarmupTunnel(commandRunner, options, left, "ipv4", "10.80.0.2", false, commands);
-                WarmupTunnel(commandRunner, options, left, "ipv6", "fd80::2", true, commands);
+                if (tunOnly)
+                {
+                    WarmupTunnel(commandRunner, options, left, "ipv4", "10.80.0.2", false, commands);
+                    traffic.Add(RunPing(commandRunner, options, left, right, "ipv4", "10.80.0.2", false, commands));
+                    DumpTunOnlyIcmpEchoMetrics(commandRunner, options, left, commands);
+                    CaptureProcessLog(commandRunner, options, left, commands);
+                    processes.Add(ReadProcessMetrics(commandRunner, options, left, commands));
+                }
+                else if (options.Scenario == WireGuardGoPNetIcmpEchoScenario)
+                {
+                    WarmupTunnel(commandRunner, options, left, "ipv4", "10.80.0.2", false, commands);
+                    traffic.Add(RunPing(commandRunner, options, left, right, "ipv4", "10.80.0.2", false, commands));
+                    CaptureProcessLog(commandRunner, options, left, commands);
+                    CaptureProcessLog(commandRunner, options, right, commands);
+                    processes.Add(ReadProcessMetrics(commandRunner, options, left, commands));
+                    processes.Add(ReadProcessMetrics(commandRunner, options, right, commands));
+                }
+                else
+                {
+                    WarmupTunnel(commandRunner, options, left, "ipv4", "10.80.0.2", false, commands);
+                    WarmupTunnel(commandRunner, options, left, "ipv6", "fd80::2", true, commands);
 
-                traffic.Add(RunPing(commandRunner, options, left, right, "ipv4", "10.80.0.2", false, commands));
-                traffic.Add(RunPing(commandRunner, options, left, right, "ipv6", "fd80::2", true, commands));
-                traffic.Add(RunIperf(commandRunner, options, left, right, "ipv4", "10.80.0.2", false, commands));
-                traffic.Add(RunIperf(commandRunner, options, left, right, "ipv6", "fd80::2", true, commands));
-
-                CaptureProcessLog(commandRunner, options, left, commands);
-                CaptureProcessLog(commandRunner, options, right, commands);
-                processes.Add(ReadProcessMetrics(commandRunner, options, left, commands));
-                processes.Add(ReadProcessMetrics(commandRunner, options, right, commands));
+                    traffic.Add(RunPing(commandRunner, options, left, right, "ipv4", "10.80.0.2", false, commands));
+                    traffic.Add(RunPing(commandRunner, options, left, right, "ipv6", "fd80::2", true, commands));
+                    traffic.Add(RunIperf(commandRunner, options, left, right, "ipv4", "10.80.0.2", false, commands));
+                    traffic.Add(RunIperf(commandRunner, options, left, right, "ipv6", "fd80::2", true, commands));
+                    CaptureProcessLog(commandRunner, options, left, commands);
+                    CaptureProcessLog(commandRunner, options, right, commands);
+                    processes.Add(ReadProcessMetrics(commandRunner, options, left, commands));
+                    processes.Add(ReadProcessMetrics(commandRunner, options, right, commands));
+                }
 
                 status = traffic.All(IsSuccessfulTrafficResult) && processes.All(process => process.Available)
                     ? "pass"
@@ -139,8 +166,17 @@ internal static partial class TunPNetBenchmarkRunner
             PNetMeshTunScenario => StartPNetMeshTunProcess(commandRunner, options, left, right, leftKey, rightKey.PublicKey, psk, commands)
                                   && StartPNetMeshTunProcess(commandRunner, options, right, left, rightKey, leftKey.PublicKey, psk, commands),
             WireGuardGoScenario => StartWireGuardGoProcesses(commandRunner, options, left, right, psk, commands),
+            WireGuardGoPNetIcmpEchoScenario => StartWireGuardGoPNetIcmpEchoProcesses(commandRunner, options, left, right, rightKey, psk, commands),
+            TunIcmpEchoDirectScenario => StartTunIcmpEchoProcess(commandRunner, options, left, "direct", commands),
+            TunIcmpEchoBridgeQueueScenario => StartTunIcmpEchoProcess(commandRunner, options, left, "bridge-queue", commands),
             _ => throw new InvalidOperationException($"Unsupported TUN benchmark scenario '{options.Scenario}'.")
         };
+    }
+
+    static bool IsTunOnlyIcmpEchoScenario(string scenario)
+    {
+        return string.Equals(scenario, TunIcmpEchoDirectScenario, StringComparison.Ordinal)
+               || string.Equals(scenario, TunIcmpEchoBridgeQueueScenario, StringComparison.Ordinal);
     }
 
     static bool StartPNetMeshTunProcess(
@@ -198,7 +234,6 @@ internal static partial class TunPNetBenchmarkRunner
             tunArguments.Add("--allowed-ip");
             tunArguments.Add($"{peer.Role}={route}");
         }
-        tunArguments.Add("--verbose");
 
         if (!CopySecretFiles(commandRunner, options, node, Convert.ToBase64String(nodeKey.PublicKey), Convert.ToBase64String(nodeKey.PrivateKey), Convert.ToBase64String(psk), commands))
             return false;
@@ -223,7 +258,115 @@ internal static partial class TunPNetBenchmarkRunner
             node.ContainerName,
             "sh",
             "-c",
-            "dotnet PNet.Mesh.Tun.Cli.dll run --interface <interface> --mtu <mtu> --address <address> --route <route> --bind <endpoint> --public-key-file <container-secret> --private-key-file <container-secret> --psk-file <container-secret> --peer <redacted> --allowed-ip <prefix> --verbose > /tmp/pnet-tun.log 2>&1"
+            "dotnet PNet.Mesh.Tun.Cli.dll run --interface <interface> --mtu <mtu> --address <address> --route <route> --bind <endpoint> --public-key-file <container-secret> --private-key-file <container-secret> --psk-file <container-secret> --peer <redacted> --allowed-ip <prefix> > /tmp/pnet-tun.log 2>&1"
+        };
+
+        commands.Add(RunCommand(commandRunner, "docker", dockerArguments, options.CommandTimeout, reportedArguments));
+        return true;
+    }
+
+    static bool StartPNetIcmpEchoProcess(
+        ITunTopologyCommandRunner commandRunner,
+        TunPNetBenchmarkOptions options,
+        TunTopologyNode node,
+        TunTopologyNode peer,
+        string peerPublicKey,
+        List<TunTopologyCommandRecord> commands)
+    {
+        const string secretDirectory = "/tmp/pnet-tun-secrets";
+        const string publicKeyPath = $"{secretDirectory}/public.key";
+        const string privateKeyPath = $"{secretDirectory}/private.key";
+        const string pskPath = $"{secretDirectory}/psk";
+
+        var arguments = new List<string>
+        {
+            "dotnet",
+            "PNet.Mesh.Tun.Cli.dll",
+            "icmp-echo",
+            "--bind",
+            $"0.0.0.0:{node.PNetUdpPort.ToString(CultureInfo.InvariantCulture)}",
+            "--public-key-file",
+            publicKeyPath,
+            "--private-key-file",
+            privateKeyPath,
+            "--psk-file",
+            pskPath,
+            "--peer",
+            $"{peer.Role}:{peerPublicKey}@{peer.HostName}:{peer.WireGuardUdpPort.ToString(CultureInfo.InvariantCulture)}"
+        };
+
+        var shellCommand = "rm -f /tmp/pnet-icmp-echo.log; "
+                           + string.Join(" ", arguments.Select(ShellQuote))
+                           + " > /tmp/pnet-icmp-echo.log 2>&1";
+
+        var dockerArguments = new[]
+        {
+            "exec",
+            "-d",
+            node.ContainerName,
+            "sh",
+            "-c",
+            shellCommand
+        };
+        var reportedArguments = new[]
+        {
+            "exec",
+            "-d",
+            node.ContainerName,
+            "sh",
+            "-c",
+            "dotnet PNet.Mesh.Tun.Cli.dll icmp-echo --bind <endpoint> --public-key-file <container-secret> --private-key-file <container-secret> --psk-file <container-secret> --peer <redacted> > /tmp/pnet-icmp-echo.log 2>&1"
+        };
+
+        commands.Add(RunCommand(commandRunner, "docker", dockerArguments, options.CommandTimeout, reportedArguments));
+        return true;
+    }
+
+    static bool StartTunIcmpEchoProcess(
+        ITunTopologyCommandRunner commandRunner,
+        TunPNetBenchmarkOptions options,
+        TunTopologyNode node,
+        string mode,
+        List<TunTopologyCommandRecord> commands)
+    {
+        var arguments = new List<string>
+        {
+            "dotnet",
+            "PNet.Mesh.Tun.Cli.dll",
+            "tun-icmp-echo",
+            "--interface",
+            node.InterfaceName,
+            "--mtu",
+            options.Mtu.ToString(CultureInfo.InvariantCulture),
+            "--address",
+            node.Ipv4Address,
+            "--route",
+            node.PeerRoutes.First(route => !route.Contains(':', StringComparison.Ordinal)),
+            "--tun-echo-mode",
+            mode
+        };
+
+        var shellCommand = "rm -f /tmp/pnet-tun-icmp-echo.log; "
+                           + string.Join(" ", arguments.Select(ShellQuote))
+                           + " > /tmp/pnet-tun-icmp-echo.log 2>&1";
+
+        var dockerArguments = new[]
+        {
+            "exec",
+            "-d",
+            node.ContainerName,
+            "sh",
+            "-c",
+            shellCommand
+        };
+        var reportedArguments = new[]
+        {
+            "exec",
+            "-d",
+            node.ContainerName,
+            "sh",
+            "-c",
+            $"dotnet PNet.Mesh.Tun.Cli.dll tun-icmp-echo --interface <interface> --mtu <mtu> --address <address> --route <route> --tun-echo-mode {mode} > /tmp/pnet-tun-icmp-echo.log 2>&1"
         };
 
         commands.Add(RunCommand(commandRunner, "docker", dockerArguments, options.CommandTimeout, reportedArguments));
@@ -243,6 +386,23 @@ internal static partial class TunPNetBenchmarkRunner
                && PrepareWireGuardGoSecretFiles(commandRunner, options, right, pskText, commands, out var rightPublicKey)
                && StartWireGuardGoProcess(commandRunner, options, left, right, rightPublicKey, commands)
                && StartWireGuardGoProcess(commandRunner, options, right, left, leftPublicKey, commands);
+    }
+
+    static bool StartWireGuardGoPNetIcmpEchoProcesses(
+        ITunTopologyCommandRunner commandRunner,
+        TunPNetBenchmarkOptions options,
+        TunTopologyNode left,
+        TunTopologyNode right,
+        KeyPair pnetKey,
+        byte[] psk,
+        List<TunTopologyCommandRecord> commands)
+    {
+        var pskText = Convert.ToBase64String(psk);
+        var pnetPublicKey = Convert.ToBase64String(pnetKey.PublicKey);
+        return PrepareWireGuardGoSecretFiles(commandRunner, options, left, pskText, commands, out var wireGuardPublicKey)
+               && CopySecretFiles(commandRunner, options, right, pnetPublicKey, Convert.ToBase64String(pnetKey.PrivateKey), pskText, commands)
+               && StartWireGuardGoProcess(commandRunner, options, left, right, pnetPublicKey, commands, right.PNetUdpPort)
+               && StartPNetIcmpEchoProcess(commandRunner, options, right, left, wireGuardPublicKey, commands);
     }
 
     static bool PrepareWireGuardGoSecretFiles(
@@ -321,12 +481,13 @@ internal static partial class TunPNetBenchmarkRunner
         TunTopologyNode node,
         TunTopologyNode peer,
         string peerPublicKey,
-        List<TunTopologyCommandRecord> commands)
+        List<TunTopologyCommandRecord> commands,
+        int? peerEndpointPort = null)
     {
         const string secretDirectory = "/tmp/pnet-tun-secrets";
         const string privateKeyPath = $"{secretDirectory}/private.key";
         const string pskPath = $"{secretDirectory}/psk";
-        var peerEndpoint = $"{peer.HostName}:{peer.WireGuardUdpPort}";
+        var peerEndpoint = $"{peer.HostName}:{(peerEndpointPort ?? peer.WireGuardUdpPort).ToString(CultureInfo.InvariantCulture)}";
         var allowedIps = string.Join(",", node.PeerRoutes);
         var wgArguments = new[]
         {
@@ -598,6 +759,25 @@ internal static partial class TunPNetBenchmarkRunner
         }
 
         return false;
+    }
+
+    static void DumpTunOnlyIcmpEchoMetrics(
+        ITunTopologyCommandRunner commandRunner,
+        TunPNetBenchmarkOptions options,
+        TunTopologyNode node,
+        List<TunTopologyCommandRecord> commands)
+    {
+        var processPattern = CreateProcessPattern(options, node);
+        var command = RunCommand(commandRunner, "docker", new[]
+        {
+            "exec",
+            node.ContainerName,
+            "sh",
+            "-c",
+            $"pid=$(pgrep -f {ShellQuote(processPattern)} | head -n1); test -n \"$pid\" || exit 1; kill -HUP \"$pid\""
+        }, options.CommandTimeout);
+        commands.Add(command);
+        Thread.Sleep(TimeSpan.FromMilliseconds(250));
     }
 
     static TunBenchmarkTopologyRunner.TunTopologyOptions CreateTopologyOptions(string action, TunPNetBenchmarkOptions options)

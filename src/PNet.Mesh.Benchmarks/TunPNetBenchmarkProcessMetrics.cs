@@ -64,6 +64,9 @@ internal static partial class TunPNetBenchmarkRunner
         {
             PNetMeshTunScenario => "^dotnet PNet.Mesh.Tun.Cli.dll",
             WireGuardGoScenario => $"(^|/)wireguard-go .*{node.InterfaceName}($| )",
+            WireGuardGoPNetIcmpEchoScenario when node.Role == "left" => $"(^|/)wireguard-go .*{node.InterfaceName}($| )",
+            WireGuardGoPNetIcmpEchoScenario => "^dotnet PNet.Mesh.Tun.Cli.dll icmp-echo",
+            var scenario when IsTunOnlyIcmpEchoScenario(scenario) => "^dotnet PNet.Mesh.Tun.Cli.dll tun-icmp-echo",
             _ => throw new InvalidOperationException($"Unsupported TUN benchmark scenario '{options.Scenario}'.")
         };
     }
@@ -74,7 +77,14 @@ internal static partial class TunPNetBenchmarkRunner
         TunTopologyNode node,
         List<TunTopologyCommandRecord> commands)
     {
-        var logPath = options.Scenario == WireGuardGoScenario ? "/tmp/wireguard-go.log" : "/tmp/pnet-tun.log";
+        var logPath = options.Scenario switch
+        {
+            WireGuardGoScenario => "/tmp/wireguard-go.log",
+            WireGuardGoPNetIcmpEchoScenario when node.Role == "left" => "/tmp/wireguard-go.log",
+            WireGuardGoPNetIcmpEchoScenario => "/tmp/pnet-icmp-echo.log",
+            var scenario when IsTunOnlyIcmpEchoScenario(scenario) => "/tmp/pnet-tun-icmp-echo.log",
+            _ => "/tmp/pnet-tun.log"
+        };
         commands.Add(RunCommand(commandRunner, "docker", new[]
         {
             "exec",

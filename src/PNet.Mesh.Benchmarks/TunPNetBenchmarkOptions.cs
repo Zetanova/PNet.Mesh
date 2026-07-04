@@ -7,7 +7,7 @@ internal static partial class TunPNetBenchmarkRunner
     static void WriteUsage(TextWriter output)
     {
         output.WriteLine("Usage:");
-        output.WriteLine("  --tun-benchmark pnet-mesh-tun|wireguard-go [--name <name>] [--image <image>] [--ping-count <count>] [--warmup <duration>] [--iperf-duration <duration>] [--mtu <bytes>] [--payload-mode control|mtu] [--timeout <duration>]");
+        output.WriteLine("  --tun-benchmark pnet-mesh-tun|wireguard-go|wireguard-go-pnet-icmp-echo|tun-icmp-echo-direct|tun-icmp-echo-bridge-queue [--name <name>] [--image <image>] [--ping-count <count>] [--warmup <duration>] [--iperf-duration <duration>] [--mtu <bytes>] [--payload-mode control|mtu] [--timeout <duration>]");
         output.WriteLine();
         output.WriteLine("Runs a manual privileged TUN traffic benchmark on the #060 topology and emits JSON.");
     }
@@ -209,7 +209,10 @@ internal static partial class TunPNetBenchmarkRunner
         static bool IsSupportedScenario(string value)
         {
             return string.Equals(value, PNetMeshTunScenario, StringComparison.Ordinal)
-                   || string.Equals(value, WireGuardGoScenario, StringComparison.Ordinal);
+                   || string.Equals(value, WireGuardGoScenario, StringComparison.Ordinal)
+                   || string.Equals(value, WireGuardGoPNetIcmpEchoScenario, StringComparison.Ordinal)
+                   || string.Equals(value, TunIcmpEchoDirectScenario, StringComparison.Ordinal)
+                   || string.Equals(value, TunIcmpEchoBridgeQueueScenario, StringComparison.Ordinal);
         }
 
         static bool IsSupportedPayloadMode(string value)

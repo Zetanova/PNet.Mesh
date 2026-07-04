@@ -356,6 +356,13 @@ internal static partial class TunPNetBenchmarkRunner
                 null,
                 null,
                 "Topology create did not pass; wireguard-go version was not queried."),
+            WireGuardGoPNetIcmpEchoScenario => new TunBenchmarkImplementationInfo(
+                WireGuardGoPNetIcmpEchoScenario,
+                typeof(TunPNetBenchmarkRunner).Assembly.GetName().Version?.ToString(),
+                "wireguard-go + PNet.Mesh.Tun.Cli.dll icmp-echo",
+                "PNet.Mesh.Benchmarks assembly",
+                "Topology create did not pass; wireguard-go version was not queried."),
+            var scenario when IsTunOnlyIcmpEchoScenario(scenario) => CreateTunOnlyIcmpEchoImplementationInfo(scenario),
             _ => throw new InvalidOperationException($"Unsupported TUN benchmark scenario '{options.Scenario}'.")
         };
     }
@@ -370,6 +377,8 @@ internal static partial class TunPNetBenchmarkRunner
         {
             PNetMeshTunScenario => CreatePNetMeshTunImplementationInfo(),
             WireGuardGoScenario => ReadWireGuardGoImplementationInfo(commandRunner, options, node, commands),
+            WireGuardGoPNetIcmpEchoScenario => ReadWireGuardGoPNetIcmpEchoImplementationInfo(commandRunner, options, node, commands),
+            var scenario when IsTunOnlyIcmpEchoScenario(scenario) => CreateTunOnlyIcmpEchoImplementationInfo(scenario),
             _ => throw new InvalidOperationException($"Unsupported TUN benchmark scenario '{options.Scenario}'.")
         };
     }
@@ -380,6 +389,16 @@ internal static partial class TunPNetBenchmarkRunner
             PNetMeshTunScenario,
             typeof(TunPNetBenchmarkRunner).Assembly.GetName().Version?.ToString(),
             "PNet.Mesh.Tun.Cli.dll",
+            "PNet.Mesh.Benchmarks assembly",
+            null);
+    }
+
+    static TunBenchmarkImplementationInfo CreateTunOnlyIcmpEchoImplementationInfo(string scenario)
+    {
+        return new TunBenchmarkImplementationInfo(
+            scenario,
+            typeof(TunPNetBenchmarkRunner).Assembly.GetName().Version?.ToString(),
+            "PNet.Mesh.Tun.Cli.dll tun-icmp-echo",
             "PNet.Mesh.Benchmarks assembly",
             null);
     }
@@ -425,6 +444,26 @@ internal static partial class TunPNetBenchmarkRunner
             string.IsNullOrWhiteSpace(version) ? FirstNonEmpty(reason, "wireguard-go version output did not include a version.") : null);
     }
 
+    static TunBenchmarkImplementationInfo ReadWireGuardGoPNetIcmpEchoImplementationInfo(
+        ITunTopologyCommandRunner commandRunner,
+        TunPNetBenchmarkOptions options,
+        TunTopologyNode node,
+        List<TunTopologyCommandRecord> commands)
+    {
+        var wireGuard = ReadWireGuardGoImplementationInfo(commandRunner, options, node, commands);
+        var pnetVersion = typeof(TunPNetBenchmarkRunner).Assembly.GetName().Version?.ToString();
+        var version = string.IsNullOrWhiteSpace(wireGuard.Version)
+            ? pnetVersion
+            : $"{wireGuard.Version}; pnet {pnetVersion}";
+
+        return new TunBenchmarkImplementationInfo(
+            WireGuardGoPNetIcmpEchoScenario,
+            version,
+            $"{wireGuard.ExecutablePath ?? "wireguard-go"} + PNet.Mesh.Tun.Cli.dll icmp-echo",
+            wireGuard.VersionSource,
+            wireGuard.VersionUnavailableReason);
+    }
+
     static Dictionary<string, string> ReadKeyValueLines(string output)
     {
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -451,6 +490,8 @@ internal static partial class TunPNetBenchmarkRunner
         {
             PNetMeshTunScenario => "dotnet-counters is not installed in the TUN CLI image.",
             WireGuardGoScenario => "wireguard-go is not a .NET process; managed .NET allocation counters do not apply.",
+            WireGuardGoPNetIcmpEchoScenario => "dotnet-counters is not installed in the TUN CLI image; wireguard-go is not a .NET process.",
+            var value when IsTunOnlyIcmpEchoScenario(value) => "dotnet-counters is not installed in the TUN CLI image.",
             _ => throw new InvalidOperationException($"Unsupported TUN benchmark scenario '{scenario}'.")
         };
     }
@@ -461,6 +502,9 @@ internal static partial class TunPNetBenchmarkRunner
         {
             PNetMeshTunScenario => "PNet.Mesh.Tun",
             WireGuardGoScenario => "wireguard-go",
+            WireGuardGoPNetIcmpEchoScenario => "wireguard-go + PNet ICMP echo",
+            TunIcmpEchoDirectScenario => "TUN ICMP echo direct",
+            TunIcmpEchoBridgeQueueScenario => "TUN ICMP echo bridge queue",
             _ => scenario
         };
     }
