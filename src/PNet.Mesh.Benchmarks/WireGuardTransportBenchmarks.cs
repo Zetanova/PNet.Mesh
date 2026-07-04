@@ -25,7 +25,14 @@ public class WireGuardTransportBenchmarks
     byte[] _ipv6Packet = Array.Empty<byte>();
 
     EstablishedTransportPair? _transports;
+    PNetMeshSecureFrameSession? _secureFrameSender;
+    PNetMeshSecureFrameSession? _secureFrameReceiver;
     SessionPair? _sessionPair;
+
+    readonly PNetMeshFrameDispatcher _rawFrameDispatcher = new PNetMeshFrameDispatcher(
+        NoopFrameHandler.Instance,
+        NoopFrameHandler.Instance,
+        NoopFrameHandler.Instance);
 
     [Params(64, 128, 512, 1280, 1420)]
     public int PayloadSize { get; set; }
@@ -34,6 +41,8 @@ public class WireGuardTransportBenchmarks
     public void GlobalSetup()
     {
         _transports = BenchmarkProtocolHarness.CreateEstablishedTransports();
+        _secureFrameSender = new PNetMeshSecureFrameSession(_transports.Initiator);
+        _secureFrameReceiver = new PNetMeshSecureFrameSession(_transports.Responder);
         _pnetFrame = PNetMeshPayloadFraming.CreatePNet(_payload.AsSpan(0, PayloadSize));
         _ipv4Packet = PNetMeshIpPacket.CreateIPv4(
             IPAddress.Parse("10.10.0.1"),
@@ -51,6 +60,8 @@ public class WireGuardTransportBenchmarks
     [GlobalCleanup]
     public void GlobalCleanup()
     {
+        _secureFrameSender = null;
+        _secureFrameReceiver = null;
         _transports?.Dispose();
         _transports = null;
         _sessionPair?.Dispose();
@@ -181,6 +192,27 @@ public class WireGuardTransportBenchmarks
     public int DecryptThenClassifyIPv6Cleartext()
     {
         return DecryptThenClassifyCleartext(_ipv6Packet, PNetMeshPayloadFrameKind.IPv6);
+    }
+
+    [Benchmark(Description = "Secure frame write/read dispatch PNet raw frame")]
+    [BenchmarkCategory("raw-boundary")]
+    public int SecureFrameWriteReadDispatchPNetRawFrame()
+    {
+        return SecureFrameWriteReadDispatchRawFrame(_pnetFrame);
+    }
+
+    [Benchmark(Description = "Secure frame write/read dispatch IPv4 raw frame")]
+    [BenchmarkCategory("raw-boundary")]
+    public int SecureFrameWriteReadDispatchIPv4RawFrame()
+    {
+        return SecureFrameWriteReadDispatchRawFrame(_ipv4Packet);
+    }
+
+    [Benchmark(Description = "Secure frame write/read dispatch IPv6 raw frame")]
+    [BenchmarkCategory("raw-boundary")]
+    public int SecureFrameWriteReadDispatchIPv6RawFrame()
+    {
+        return SecureFrameWriteReadDispatchRawFrame(_ipv6Packet);
     }
 
     [Benchmark(Description = "IPv4 header and total-length validation")]
@@ -329,6 +361,34 @@ public class WireGuardTransportBenchmarks
         return plaintextBytes + ClassifyCleartext(_plaintext.AsSpan(0, plaintextBytes), expectedKind);
     }
 
+    int SecureFrameWriteReadDispatchRawFrame(ReadOnlySpan<byte> cleartext)
+    {
+        var sender = _secureFrameSender ?? throw new InvalidOperationException("Benchmark setup did not create secure-frame sender.");
+        var receiver = _secureFrameReceiver ?? throw new InvalidOperationException("Benchmark setup did not create secure-frame receiver.");
+
+        if (!sender.TryWriteFrame(cleartext, _encryptedPacket, out var packetBytes, out _))
+            throw new InvalidOperationException("Secure frame buffer was too small.");
+
+        if (!receiver.TryReadFrame(
+                _encryptedPacket.AsSpan(0, packetBytes),
+                _plaintext,
+                out var plaintext))
+        {
+            throw new InvalidOperationException("Secure frame did not decrypt.");
+        }
+
+        if (!_rawFrameDispatcher.TryDispatch(
+                _plaintext.AsSpan(0, plaintext.BytesWritten),
+                plaintext.Counter,
+                out var payloadReceived,
+                out var error))
+        {
+            throw new InvalidOperationException($"Raw frame dispatch failed: {error}");
+        }
+
+        return plaintext.BytesWritten + (payloadReceived ? 1 : 0);
+    }
+
     static int ClassifyCleartext(ReadOnlySpan<byte> cleartext, PNetMeshPayloadFrameKind expectedKind)
     {
         if (!PNetMeshPayloadFraming.TryClassify(cleartext, out var kind, out var error) || kind != expectedKind)
@@ -474,6 +534,21 @@ public class WireGuardTransportBenchmarks
             return value == 0
                 ? "-"
                 : value.ToString("0.####", CultureInfo.InvariantCulture);
+        }
+    }
+
+    sealed class NoopFrameHandler : IPNetMeshFrameHandler
+    {
+        public static readonly NoopFrameHandler Instance = new NoopFrameHandler();
+
+        NoopFrameHandler()
+        {
+        }
+
+        public bool TryHandleFrame(ReadOnlySpan<byte> frame, ulong counter, out bool payloadReceived)
+        {
+            payloadReceived = false;
+            return true;
         }
     }
 

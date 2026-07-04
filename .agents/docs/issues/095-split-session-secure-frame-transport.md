@@ -11,7 +11,7 @@ gate-reason: "Tracking parent waits for fine-grained child issues"
 ungate-when: "All child issues are completed"
 research-status: complete
 research-date: 2026-07-03
-assumptions-date: 2026-07-03
+assumptions-date: 2026-07-04
 completed-date: 2026-07-03
 completed: 2026-07-03
 completed-commits:
@@ -20,7 +20,7 @@ brief: "description+playbook+proposed-split+scope+benchmark-plan+acceptance-crit
 views:
   enrich: "description+related-issues+playbook+proposed-split+scope+out-of-scope+benchmark-plan+acceptance-criteria+assumptions"
   fix: "description+related-issues+playbook+proposed-split+scope+out-of-scope+benchmark-plan+acceptance-criteria+assumptions"
-  complete: "description+completion-report+resolving-commits"
+  complete: "description+completion-report+performance-closeout-2026-07-04+resolving-commits"
 ---
 
 # 095 - Split Session Secure Frame Transport
@@ -152,6 +152,49 @@ The new benchmark should measure plaintext frame -> encrypted packet -> decrypte
 Resolved by completion of `#096`, `#097`, and `#098` in `a659d9ee2aa91e0e1a68a8b5000a102ab06abfa1`.
 
 The full session split is now in place: secure-frame transport owns raw plaintext encrypt/decrypt, the dispatcher routes by first byte, and the PNet-only control handler keeps protobuf-backed reliable behavior isolated from raw IP frame handling. Residual scope is none, so the parent gate closes.
+
+## Performance Closeout 2026-07-04
+
+Retained change: `WireGuardTransportBenchmarks` now includes `SecureFrameWriteReadDispatchPNetRawFrame`, `SecureFrameWriteReadDispatchIPv4RawFrame`, and `SecureFrameWriteReadDispatchIPv6RawFrame`. These measure plaintext frame bytes through `PNetMeshSecureFrameSession.TryWriteFrame`, `TryReadFrame`, and `PNetMeshFrameDispatcher.TryDispatch` with no-op handlers, before protobuf or IP handler logic.
+
+Baseline command:
+
+```bash
+timeout 900s rtk dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release --no-build -- --filter '*WireGuardTransportBenchmarks.SecureFrameWriteReadDispatch*RawFrame*'
+```
+
+Artifacts:
+
+| Kind | Artifact |
+|---|---|
+| Baseline | `artifacts/benchmarks/raw-frame/20260703T225900Z-baseline/WireGuardTransportBenchmarks-report.csv` |
+| Final | `artifacts/benchmarks/raw-frame/20260704T020700Z-final/WireGuardTransportBenchmarks-report.csv` |
+| Rejected padding candidate | `artifacts/benchmarks/raw-frame/20260704T020300Z-precomputed-padding/WireGuardTransportBenchmarks-report.csv` |
+| Rejected tracker candidate | `artifacts/benchmarks/raw-frame/20260704T015600Z-tracker-integrated/WireGuardTransportBenchmarks-report.csv` |
+
+Final run allocations, Gen1, and Gen2 remained zero across the raw-boundary matrix. No product optimization was retained: the final source diff is benchmark-only, and final-vs-baseline timing moved both directions under short-run noise (`all avg +3.5%`, with no corresponding product code change).
+
+Rejected paths:
+
+| Attempt | Result |
+|---|---|
+| Padding/ArrayPool threshold | Reverted after raw-boundary and crypto-only regressions. |
+| Classifier out-init, marker switch, and version switch variants | Reverted after mixed or broad raw-boundary regressions. |
+| Keypair-recording local variable change | Reverted after neutral aggregate and targeted regressions. |
+| Direct dispatcher classification/handler selection | Reverted after neutral aggregate and IPv4/IPv6 regressions. |
+| Secure-frame out-assignment cleanup | Reverted after broad raw-boundary regressions. |
+| Packet-tracker sequential fast paths | Reverted after flat aggregate and material per-family regressions. |
+| Precomputed secure-frame padding | Reverted after flat aggregate and IPv6 regressions. |
+
+Diminishing returns: the remaining inspected hotspots are dominated by transport encryption/decryption and Noise.NET internals. Further gains likely require a larger transport/framing redesign, crypto-library change, or a higher-fidelity benchmark campaign with repeated baselines rather than another local micro-change.
+
+Closeout assumptions:
+
+| # | Cat | Assumption | Status | Method | Detail |
+|---|---|---|---|---|---|
+| 7 | F | The final retained source diff changes only `src/PNet.Mesh.Benchmarks/WireGuardTransportBenchmarks.cs`. | verified | source | `git diff --stat` showed one changed source file after all product candidates were reverted. |
+| 8 | F | The final raw-boundary checkpoint completed and artifacts were preserved under `artifacts/benchmarks/raw-frame/20260704T020700Z-final/`. | verified | test | The final `BenchmarkDotNet` command exited 0 and exported CSV/Markdown reports before archival. |
+| 9 | R | Final timing deltas are run variance rather than a retained product performance change. | verified | logical | The retained diff is benchmark-only, while comparable short-run checkpoints moved individual cases both faster and slower with no product code difference. |
 
 ## Resolving Commits
 
