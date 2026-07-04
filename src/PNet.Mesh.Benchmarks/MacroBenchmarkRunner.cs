@@ -56,6 +56,7 @@ internal static class MacroBenchmarkRunner
     {
         return scenarioName switch
         {
+            MacroBenchmarkOptions.RawSecureFrameScenario => new RawSecureFrameScenario(payloadSize),
             MacroBenchmarkOptions.InMemoryScenario => new InMemorySessionScenario(payloadSize),
             MacroBenchmarkOptions.UdpLoopbackScenario => new UdpLoopbackScenario(payloadSize, receiveTimeout),
             _ => throw new ArgumentOutOfRangeException(nameof(scenarioName), scenarioName, "Unknown macro scenario.")
@@ -132,7 +133,7 @@ internal static class MacroBenchmarkRunner
     static void WriteUsage(TextWriter output)
     {
         output.WriteLine("Usage:");
-        output.WriteLine("  --macro all|in-memory|udp-loopback [--payload <bytes>] [--warmup <duration>] [--duration <duration>]");
+        output.WriteLine("  --macro all|raw-secureframe|in-memory|udp-loopback [--payload <bytes>] [--warmup <duration>] [--duration <duration>]");
         output.WriteLine("  --macro testnode-smoke");
         output.WriteLine();
         output.WriteLine("Defaults: --payload 128 --warmup 00:00:05 --duration 00:00:30.");
@@ -159,6 +160,75 @@ internal static class MacroBenchmarkRunner
         string Name { get; }
 
         MacroOperationResult Execute();
+    }
+
+    sealed class RawSecureFrameScenario : IMacroBenchmarkScenario
+    {
+        readonly byte[] _payload;
+        readonly byte[][] _frames;
+        readonly byte[] _packetBuffer = new byte[BenchmarkProtocolHarness.BufferSize];
+        readonly byte[] _plaintextBuffer = new byte[BenchmarkProtocolHarness.BufferSize];
+        readonly EstablishedTransportPair _transports;
+        readonly PNetMeshSecureFrameSession _sender;
+        readonly PNetMeshSecureFrameSession _receiver;
+        readonly PNetMeshFrameDispatcher _dispatcher = new PNetMeshFrameDispatcher(
+            NoopFrameHandler.Instance,
+            NoopFrameHandler.Instance,
+            NoopFrameHandler.Instance);
+        int _frameIndex;
+
+        public RawSecureFrameScenario(int payloadSize)
+        {
+            _payload = BenchmarkProtocolHarness.CreatePayload(payloadSize);
+            _frames =
+            [
+                PNetMeshPayloadFraming.CreatePNet(_payload),
+                PNetMeshIpPacket.CreateIPv4(
+                    IPAddress.Parse("10.10.0.1"),
+                    IPAddress.Parse("10.10.0.2"),
+                    _payload),
+                PNetMeshIpPacket.CreateIPv6(
+                    IPAddress.Parse("fd00::1"),
+                    IPAddress.Parse("fd00::2"),
+                    _payload)
+            ];
+            _transports = BenchmarkProtocolHarness.CreateEstablishedTransports();
+            _sender = new PNetMeshSecureFrameSession(_transports.Initiator);
+            _receiver = new PNetMeshSecureFrameSession(_transports.Responder);
+        }
+
+        public string Name => MacroBenchmarkOptions.RawSecureFrameScenario;
+
+        public MacroOperationResult Execute()
+        {
+            var frame = _frames[_frameIndex];
+            _frameIndex = (_frameIndex + 1) % _frames.Length;
+
+            if (!_sender.TryWriteFrame(frame, _packetBuffer, out var packetBytes, out _))
+                throw new InvalidOperationException("Raw secure-frame packet buffer was too small.");
+
+            if (!_receiver.TryReadFrame(_packetBuffer.AsSpan(0, packetBytes), _plaintextBuffer, out var plaintext))
+                throw new InvalidOperationException("Raw secure-frame packet did not decrypt.");
+
+            if (plaintext.BytesWritten < frame.Length || _plaintextBuffer[0] != frame[0])
+                throw new InvalidOperationException("Raw secure-frame plaintext did not round trip.");
+
+            if (!_dispatcher.TryDispatch(
+                    _plaintextBuffer.AsSpan(0, plaintext.BytesWritten),
+                    plaintext.Counter,
+                    out _,
+                    out var error))
+            {
+                throw new InvalidOperationException($"Raw secure-frame dispatch failed: {error}.");
+            }
+
+            return new MacroOperationResult(1, _payload.Length, packetBytes);
+        }
+
+        public void Dispose()
+        {
+            _transports.Dispose();
+        }
     }
 
     sealed class InMemorySessionScenario : IMacroBenchmarkScenario
@@ -314,6 +384,21 @@ internal static class MacroBenchmarkRunner
         }
     }
 
+    sealed class NoopFrameHandler : IPNetMeshFrameHandler
+    {
+        public static readonly NoopFrameHandler Instance = new();
+
+        NoopFrameHandler()
+        {
+        }
+
+        public bool TryHandleFrame(ReadOnlySpan<byte> frame, ulong counter, out bool payloadReceived)
+        {
+            payloadReceived = false;
+            return true;
+        }
+    }
+
     sealed class LatencyRecorder
     {
         const int MaxSamples = 1_000_000;
@@ -363,6 +448,7 @@ internal static class MacroBenchmarkRunner
 internal sealed class MacroBenchmarkOptions
 {
     public const string AllScenario = "all";
+    public const string RawSecureFrameScenario = "raw-secureframe";
     public const string InMemoryScenario = "in-memory";
     public const string UdpLoopbackScenario = "udp-loopback";
     public const string TestNodeSmokeScenario = "testnode-smoke";
@@ -464,13 +550,13 @@ internal sealed class MacroBenchmarkOptions
     public IReadOnlyList<string> ResolveScenarioNames()
     {
         return Scenario == AllScenario
-            ? new[] { InMemoryScenario, UdpLoopbackScenario }
+            ? new[] { RawSecureFrameScenario, InMemoryScenario, UdpLoopbackScenario }
             : new[] { Scenario };
     }
 
     static bool IsKnownScenario(string scenario)
     {
-        return scenario is AllScenario or InMemoryScenario or UdpLoopbackScenario or TestNodeSmokeScenario;
+        return scenario is AllScenario or RawSecureFrameScenario or InMemoryScenario or UdpLoopbackScenario or TestNodeSmokeScenario;
     }
 
     static bool TryReadInt(string[] args, ref int index, out int value)

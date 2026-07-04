@@ -16,6 +16,7 @@ completed-date: 2026-07-03
 completed: 2026-07-03
 completed-commits:
   - a659d9ee2aa91e0e1a68a8b5000a102ab06abfa1
+  - d038a90d43d59ff6f8b619bc89ff131aa79d0ea4
 brief: "description+playbook+proposed-split+scope+benchmark-plan+acceptance-criteria+assumptions"
 views:
   enrich: "description+related-issues+playbook+proposed-split+scope+out-of-scope+benchmark-plan+acceptance-criteria+assumptions"
@@ -172,7 +173,7 @@ Artifacts:
 | Rejected padding candidate | `artifacts/benchmarks/raw-frame/20260704T020300Z-precomputed-padding/WireGuardTransportBenchmarks-report.csv` |
 | Rejected tracker candidate | `artifacts/benchmarks/raw-frame/20260704T015600Z-tracker-integrated/WireGuardTransportBenchmarks-report.csv` |
 
-Final run allocations, Gen1, and Gen2 remained zero across the raw-boundary matrix. No product optimization was retained: the final source diff is benchmark-only, and final-vs-baseline timing moved both directions under short-run noise (`all avg +3.5%`, with no corresponding product code change).
+Final run allocations, Gen1, and Gen2 remained zero across the raw-boundary matrix. No product optimization was retained: the final source diff is benchmark-only, and final-vs-baseline timing moved both directions under short-run noise (`all avg +1.7%`; PNet -1.3%, IPv4 +5.4%, IPv6 +1.1%, with no corresponding product code change).
 
 Rejected paths:
 
@@ -199,3 +200,4 @@ Closeout assumptions:
 ## Resolving Commits
 
 - `a659d9ee2aa91e0e1a68a8b5000a102ab06abfa1`
+- `d038a90d43d59ff6f8b619bc89ff131aa79d0ea4`
