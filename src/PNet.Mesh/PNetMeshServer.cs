@@ -1055,12 +1055,7 @@ namespace PNet.Mesh
 
                         if (!item.Writer.TryWrite(cmd))
                         {
-                            //full channel
-
-                            //todo no cookie => send cookie reply
-                            //todo valid cookie => push
-                            cmd.MemoryOwner?.Dispose();
-                            return;
+                            _ = WriteReceiveCommandAsync(item.Writer, cmd, item.Logger);
                         }
 
                         //set new buffer
@@ -1090,6 +1085,28 @@ namespace PNet.Mesh
                 {
                     break;
                 }
+            }
+        }
+
+        static async Task WriteReceiveCommandAsync(
+            ChannelWriter<PNetMeshControlCommands.Command> writer,
+            PNetMeshControlCommands.Receive command,
+            ILogger logger)
+        {
+            var queued = false;
+            try
+            {
+                await writer.WriteAsync(command);
+                queued = true;
+            }
+            catch (Exception ex) when (ex is ChannelClosedException or InvalidOperationException)
+            {
+                logger.LogDebug(ex, "dropping received packet because the control channel is closed");
+            }
+            finally
+            {
+                if (!queued)
+                    command.MemoryOwner?.Dispose();
             }
         }
 

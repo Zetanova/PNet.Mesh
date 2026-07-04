@@ -118,7 +118,7 @@ namespace PNet.Mesh.Tun
                             var channel = await peer.GetChannelAsync(_server, cancellationToken);
                             var transferOwner = memoryOwner!;
                             memoryOwner = null;
-                            await channel.EnqueueUnreliableWriteAsync(queuedPacket.Payload, transferOwner, cancellationToken);
+                            await channel.EnqueueUnreliableIpPacketAsync(queuedPacket.Payload, transferOwner, cancellationToken);
                         }
                         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                         {

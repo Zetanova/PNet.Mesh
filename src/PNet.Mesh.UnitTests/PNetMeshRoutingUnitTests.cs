@@ -3324,6 +3324,34 @@ namespace PNet.Actor.UnitTests.Mesh
         }
 
         [Fact]
+        public async Task channel_enqueue_owned_ip_packet_queues_raw_frame_command()
+        {
+            using var channel = new PNetMeshChannel();
+            var packet = PNetMeshIpPacket.CreateIPv4(
+                IPAddress.Parse("10.80.0.1"),
+                IPAddress.Parse("10.80.0.2"),
+                new byte[] { 1, 2, 3, 4 },
+                protocol: 17);
+            var owner = new TrackingMemoryOwner(packet.Length + 12);
+            packet.CopyTo(owner.Memory.Span.Slice(4));
+
+            await channel.EnqueueUnreliableIpPacketAsync(
+                owner.Memory.Slice(4, packet.Length + 4),
+                owner,
+                TestContext.Current.CancellationToken);
+
+            Assert.True(GetControlChannel(channel).Reader.TryRead(out var command));
+            var rawFrame = Assert.IsType<PNetMeshChannelCommands.RawFrame>(command);
+
+            Assert.Same(owner, rawFrame.MemoryOwner);
+            Assert.Equal(packet, rawFrame.Payload.ToArray());
+            Assert.Equal(0, owner.DisposeCount);
+
+            DisposeRequired(rawFrame.MemoryOwner);
+            Assert.Equal(1, owner.DisposeCount);
+        }
+
+        [Fact]
         public async Task channel_enqueue_owned_write_disposes_owner_after_send()
         {
             using var senderKey = KeyPair.Generate();
@@ -3368,6 +3396,96 @@ namespace PNet.Actor.UnitTests.Mesh
             AssertPayload(receiverChannels.Inbound, "original");
             Assert.True(SpinWait.SpinUntil(() => owner.DisposeCount == 1, TimeSpan.FromSeconds(2)));
             Assert.True(owner.IsCleared);
+        }
+
+        [Fact]
+        public async Task channel_enqueue_owned_ip_packet_sends_raw_frame_without_protobuf_packet()
+        {
+            using var senderKey = KeyPair.Generate();
+            using var receiverKey = KeyPair.Generate();
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            var senderProtocol = new PNetMeshProtocol(senderKey.PrivateKey, senderKey.PublicKey, psk);
+            var receiverProtocol = new PNetMeshProtocol(receiverKey.PrivateKey, receiverKey.PublicKey, psk);
+
+            var senderOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+            var receiverOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+
+            using var sender = new PNetMeshSession(senderProtocol, senderOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 24525),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 24526)
+            };
+            using var receiver = new PNetMeshSession(receiverProtocol, receiverOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 24526),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 24525)
+            };
+
+            var receiverChannels = AttachSession(receiver);
+            OpenSessionPair(sender, receiver, senderOutbound, receiverOutbound, receiverKey.PublicKey);
+
+            using var channel = new PNetMeshChannel();
+            channel.AddSession(sender);
+            var packet = PNetMeshIpPacket.CreateIPv4(
+                IPAddress.Parse("10.80.0.1"),
+                IPAddress.Parse("10.80.0.2"),
+                new byte[] { 1, 2, 3, 4 },
+                protocol: 17);
+            var firstOwner = new TrackingMemoryOwner(packet.Length);
+            packet.CopyTo(firstOwner.Memory.Span);
+
+            await channel.EnqueueUnreliableIpPacketAsync(
+                firstOwner.Memory.Slice(0, packet.Length),
+                firstOwner,
+                TestContext.Current.CancellationToken);
+
+            var firstEncrypted = await ReadPacketAsync(senderOutbound);
+            try
+            {
+                var plaintext = new byte[firstEncrypted.MemoryBuffer.Length];
+                Assert.True(GetTransport(receiver).TryReadPlaintext(
+                    firstEncrypted.MemoryBuffer.Span,
+                    plaintext,
+                    out var decrypted));
+                Assert.True(PNetMeshPayloadFraming.TryRead(
+                    plaintext.AsSpan(0, decrypted.BytesWritten),
+                    out var frame,
+                    out var error));
+                Assert.Equal(PNetMeshPayloadFrameError.None, error);
+                Assert.Equal(PNetMeshPayloadFrameKind.IPv4, frame.Kind);
+                Assert.Equal(packet, frame.Frame.ToArray());
+            }
+            finally
+            {
+                DisposeRequired(firstEncrypted.MemoryOwner);
+            }
+
+            Assert.True(SpinWait.SpinUntil(() => firstOwner.DisposeCount == 1, TimeSpan.FromSeconds(2)));
+            Assert.True(firstOwner.IsCleared);
+
+            var secondOwner = new TrackingMemoryOwner(packet.Length);
+            packet.CopyTo(secondOwner.Memory.Span);
+            await channel.EnqueueUnreliableIpPacketAsync(
+                secondOwner.Memory.Slice(0, packet.Length),
+                secondOwner,
+                TestContext.Current.CancellationToken);
+
+            var secondEncrypted = await ReadPacketAsync(senderOutbound);
+            try
+            {
+                Assert.True(receiver.TryReadMessage(secondEncrypted.MemoryBuffer.Span));
+                Assert.True(receiverChannels.Inbound.Reader.TryRead(out var received));
+                Assert.Equal(packet, received.ToArray());
+            }
+            finally
+            {
+                DisposeRequired(secondEncrypted.MemoryOwner);
+            }
+
+            Assert.True(SpinWait.SpinUntil(() => secondOwner.DisposeCount == 1, TimeSpan.FromSeconds(2)));
+            Assert.True(secondOwner.IsCleared);
         }
 
         [Fact]

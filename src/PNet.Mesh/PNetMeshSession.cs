@@ -36,6 +36,21 @@ namespace PNet.Mesh
             public ReadOnlyMemory<byte> OutOfOrder { get; init; }
         }
 
+        sealed class RawIpFrameHandler : IPNetMeshFrameHandler
+        {
+            readonly PNetMeshSession _session;
+
+            public RawIpFrameHandler(PNetMeshSession session)
+            {
+                _session = session;
+            }
+
+            public bool TryHandleFrame(ReadOnlySpan<byte> frame, ulong counter, out bool payloadReceived)
+            {
+                return _session.TryHandleRawIpFrame(frame, out payloadReceived);
+            }
+        }
+
         readonly PNetMeshProtocol _protocol;
 
         readonly ChannelWriter<PNetMeshOutboundMessages.Message> _outboundWriter;
@@ -297,7 +312,11 @@ namespace PNet.Mesh
             _outboundWriter = writer;
             _logger = logger ?? NullLogger<PNetMeshSession>.Instance;
             _retransBuffer = new PNetMeshPacketBuffer();
-            _frameDispatcher = new PNetMeshFrameDispatcher(new PNetMeshReliableControlSession(this));
+            var rawIpFrames = new RawIpFrameHandler(this);
+            _frameDispatcher = new PNetMeshFrameDispatcher(
+                pnetFrameHandler: new PNetMeshReliableControlSession(this),
+                ipv4FrameHandler: rawIpFrames,
+                ipv6FrameHandler: rawIpFrames);
         }
 
         public void Dispose()
@@ -588,6 +607,65 @@ namespace PNet.Mesh
             finally
             {
                 CompleteOpenPacketResults(results, resultException);
+            }
+        }
+
+        internal void WriteRawFrame(ReadOnlySpan<byte> frame, TaskCompletionSource? result)
+        {
+            try
+            {
+                lock (_sessionOwnerLock)
+                {
+                    var frameLength = GetRawIpFrameLength(frame, nameof(frame));
+                    WriteRawFrame(frame.Slice(0, frameLength));
+                }
+
+                result?.TrySetResult();
+            }
+            catch (Exception ex)
+            {
+                result?.TrySetException(ex);
+                throw;
+            }
+        }
+
+        void WriteRawFrame(ReadOnlySpan<byte> frame)
+        {
+            ThrowIfDisposing();
+            if (_status != PNetMeshSessionStatus.Open)
+                throw new InvalidOperationException("session not open");
+
+            TryGetDirectProbeEndpointCore(DateTimeOffset.UtcNow, out var directProbeEndPoint);
+            var bufferOwner = MemoryPool<byte>.Shared.Rent(PNetMeshSecureFrameSession.CalculatePacketSize(frame.Length));
+            try
+            {
+                var buffer = bufferOwner.Memory;
+                if (!SecureFrames.TryWriteFrame(frame, buffer.Span, out var byteWritten, out var counter))
+                    throw new InvalidOperationException("Unable to write secure frame.");
+
+                var item = new PNetMeshOutboundMessages.Packet
+                {
+                    MemoryOwner = bufferOwner,
+                    MemoryBuffer = buffer.Slice(0, byteWritten),
+                    LocalEndPoint = _localEndPoint,
+                    LocalAddress = LocalAddress,
+                    RemoteEndPoint = _remoteEndPoint,
+                    RemoteAddress = RemoteAddress
+                };
+
+                TryWriteDirectProbe(item.MemoryBuffer, directProbeEndPoint);
+
+                if (!_outboundWriter.TryWrite(item))
+                {
+                    _ = WriteOutboundPacketAsync(_outboundWriter, item, _logger);
+                }
+
+                _retransBuffer.AddUntracked(counter);
+                bufferOwner = null;
+            }
+            finally
+            {
+                bufferOwner?.Dispose();
             }
         }
 
@@ -1167,6 +1245,19 @@ namespace PNet.Mesh
                 out _);
         }
 
+        bool TryHandleRawIpFrame(ReadOnlySpan<byte> frame, out bool payloadReceived)
+        {
+            payloadReceived = false;
+            var frameLength = GetRawIpFrameLength(frame, nameof(frame));
+            var packet = frame.Slice(0, frameLength).ToArray();
+
+            if (_inboundWriter is null || !_inboundWriter.TryWrite(packet))
+                return false;
+
+            payloadReceived = true;
+            return true;
+        }
+
         bool IPNetMeshReliableControlPacketHandler.TryHandlePacket(Protos.Packet packet, ulong counter, out bool payloadReceived)
         {
             payloadReceived = false;
@@ -1400,6 +1491,39 @@ namespace PNet.Mesh
         static bool HasPayload(Protos.Packet packet)
         {
             return packet.Payload.Count > 0;
+        }
+
+        static int GetRawIpFrameLength(ReadOnlySpan<byte> frame, string paramName)
+        {
+            if (!PNetMeshPayloadFraming.TryRead(frame, out var payloadFrame, out _)
+                || (payloadFrame.Kind != PNetMeshPayloadFrameKind.IPv4 && payloadFrame.Kind != PNetMeshPayloadFrameKind.IPv6))
+            {
+                throw new ArgumentException("Frame must be a valid IPv4 or IPv6 packet.", paramName);
+            }
+
+            return payloadFrame.TotalLength;
+        }
+
+        static async Task WriteOutboundPacketAsync(
+            ChannelWriter<PNetMeshOutboundMessages.Message> writer,
+            PNetMeshOutboundMessages.Packet packet,
+            ILogger logger)
+        {
+            var queued = false;
+            try
+            {
+                await writer.WriteAsync(packet);
+                queued = true;
+            }
+            catch (Exception ex) when (ex is ChannelClosedException or InvalidOperationException)
+            {
+                logger.LogDebug(ex, "dropping raw frame because the outbound channel is closed");
+            }
+            finally
+            {
+                if (!queued)
+                    packet.MemoryOwner?.Dispose();
+            }
         }
 
         void ProcessAck(Protos.Packet packet)

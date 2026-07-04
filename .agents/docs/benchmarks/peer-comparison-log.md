@@ -1,7 +1,7 @@
 ---
 last-entry: 2026-07-04
 last-refined: 2026-07-03
-last-artifact: artifacts/benchmarks/no-verbose-rerun-20260704T165823Z/tun-comparison/comparison.json
+last-artifact: artifacts/benchmarks/raw-ip-tun-20260704T192514Z/tun-comparison/comparison.json
 ---
 
 # Peer Comparison Log
@@ -10,6 +10,13 @@ Compact index of project-vs-peer benchmark results. Detailed setup and caveats s
 
 | Date | Scenario | Metric | Direction | Project | Peer | Ratio/Delta | Result | Evidence |
 |------|----------|--------|-----------|---------|------|-------------|--------|----------|
+| 2026-07-04 | tun-control-1k-raw-ip-20ping | IPv4 ping avg latency | lower | 1.977 ms | 0.986 ms | 2.01x higher | worse | `artifacts/benchmarks/raw-ip-tun-20260704T192514Z/tun-comparison/comparison.json` |
+| 2026-07-04 | tun-control-1k-raw-ip-20ping | IPv6 ping avg latency | lower | 2.125 ms | 0.900 ms | 2.36x higher | worse | `artifacts/benchmarks/raw-ip-tun-20260704T192514Z/tun-comparison/comparison.json` |
+| 2026-07-04 | tun-control-1k-raw-ip-20ping | IPv4/IPv6 packet loss | lower | 0% | 0% | tied | neutral | `artifacts/benchmarks/raw-ip-tun-20260704T192514Z/tun-comparison/comparison.json` |
+| 2026-07-04 | tun-control-1k-raw-ip-20ping | IPv4/IPv6 iperf throughput | higher | 1.023 Kbit/s | 1.024 Kbit/s | capped parity | neutral | `artifacts/benchmarks/raw-ip-tun-20260704T192514Z/tun-comparison/comparison.json` |
+| 2026-07-04 | tun-control-1k-raw-ip-20ping | RSS | lower | 143.0 MB | 13.1 MB | 10.91x higher | worse | `artifacts/benchmarks/raw-ip-tun-20260704T192514Z/tun-comparison/comparison.json` |
+| 2026-07-04 | tun-control-1k-raw-ip-20ping | Threads | lower | 36 | 26 | 1.38x higher | worse | `artifacts/benchmarks/raw-ip-tun-20260704T192514Z/tun-comparison/comparison.json` |
+| 2026-07-04 | tun-control-1k-raw-ip-20ping | CPU ticks | lower | 376 | 22 | 17.09x higher | worse | `artifacts/benchmarks/raw-ip-tun-20260704T192514Z/tun-comparison/comparison.json` |
 | 2026-07-04 | tun-control-1k-no-verbose-20ping | IPv4 ping avg latency | lower | 1.950 ms | 1.085 ms | 1.80x higher | worse | `artifacts/benchmarks/no-verbose-rerun-20260704T165823Z/tun-comparison/comparison.json` |
 | 2026-07-04 | tun-control-1k-no-verbose-20ping | IPv6 ping avg latency | lower | 1.712 ms | 0.899 ms | 1.90x higher | worse | `artifacts/benchmarks/no-verbose-rerun-20260704T165823Z/tun-comparison/comparison.json` |
 | 2026-07-04 | tun-control-1k-no-verbose-20ping | IPv4/IPv6 packet loss | lower | 0% | 0% | tied | neutral | `artifacts/benchmarks/no-verbose-rerun-20260704T165823Z/tun-comparison/comparison.json` |
