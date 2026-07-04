@@ -1,4 +1,4 @@
-﻿using Noise;
+﻿using KeyPair = PNet.Mesh.PNetMeshKeyPair;
 using System.Net;
 using System.Threading.Channels;
 

@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <NoWarn>$(NoWarn);CS8981</NoWarn>
   </PropertyGroup>
 
@@ -10,8 +11,8 @@
     <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
     <PackageReference Include="CommunityToolkit.HighPerformance" Version="8.4.2" />
     <PackageReference Include="Google.Protobuf" Version="3.35.1" />
+    <PackageReference Include="libsodium" Version="1.0.22" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.9" />
-    <PackageReference Include="Noise.NET" Version="1.0.0" />
     <PackageReference Include="NSec.Cryptography" Version="26.4.0" />
   </ItemGroup>
 

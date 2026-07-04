@@ -1,4 +1,4 @@
-﻿using Noise;
+﻿using KeyPair = PNet.Mesh.PNetMeshKeyPair;
 using PNet.Mesh;
 using System;
 using System.Linq;
@@ -145,6 +145,87 @@ namespace PNet.Actor.UnitTests.Mesh
 
             Assert.True(responderTransport.TryReadMessage(buffer1.Slice(0, bytesWritten), buffer2, out _, out var receivedCounter));
             Assert.Equal(receivedCounter, responderKeypair.LastReceivedCounter);
+        }
+
+        [Fact]
+        public void wireguard_transport_write_rejects_keypair_after_rekey_message_threshold()
+        {
+            var buffer1 = new byte[4098];
+            var buffer2 = new byte[4098];
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            using var initiatorStatic = KeyPair.Generate();
+            using var responderStatic = KeyPair.Generate();
+
+            var initiatorProtocol = new PNetMeshProtocol(
+                initiatorStatic.PrivateKey,
+                initiatorStatic.PublicKey,
+                psk);
+            var responderProtocol = new PNetMeshProtocol(
+                responderStatic.PrivateKey,
+                responderStatic.PublicKey,
+                psk);
+
+            using var initiator = initiatorProtocol.CreateInitiator(1, responderStatic.PublicKey);
+            using var responder = responderProtocol.CreateResponder(2);
+
+            initiator.WriteInitiationMessage(buffer1, out var bytesWritten);
+            Assert.True(responder.TryReadInitiationMessage(buffer1.AsSpan(0, bytesWritten)));
+            Assert.True(responder.TryWriteResponseMessage(buffer2, out bytesWritten, out var responderTransport));
+            using (responderTransport)
+            {
+                Assert.True(initiator.TryReadResponseMessage(buffer2.AsSpan(0, bytesWritten), out var initiatorTransport));
+                using (initiatorTransport)
+                {
+                    Assert.NotNull(initiatorTransport.WireGuardKeypair);
+                    initiatorTransport.WireGuardKeypair.RecordSentCounter(PNetMeshWireGuardLifecycle.RekeyAfterMessages);
+
+                    Assert.Throws<InvalidOperationException>(
+                        () => initiatorTransport.WriteMessage(new byte[] { 1, 2, 3 }, buffer1, out _, out _));
+                }
+            }
+        }
+
+        [Fact]
+        public void wireguard_transport_read_rejects_keypair_after_reject_message_threshold()
+        {
+            var buffer1 = new byte[4098];
+            var buffer2 = new byte[4098];
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            using var initiatorStatic = KeyPair.Generate();
+            using var responderStatic = KeyPair.Generate();
+
+            var initiatorProtocol = new PNetMeshProtocol(
+                initiatorStatic.PrivateKey,
+                initiatorStatic.PublicKey,
+                psk);
+            var responderProtocol = new PNetMeshProtocol(
+                responderStatic.PrivateKey,
+                responderStatic.PublicKey,
+                psk);
+
+            using var initiator = initiatorProtocol.CreateInitiator(1, responderStatic.PublicKey);
+            using var responder = responderProtocol.CreateResponder(2);
+
+            initiator.WriteInitiationMessage(buffer1, out var bytesWritten);
+            Assert.True(responder.TryReadInitiationMessage(buffer1.AsSpan(0, bytesWritten)));
+            Assert.True(responder.TryWriteResponseMessage(buffer2, out bytesWritten, out var responderTransport));
+            using (responderTransport)
+            {
+                Assert.True(initiator.TryReadResponseMessage(buffer2.AsSpan(0, bytesWritten), out var initiatorTransport));
+                using (initiatorTransport)
+                {
+                    initiatorTransport.WriteMessage(new byte[] { 1, 2, 3 }, buffer1, out bytesWritten, out _);
+
+                    Assert.NotNull(responderTransport.WireGuardKeypair);
+                    responderTransport.WireGuardKeypair.RecordReceivedCounter(PNetMeshWireGuardLifecycle.RejectAfterMessages);
+
+                    Assert.False(responderTransport.TryReadMessage(buffer1.AsSpan(0, bytesWritten), buffer2, out _, out _));
+                }
+            }
         }
     }
 }

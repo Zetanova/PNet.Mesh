@@ -1,4 +1,4 @@
-﻿using Noise;
+﻿using KeyPair = PNet.Mesh.PNetMeshKeyPair;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;

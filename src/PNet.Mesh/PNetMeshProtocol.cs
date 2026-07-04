@@ -1,15 +1,12 @@
-﻿using Noise;
-using Org.BouncyCastle.Crypto.Digests;
+﻿using Org.BouncyCastle.Crypto.Digests;
 using System;
 using System.Buffers;
 using System.Buffers.Binary;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
-using CryptographicException = System.Security.Cryptography.CryptographicException;
 
 namespace PNet.Mesh
 {
@@ -96,13 +93,15 @@ namespace PNet.Mesh
         readonly byte[] _localStaticPrivKey;
         readonly byte[] _localStaticPubKey;
 
-        readonly byte[][]? _psk;
+        readonly byte[] _psk;
 
         readonly byte[] _mac1KeyBytes;
 
         PNetMeshCookie _cookie = PNetMeshCookie.Empty;
 
         public string ProtocolName => _profile.ProtocolName;
+
+        internal byte[] ProtocolNameBytes => _profile.ProtocolNameBytes;
 
         public ReadOnlySpan<byte> Prologue => _profile.Prologue;
 
@@ -143,8 +142,15 @@ namespace PNet.Mesh
             byte[]? psk = null)
         {
             _localStaticPrivKey = localStaticPrivKey ?? throw new ArgumentNullException(nameof(localStaticPrivKey));
-            _localStaticPubKey = localStaticPubKey ?? throw new ArgumentNullException(nameof(localStaticPrivKey));
-            _psk = psk != null ? new byte[][] { psk } : null;
+            _localStaticPubKey = localStaticPubKey ?? throw new ArgumentNullException(nameof(localStaticPubKey));
+            if (_localStaticPrivKey.Length != PNetMeshLibSodium.X25519KeySize)
+                throw new ArgumentOutOfRangeException(nameof(localStaticPrivKey));
+            if (_localStaticPubKey.Length != PNetMeshLibSodium.X25519KeySize)
+                throw new ArgumentOutOfRangeException(nameof(localStaticPubKey));
+            if (psk != null && psk.Length != 32)
+                throw new ArgumentOutOfRangeException(nameof(psk));
+
+            _psk = psk != null ? (byte[])psk.Clone() : new byte[32];
 
             //init mac1 hash
             //mac1 = MAC(HASH(LABEL_MAC1 || responder.static_public), msg[0:offsetof(msg.mac1)])
@@ -183,22 +189,22 @@ namespace PNet.Mesh
                     when payload.Length == _profile.HandshakeInitiationMessageSize:
 
                     ComputeMac(_mac1KeyBytes, payload[0..^32], mac);
-                    if (!payload[^32..^16].SequenceEqual(mac))
+                    if (!CryptographicOperations.FixedTimeEquals(payload[^32..^16], mac))
                         return false;
                     if (!_cookie.IsValid)
                         return true;
                     ComputeMac(_cookie.Value, payload[0..^16], mac);
-                    return payload[^16..].SequenceEqual(mac);
+                    return CryptographicOperations.FixedTimeEquals(payload[^16..], mac);
                 case PNetMeshMessageType.HandshakeResponse
                     when payload.Length == PNetMeshHandshake.ResponseMessageSize:
 
                     ComputeMac(_mac1KeyBytes, payload[0..^32], mac);
-                    if (!payload[^32..^16].SequenceEqual(mac))
+                    if (!CryptographicOperations.FixedTimeEquals(payload[^32..^16], mac))
                         return false;
                     if (!_cookie.IsValid)
                         return true;
                     ComputeMac(_cookie.Value, payload[0..^16], mac);
-                    return payload[^16..].SequenceEqual(mac);
+                    return CryptographicOperations.FixedTimeEquals(payload[^16..], mac);
                 case PNetMeshMessageType.PacketCookieReply:
                     return payload.Length == PNetMeshPacketFraming.CookieReplyMessageSize;
                 default:
@@ -238,7 +244,7 @@ namespace PNet.Mesh
 
             Span<byte> mac = stackalloc byte[16];
             ComputeMac(_mac1KeyBytes, payload[..mac1Offset], mac);
-            return payload[mac1Offset..mac2Offset].SequenceEqual(mac);
+            return CryptographicOperations.FixedTimeEquals(payload[mac1Offset..mac2Offset], mac);
         }
 
         internal bool TryValidatePacketMac2(ReadOnlySpan<byte> payload, PNetMeshCookie cookie)
@@ -248,7 +254,7 @@ namespace PNet.Mesh
 
             Span<byte> mac = stackalloc byte[16];
             ComputeMac(cookie.Value, payload[..mac2Offset], mac);
-            return payload[mac2Offset..(mac2Offset + 16)].SequenceEqual(mac);
+            return CryptographicOperations.FixedTimeEquals(payload[mac2Offset..(mac2Offset + 16)], mac);
         }
 
         public void GetCookieMac(ReadOnlySpan<byte> payload, Span<byte> mac)
@@ -281,9 +287,17 @@ namespace PNet.Mesh
 
         public PNetMeshHandshake Create(uint senderIndex, bool initiator, byte[]? remoteStaticPubKey)
         {
-            var handshake = _profile.Protocol.Create(initiator, _profile.Prologue, _localStaticPrivKey, remoteStaticPubKey!, _psk);
+            if (initiator && (remoteStaticPubKey == null || remoteStaticPubKey.Length != PNetMeshLibSodium.X25519KeySize))
+                throw new ArgumentOutOfRangeException(nameof(remoteStaticPubKey));
 
-            return new PNetMeshHandshake(this, senderIndex, _localStaticPubKey, handshake);
+            return new PNetMeshHandshake(
+                this,
+                senderIndex,
+                _localStaticPrivKey,
+                _localStaticPubKey,
+                initiator,
+                remoteStaticPubKey,
+                _psk);
         }
 
         public PNetMeshHandshake CreateInitiator(uint senderIndex, byte[] remoteStaticPubKey)
@@ -345,7 +359,7 @@ namespace PNet.Mesh
             return output;
         }
 
-        void ComputeHash(ReadOnlySpan<byte> payload, Span<byte> hash)
+        internal void ComputeHash(ReadOnlySpan<byte> payload, Span<byte> hash)
         {
             var digest = new Blake2sDigest(hash.Length * 8);
             digest.BlockUpdate(payload);
@@ -362,9 +376,21 @@ namespace PNet.Mesh
             ComputeMac(key, payload, mac);
         }
 
+        internal void ComputeKeyedMac(ReadOnlySpan<byte> key, ReadOnlySpan<byte> payload, Span<byte> mac)
+        {
+            ComputeMac(key, payload, mac);
+        }
+
         void ComputeMac(byte[] key, ReadOnlySpan<byte> payload, Span<byte> mac)
         {
             var digest = new Blake2sDigest(key, mac.Length, null, null);
+            digest.BlockUpdate(payload);
+            digest.DoFinal(mac);
+        }
+
+        void ComputeMac(ReadOnlySpan<byte> key, ReadOnlySpan<byte> payload, Span<byte> mac)
+        {
+            var digest = new Blake2sDigest(key.ToArray(), mac.Length, null, null);
             digest.BlockUpdate(payload);
             digest.DoFinal(mac);
         }
@@ -379,17 +405,17 @@ namespace PNet.Mesh
             int handshakeInitiationTimestampSize)
         {
             ProtocolName = protocolName;
+            ProtocolNameBytes = Encoding.UTF8.GetBytes(protocolName);
             Prologue = Encoding.UTF8.GetBytes(prologue);
-            Protocol = Protocol.Parse(protocolName);
             HandshakeInitiationMessageSize = handshakeInitiationMessageSize;
             HandshakeInitiationTimestampSize = handshakeInitiationTimestampSize;
         }
 
         public string ProtocolName { get; }
 
-        public byte[] Prologue { get; }
+        public byte[] ProtocolNameBytes { get; }
 
-        public Protocol Protocol { get; }
+        public byte[] Prologue { get; }
 
         public int HandshakeInitiationMessageSize { get; }
 
@@ -534,8 +560,6 @@ namespace PNet.Mesh
 
     public sealed class PNetMeshHandshake : IDisposable
     {
-        readonly static TimeSpan CookieTimeout = TimeSpan.FromMinutes(2);
-
         //public const int MinBufferSize = 116;
 
         public const int WireGuardInitiationMessageSize = 148;
@@ -548,9 +572,23 @@ namespace PNet.Mesh
 
         readonly uint _senderIndex;
 
+        readonly byte[] _localStaticPrivKey;
+
         readonly byte[] _localStaticPubKey;
 
-        readonly HandshakeState _handshake;
+        readonly byte[] _psk;
+
+        readonly byte[] _chainingKey = new byte[32];
+
+        readonly byte[] _hash = new byte[32];
+
+        readonly Blake2sDigest _hashDigest = new Blake2sDigest(256);
+
+        byte[]? _localEphemeralPrivKey;
+
+        byte[]? _localEphemeralPubKey;
+
+        byte[]? _remoteEphemeralPubKey;
 
         public byte[] LocalPublicKey => _localStaticPubKey;
 
@@ -562,12 +600,25 @@ namespace PNet.Mesh
 
         uint _receiverIndex;
 
-        public PNetMeshHandshake(PNetMeshProtocol protocol, uint senderIndex, byte[] localStaticPubKey, HandshakeState handshake)
+        public PNetMeshHandshake(
+            PNetMeshProtocol protocol,
+            uint senderIndex,
+            byte[] localStaticPrivKey,
+            byte[] localStaticPubKey,
+            bool initiator,
+            byte[]? remoteStaticPubKey,
+            byte[] psk)
         {
-            _protocol = protocol;
+            _protocol = protocol ?? throw new ArgumentNullException(nameof(protocol));
             _senderIndex = senderIndex;
-            _localStaticPubKey = localStaticPubKey;
-            _handshake = handshake;
+            _localStaticPrivKey = localStaticPrivKey ?? throw new ArgumentNullException(nameof(localStaticPrivKey));
+            _localStaticPubKey = localStaticPubKey ?? throw new ArgumentNullException(nameof(localStaticPubKey));
+            _psk = psk ?? throw new ArgumentNullException(nameof(psk));
+
+            if (initiator)
+                RemotePublicKey = (byte[])remoteStaticPubKey!.Clone();
+
+            InitializeSymmetricState(initiator ? RemotePublicKey : _localStaticPubKey);
         }
 
         public void WriteInitiationMessage(Span<byte> buffer, out int bytesWritten)
@@ -575,35 +626,19 @@ namespace PNet.Mesh
             var initiationMessageSize = _protocol.HandshakeInitiationMessageSize;
             if (buffer.Length < initiationMessageSize) throw new ArgumentOutOfRangeException(nameof(buffer));
 
-            /* 
-           msg = handshake_initiation {
-           u8 message_type
-           u8 reserved_zero[3]
-           u32 sender_index
-           u8 unencrypted_ephemeral[32]
-           u8 encrypted_static[AEAD_LEN(32)]
-           u8 encrypted_timestamp[AEAD_LEN(8)]
-           u8 mac1[16]
-           u8 mac2[16]
-           }
-            */
-
             PNetMeshPacketFraming.WriteMessageType(buffer, PNetMeshMessageType.HandshakeInitiation);
-
             BinaryPrimitives.WriteUInt32LittleEndian(buffer[4..8], _senderIndex);
 
-            //cipher and payload
-            Span<byte> temp = stackalloc byte[_protocol.HandshakeInitiationTimestampSize];
-
-            _protocol.WriteInitiationTimestamp(temp);
+            Span<byte> timestamp = stackalloc byte[_protocol.HandshakeInitiationTimestampSize];
+            _protocol.WriteInitiationTimestamp(timestamp);
 
             var mac1Offset = _protocol.HandshakeInitiationMac1Offset;
             var mac2Offset = _protocol.HandshakeInitiationMac2Offset;
-            bytesWritten = _handshake.WriteMessage(temp, buffer[8..mac1Offset]).BytesWritten;
+            bytesWritten = WriteInitiationPayload(timestamp, buffer[8..mac1Offset]);
             Debug.Assert(bytesWritten == mac1Offset - 8);
 
-            _protocol.GetPacketMac(_handshake.RemoteStaticPublicKey, buffer[0..mac1Offset], buffer[mac1Offset..mac2Offset]);
-            _protocol.GetCookieMac(buffer[0..mac2Offset], buffer[mac2Offset..initiationMessageSize]); //todo set cookie
+            _protocol.GetPacketMac(RemotePublicKey, buffer[0..mac1Offset], buffer[mac1Offset..mac2Offset]);
+            _protocol.GetCookieMac(buffer[0..mac2Offset], buffer[mac2Offset..initiationMessageSize]);
 
             bytesWritten = initiationMessageSize;
         }
@@ -617,26 +652,14 @@ namespace PNet.Mesh
                 || messageType != PNetMeshMessageType.HandshakeInitiation)
                 throw new InvalidOperationException("invalid message type");
 
-            //timestamp
-            Span<byte> temp = stackalloc byte[_protocol.HandshakeInitiationTimestampSize];
-            int c;
-            try
-            {
-                (c, _, _) = _handshake.ReadMessage(payload[8.._protocol.HandshakeInitiationMac1Offset], temp);
-            }
-            catch (CryptographicException)
-            {
-                return false;
-            }
-
-            if (c != _protocol.HandshakeInitiationTimestampSize)
+            Span<byte> timestamp = stackalloc byte[_protocol.HandshakeInitiationTimestampSize];
+            if (!TryReadInitiationPayload(payload[8.._protocol.HandshakeInitiationMac1Offset], timestamp))
                 return false;
 
-            RemotePublicKey = _handshake.RemoteStaticPublicKey.ToArray();
             _receiverIndex = BinaryPrimitives.ReadUInt32LittleEndian(payload[4..8]);
-            Timestamp = _protocol.ReadInitiationTimestamp(temp);
+            Timestamp = _protocol.ReadInitiationTimestamp(timestamp);
 
-            return _protocol.TryAddHandshakeInitiationTimestamp(RemotePublicKey, temp);
+            return _protocol.TryAddHandshakeInitiationTimestamp(RemotePublicKey, timestamp);
         }
 
         public bool TryWriteResponseMessage(Span<byte> buffer, out int bytesWritten, [NotNullWhen(true)] out PNetMeshTransport2? transport)
@@ -649,37 +672,21 @@ namespace PNet.Mesh
             bytesWritten = 0;
             transport = null;
 
-            /*
-            msg = handshake_response {
-            u8 message_type
-            u8 reserved_zero[3]
-            u32 sender_index
-            u32 receiver_index
-            u8 unencrypted_ephemeral[32]
-            u8 encrypted_nothing[AEAD_LEN(0)]
-            u8 mac1[16]
-            u8 mac2[16]
-            }
-            */
-
             PNetMeshPacketFraming.WriteMessageType(buffer, PNetMeshMessageType.HandshakeResponse);
             BinaryPrimitives.WriteUInt32LittleEndian(buffer[4..8], _senderIndex);
             BinaryPrimitives.WriteUInt32LittleEndian(buffer[8..12], _receiverIndex);
 
-            var (c, _, t) = _handshake.WriteMessage(default, buffer[12..60]);
-            Debug.Assert(c == 48);
-
-            if (t == null)
+            Span<byte> writeKey = stackalloc byte[32];
+            Span<byte> readKey = stackalloc byte[32];
+            if (!TryWriteResponsePayload(buffer[12..60], writeKey, readKey))
                 return false;
 
-            //mac1 = MAC(HASH(LABEL_MAC1 || initiator.static_public), msg[0:offsetof(msg.mac1)])
-            _protocol.GetPacketMac(_handshake.RemoteStaticPublicKey, buffer[0..60], buffer[60..76]);
+            _protocol.GetPacketMac(RemotePublicKey, buffer[0..60], buffer[60..76]);
             _protocol.GetCookieMac(buffer[0..76], buffer[76..92]);
 
-            transport = new PNetMeshTransport2(_senderIndex, _receiverIndex, t);
+            transport = new PNetMeshTransport2(_senderIndex, _receiverIndex, writeKey, readKey);
             bytesWritten = ResponseMessageSize;
 
-            RemotePublicKey = _handshake.RemoteStaticPublicKey.ToArray();
             _protocol.RegisterWireGuardKeypair(RemotePublicKey, transport, PNetMeshWireGuardKeypairRole.Responder);
 
             return true;
@@ -693,45 +700,20 @@ namespace PNet.Mesh
                 || messageType != PNetMeshMessageType.HandshakeResponse)
                 throw new InvalidOperationException("invalid message type");
 
-            /*
-            msg = handshake_response {
-            u8 message_type
-            u8 reserved_zero[3]
-            u32 sender_index
-            u32 receiver_index
-            u8 unencrypted_ephemeral[32]
-            u8 encrypted_nothing[AEAD_LEN(0)]
-            u8 mac1[16]
-            u8 mac2[16]
-            }
-            */
-
             transport = null;
 
-            //swaped
             _receiverIndex = BinaryPrimitives.ReadUInt32LittleEndian(payload[4..8]);
             var senderIndex = BinaryPrimitives.ReadUInt32LittleEndian(payload[8..12]);
 
             if (senderIndex != _senderIndex)
                 return false;
 
-            //empty payload response
-            Transport t;
-            try
-            {
-                (_, _, t) = _handshake.ReadMessage(payload[12..60], Span<byte>.Empty);
-            }
-            catch (CryptographicException)
-            {
-                return false;
-            }
-
-            if (t == null)
+            Span<byte> writeKey = stackalloc byte[32];
+            Span<byte> readKey = stackalloc byte[32];
+            if (!TryReadResponsePayload(payload[12..60], writeKey, readKey))
                 return false;
 
-            transport = new PNetMeshTransport2(_senderIndex, _receiverIndex, t);
-
-            RemotePublicKey = _handshake.RemoteStaticPublicKey.ToArray();
+            transport = new PNetMeshTransport2(_senderIndex, _receiverIndex, writeKey, readKey);
             _protocol.RegisterWireGuardKeypair(RemotePublicKey, transport, PNetMeshWireGuardKeypairRole.Initiator);
 
             return true;
@@ -739,7 +721,319 @@ namespace PNet.Mesh
 
         public void Dispose()
         {
-            _handshake.Dispose();
+            if (_localEphemeralPrivKey != null)
+                CryptographicOperations.ZeroMemory(_localEphemeralPrivKey);
+            if (_localEphemeralPubKey != null)
+                CryptographicOperations.ZeroMemory(_localEphemeralPubKey);
+            if (_remoteEphemeralPubKey != null)
+                CryptographicOperations.ZeroMemory(_remoteEphemeralPubKey);
+            CryptographicOperations.ZeroMemory(_chainingKey);
+            CryptographicOperations.ZeroMemory(_hash);
+        }
+
+        int WriteInitiationPayload(ReadOnlySpan<byte> timestamp, Span<byte> destination)
+        {
+            if (destination.Length != 108)
+                throw new ArgumentOutOfRangeException(nameof(destination));
+            if (timestamp.Length != PNetMeshTai64n.TimestampSize)
+                throw new ArgumentOutOfRangeException(nameof(timestamp));
+
+            GenerateLocalEphemeral();
+
+            _localEphemeralPubKey!.CopyTo(destination[..32]);
+            MixKey(_localEphemeralPubKey);
+            MixHash(destination[..32]);
+
+            Span<byte> sharedSecret = stackalloc byte[32];
+            Span<byte> key = stackalloc byte[32];
+
+            if (!PNetMeshLibSodium.TryScalarMult(_localEphemeralPrivKey!, RemotePublicKey, sharedSecret))
+                throw new CryptographicException("WireGuard initiation ephemeral-static DH failed.");
+            MixKey(sharedSecret, key);
+            EncryptAndHash(key, _localStaticPubKey, destination[32..80]);
+
+            if (!PNetMeshLibSodium.TryScalarMult(_localStaticPrivKey, RemotePublicKey, sharedSecret))
+                throw new CryptographicException("WireGuard initiation static-static DH failed.");
+            MixKey(sharedSecret, key);
+            EncryptAndHash(key, timestamp, destination[80..108]);
+
+            CryptographicOperations.ZeroMemory(sharedSecret);
+            CryptographicOperations.ZeroMemory(key);
+            return destination.Length;
+        }
+
+        bool TryReadInitiationPayload(ReadOnlySpan<byte> payload, Span<byte> timestamp)
+        {
+            if (payload.Length != 108)
+                throw new ArgumentOutOfRangeException(nameof(payload));
+            if (timestamp.Length != PNetMeshTai64n.TimestampSize)
+                throw new ArgumentOutOfRangeException(nameof(timestamp));
+
+            _remoteEphemeralPubKey = payload[..32].ToArray();
+            MixKey(_remoteEphemeralPubKey);
+            MixHash(payload[..32]);
+
+            Span<byte> sharedSecret = stackalloc byte[32];
+            Span<byte> key = stackalloc byte[32];
+            Span<byte> remoteStaticPublicKey = stackalloc byte[32];
+
+            if (!PNetMeshLibSodium.TryScalarMult(_localStaticPrivKey, _remoteEphemeralPubKey, sharedSecret))
+                return false;
+            MixKey(sharedSecret, key);
+            if (!TryDecryptAndHash(key, payload[32..80], remoteStaticPublicKey))
+                return false;
+
+            RemotePublicKey = remoteStaticPublicKey.ToArray();
+
+            if (!PNetMeshLibSodium.TryScalarMult(_localStaticPrivKey, RemotePublicKey, sharedSecret))
+                return false;
+            MixKey(sharedSecret, key);
+            if (!TryDecryptAndHash(key, payload[80..108], timestamp))
+                return false;
+
+            CryptographicOperations.ZeroMemory(sharedSecret);
+            CryptographicOperations.ZeroMemory(key);
+            CryptographicOperations.ZeroMemory(remoteStaticPublicKey);
+            return true;
+        }
+
+        bool TryWriteResponsePayload(Span<byte> destination, Span<byte> writeKey, Span<byte> readKey)
+        {
+            if (destination.Length != 48)
+                throw new ArgumentOutOfRangeException(nameof(destination));
+            if (writeKey.Length != PNetMeshLibSodium.ChaCha20Poly1305IetfKeySize)
+                throw new ArgumentOutOfRangeException(nameof(writeKey));
+            if (readKey.Length != PNetMeshLibSodium.ChaCha20Poly1305IetfKeySize)
+                throw new ArgumentOutOfRangeException(nameof(readKey));
+            if (_remoteEphemeralPubKey == null || RemotePublicKey.Length != 32)
+                return false;
+
+            GenerateLocalEphemeral();
+
+            _localEphemeralPubKey!.CopyTo(destination[..32]);
+            MixKey(_localEphemeralPubKey);
+            MixHash(destination[..32]);
+
+            Span<byte> sharedSecret = stackalloc byte[32];
+            Span<byte> key = stackalloc byte[32];
+
+            if (!PNetMeshLibSodium.TryScalarMult(_localEphemeralPrivKey!, _remoteEphemeralPubKey, sharedSecret))
+                return false;
+            MixKey(sharedSecret, key);
+
+            if (!PNetMeshLibSodium.TryScalarMult(_localEphemeralPrivKey, RemotePublicKey, sharedSecret))
+                return false;
+            MixKey(sharedSecret, key);
+
+            MixKeyAndHash(_psk, key);
+            EncryptAndHash(key, ReadOnlySpan<byte>.Empty, destination[32..48]);
+
+            Split(readKey, writeKey);
+
+            CryptographicOperations.ZeroMemory(sharedSecret);
+            CryptographicOperations.ZeroMemory(key);
+            return true;
+        }
+
+        bool TryReadResponsePayload(ReadOnlySpan<byte> payload, Span<byte> writeKey, Span<byte> readKey)
+        {
+            if (payload.Length != 48)
+                throw new ArgumentOutOfRangeException(nameof(payload));
+            if (writeKey.Length != PNetMeshLibSodium.ChaCha20Poly1305IetfKeySize)
+                throw new ArgumentOutOfRangeException(nameof(writeKey));
+            if (readKey.Length != PNetMeshLibSodium.ChaCha20Poly1305IetfKeySize)
+                throw new ArgumentOutOfRangeException(nameof(readKey));
+            if (_localEphemeralPrivKey == null)
+                return false;
+
+            _remoteEphemeralPubKey = payload[..32].ToArray();
+            MixKey(_remoteEphemeralPubKey);
+            MixHash(payload[..32]);
+
+            Span<byte> sharedSecret = stackalloc byte[32];
+            Span<byte> key = stackalloc byte[32];
+
+            if (!PNetMeshLibSodium.TryScalarMult(_localEphemeralPrivKey, _remoteEphemeralPubKey, sharedSecret))
+                return false;
+            MixKey(sharedSecret, key);
+
+            if (!PNetMeshLibSodium.TryScalarMult(_localStaticPrivKey, _remoteEphemeralPubKey, sharedSecret))
+                return false;
+            MixKey(sharedSecret, key);
+
+            MixKeyAndHash(_psk, key);
+            if (!TryDecryptAndHash(key, payload[32..48], Span<byte>.Empty))
+                return false;
+
+            Split(writeKey, readKey);
+
+            CryptographicOperations.ZeroMemory(sharedSecret);
+            CryptographicOperations.ZeroMemory(key);
+            return true;
+        }
+
+        void InitializeSymmetricState(ReadOnlySpan<byte> responderStaticPublicKey)
+        {
+            ComputeHash(_protocol.ProtocolNameBytes, _chainingKey);
+            _chainingKey.CopyTo(_hash, 0);
+            MixHash(_protocol.Prologue);
+            MixHash(responderStaticPublicKey);
+        }
+
+        void GenerateLocalEphemeral()
+        {
+            PNetMeshLibSodium.GenerateKeyPair(out var privateKey, out var publicKey);
+            _localEphemeralPrivKey = privateKey;
+            _localEphemeralPubKey = publicKey;
+        }
+
+        void MixHash(ReadOnlySpan<byte> data)
+        {
+            Span<byte> input = stackalloc byte[32 + data.Length];
+            _hash.CopyTo(input[..32]);
+            data.CopyTo(input[32..]);
+            ComputeHash(input, _hash);
+        }
+
+        void MixKey(ReadOnlySpan<byte> inputKeyMaterial)
+        {
+            Span<byte> nextChainingKey = stackalloc byte[32];
+            Kdf(inputKeyMaterial, nextChainingKey);
+            nextChainingKey.CopyTo(_chainingKey);
+            CryptographicOperations.ZeroMemory(nextChainingKey);
+        }
+
+        void MixKey(ReadOnlySpan<byte> inputKeyMaterial, Span<byte> key)
+        {
+            Span<byte> nextChainingKey = stackalloc byte[32];
+            Kdf(inputKeyMaterial, nextChainingKey, key);
+            nextChainingKey.CopyTo(_chainingKey);
+            CryptographicOperations.ZeroMemory(nextChainingKey);
+        }
+
+        void MixKeyAndHash(ReadOnlySpan<byte> inputKeyMaterial, Span<byte> key)
+        {
+            Span<byte> nextChainingKey = stackalloc byte[32];
+            Span<byte> tempHash = stackalloc byte[32];
+            Kdf(inputKeyMaterial, nextChainingKey, tempHash, key);
+            nextChainingKey.CopyTo(_chainingKey);
+            MixHash(tempHash);
+            CryptographicOperations.ZeroMemory(nextChainingKey);
+            CryptographicOperations.ZeroMemory(tempHash);
+        }
+
+        void EncryptAndHash(ReadOnlySpan<byte> key, ReadOnlySpan<byte> plaintext, Span<byte> destination)
+        {
+            PNetMeshLibSodium.EncryptChaCha20Poly1305Ietf(key, 0, plaintext, _hash, destination, out var bytesWritten);
+            if (bytesWritten != plaintext.Length + PNetMeshLibSodium.ChaCha20Poly1305TagSize)
+                throw new CryptographicException("WireGuard handshake encryption wrote an unexpected length.");
+            MixHash(destination[..bytesWritten]);
+        }
+
+        bool TryDecryptAndHash(ReadOnlySpan<byte> key, ReadOnlySpan<byte> ciphertext, Span<byte> plaintext)
+        {
+            if (!PNetMeshLibSodium.TryDecryptChaCha20Poly1305Ietf(key, 0, ciphertext, _hash, plaintext, out var bytesWritten))
+                return false;
+            if (bytesWritten != plaintext.Length)
+                return false;
+            MixHash(ciphertext);
+            return true;
+        }
+
+        void Split(Span<byte> firstKey, Span<byte> secondKey)
+        {
+            if (firstKey.Length != PNetMeshLibSodium.ChaCha20Poly1305IetfKeySize)
+                throw new ArgumentOutOfRangeException(nameof(firstKey));
+            if (secondKey.Length != PNetMeshLibSodium.ChaCha20Poly1305IetfKeySize)
+                throw new ArgumentOutOfRangeException(nameof(secondKey));
+
+            Kdf(ReadOnlySpan<byte>.Empty, firstKey, secondKey);
+        }
+
+        void Kdf(ReadOnlySpan<byte> inputKeyMaterial, Span<byte> output1)
+        {
+            Span<byte> tempKey = stackalloc byte[32];
+            ComputeHmac(_chainingKey, inputKeyMaterial, tempKey);
+            Span<byte> input = stackalloc byte[1] { 1 };
+            ComputeHmac(tempKey, input, output1);
+            CryptographicOperations.ZeroMemory(tempKey);
+        }
+
+        void Kdf(ReadOnlySpan<byte> inputKeyMaterial, Span<byte> output1, Span<byte> output2)
+        {
+            Span<byte> tempKey = stackalloc byte[32];
+            ComputeHmac(_chainingKey, inputKeyMaterial, tempKey);
+
+            Span<byte> input = stackalloc byte[33];
+            input[0] = 1;
+            ComputeHmac(tempKey, input[..1], output1);
+            output1.CopyTo(input[..32]);
+            input[32] = 2;
+            ComputeHmac(tempKey, input, output2);
+
+            CryptographicOperations.ZeroMemory(tempKey);
+            CryptographicOperations.ZeroMemory(input);
+        }
+
+        void Kdf(ReadOnlySpan<byte> inputKeyMaterial, Span<byte> output1, Span<byte> output2, Span<byte> output3)
+        {
+            Span<byte> tempKey = stackalloc byte[32];
+            ComputeHmac(_chainingKey, inputKeyMaterial, tempKey);
+
+            Span<byte> input = stackalloc byte[33];
+            input[0] = 1;
+            ComputeHmac(tempKey, input[..1], output1);
+            output1.CopyTo(input[..32]);
+            input[32] = 2;
+            ComputeHmac(tempKey, input, output2);
+            output2.CopyTo(input[..32]);
+            input[32] = 3;
+            ComputeHmac(tempKey, input, output3);
+
+            CryptographicOperations.ZeroMemory(tempKey);
+            CryptographicOperations.ZeroMemory(input);
+        }
+
+        void ComputeHmac(ReadOnlySpan<byte> key, ReadOnlySpan<byte> data, Span<byte> output)
+        {
+            if (output.Length != 32)
+                throw new ArgumentOutOfRangeException(nameof(output));
+
+            Span<byte> hmacKey = stackalloc byte[64];
+            if (key.Length > 64)
+                ComputeHash(key, hmacKey[..32]);
+            else
+                key.CopyTo(hmacKey);
+
+            Span<byte> innerInput = stackalloc byte[64 + data.Length];
+            for (var i = 0; i < 64; i++)
+                innerInput[i] = 0x36;
+            for (var i = 0; i < 64; i++)
+                innerInput[i] ^= hmacKey[i];
+            data.CopyTo(innerInput[64..]);
+
+            Span<byte> innerHash = stackalloc byte[32];
+            ComputeHash(innerInput, innerHash);
+
+            Span<byte> outerInput = stackalloc byte[96];
+            for (var i = 0; i < 64; i++)
+                outerInput[i] = 0x5c;
+            for (var i = 0; i < 64; i++)
+                outerInput[i] ^= hmacKey[i];
+            innerHash.CopyTo(outerInput[64..]);
+
+            ComputeHash(outerInput, output);
+
+            CryptographicOperations.ZeroMemory(hmacKey);
+            CryptographicOperations.ZeroMemory(innerInput);
+            CryptographicOperations.ZeroMemory(innerHash);
+            CryptographicOperations.ZeroMemory(outerInput);
+        }
+
+        void ComputeHash(ReadOnlySpan<byte> payload, Span<byte> hash)
+        {
+            _hashDigest.BlockUpdate(payload);
+            _hashDigest.DoFinal(hash);
         }
     }
 
@@ -788,21 +1082,15 @@ namespace PNet.Mesh
 
     public sealed class PNetMeshTransport2 : IDisposable
     {
-        static readonly ConcurrentDictionary<Type, TransportNonceLayout> NonceLayouts = new ConcurrentDictionary<Type, TransportNonceLayout>();
-
-        static readonly ConcurrentDictionary<Type, MethodInfo> SetNonceMethods = new ConcurrentDictionary<Type, MethodInfo>();
-
-        readonly Transport _transport;
-
         readonly PNetMeshPacketTracker _tracker;
 
         readonly uint _senderIndex;
 
         readonly uint _receiverIndex;
 
-        readonly Action<ulong> _setWriteNonce;
+        readonly byte[] _writeKey;
 
-        readonly Action<ulong> _setReadNonce;
+        readonly byte[] _readKey;
 
         PNetMeshWireGuardKeypair? _wireGuardKeypair;
 
@@ -816,13 +1104,18 @@ namespace PNet.Mesh
 
         public PNetMeshWireGuardKeypair? WireGuardKeypair => _wireGuardKeypair;
 
-        public PNetMeshTransport2(uint senderIndex, uint receiverIndex, Transport transport)
+        internal PNetMeshTransport2(uint senderIndex, uint receiverIndex, ReadOnlySpan<byte> writeKey, ReadOnlySpan<byte> readKey)
         {
+            if (writeKey.Length != PNetMeshLibSodium.ChaCha20Poly1305IetfKeySize)
+                throw new ArgumentOutOfRangeException(nameof(writeKey));
+            if (readKey.Length != PNetMeshLibSodium.ChaCha20Poly1305IetfKeySize)
+                throw new ArgumentOutOfRangeException(nameof(readKey));
+
             _senderIndex = senderIndex;
             _receiverIndex = receiverIndex;
-            _transport = transport;
             _tracker = new PNetMeshPacketTracker();
-            (_setWriteNonce, _setReadNonce) = CreateNonceSetters(transport);
+            _writeKey = writeKey.ToArray();
+            _readKey = readKey.ToArray();
         }
 
         internal void SetWireGuardKeypair(PNetMeshWireGuardKeypair keypair)
@@ -865,8 +1158,15 @@ namespace PNet.Mesh
                 padded_payload.Slice(payload.Length, padding).Clear();
 
                 counter = _sendCounter;
-                _setWriteNonce(counter);
-                bytesWritten += _transport.WriteMessage(padded_payload.Slice(0, paddedSize), buffer[16..]);
+                ThrowIfWriteKeypairExpired(counter);
+                PNetMeshLibSodium.EncryptChaCha20Poly1305Ietf(
+                    _writeKey,
+                    counter,
+                    padded_payload.Slice(0, paddedSize),
+                    ReadOnlySpan<byte>.Empty,
+                    buffer[16..],
+                    out var encryptedBytes);
+                bytesWritten += encryptedBytes;
                 RecordWireGuardSent(counter);
                 _sendCounter++;
 
@@ -879,8 +1179,15 @@ namespace PNet.Mesh
             else
             {
                 counter = _sendCounter;
-                _setWriteNonce(counter);
-                bytesWritten += _transport.WriteMessage(payload, buffer[16..]);
+                ThrowIfWriteKeypairExpired(counter);
+                PNetMeshLibSodium.EncryptChaCha20Poly1305Ietf(
+                    _writeKey,
+                    counter,
+                    payload,
+                    ReadOnlySpan<byte>.Empty,
+                    buffer[16..],
+                    out var encryptedBytes);
+                bytesWritten += encryptedBytes;
                 RecordWireGuardSent(counter);
                 _sendCounter++;
             }
@@ -924,13 +1231,19 @@ namespace PNet.Mesh
             }
 
             counter = BinaryPrimitives.ReadUInt64LittleEndian(payload[8..16]);
-
-            _setReadNonce(counter);
-            try
+            if (ShouldRejectReadKeypair(counter))
             {
-                bytesWritten = _transport.ReadMessage(payload[16..], buffer);
+                bytesWritten = 0;
+                return false;
             }
-            catch (CryptographicException)
+
+            if (!PNetMeshLibSodium.TryDecryptChaCha20Poly1305Ietf(
+                    _readKey,
+                    counter,
+                    payload[16..],
+                    ReadOnlySpan<byte>.Empty,
+                    buffer,
+                    out bytesWritten))
             {
                 bytesWritten = 0;
                 return false;
@@ -951,7 +1264,8 @@ namespace PNet.Mesh
 
         public void Dispose()
         {
-            _transport.Dispose();
+            CryptographicOperations.ZeroMemory(_writeKey);
+            CryptographicOperations.ZeroMemory(_readKey);
             _tracker.Dispose();
         }
 
@@ -967,58 +1281,25 @@ namespace PNet.Mesh
             _wireGuardKeypair?.RecordTransportActivity(DateTimeOffset.UtcNow);
         }
 
-        static (Action<ulong> write, Action<ulong> read) CreateNonceSetters(Transport transport)
+        void ThrowIfWriteKeypairExpired(ulong counter)
         {
-            var layout = NonceLayouts.GetOrAdd(transport.GetType(), CreateNonceLayout);
-            var initiator = (bool)(layout.Initiator.GetValue(transport)
-                ?? throw new NotSupportedException("Noise transport field 'initiator' was null."));
-            var c1 = layout.C1.GetValue(transport)
-                ?? throw new NotSupportedException("Noise transport field 'c1' was null.");
-            var c2 = layout.C2.GetValue(transport)
-                ?? throw new NotSupportedException("Noise transport field 'c2' was null.");
+            var keypair = _wireGuardKeypair;
+            if (keypair == null)
+                return;
 
-            var writeState = initiator ? c1 : c2;
-            var readState = initiator ? c2 : c1;
-
-            return (CreateNonceSetter(writeState), CreateNonceSetter(readState));
+            var now = DateTimeOffset.UtcNow;
+            if (counter >= PNetMeshWireGuardLifecycle.RejectAfterMessages || keypair.ShouldReject(now))
+                throw new InvalidOperationException("WireGuard keypair is expired.");
+            if (counter >= PNetMeshWireGuardLifecycle.RekeyAfterMessages || keypair.ShouldRekey(now))
+                throw new InvalidOperationException("WireGuard keypair requires rekey.");
         }
 
-        static TransportNonceLayout CreateNonceLayout(Type transportType)
+        bool ShouldRejectReadKeypair(ulong counter)
         {
-            return new TransportNonceLayout(
-                GetRequiredField(transportType, "initiator"),
-                GetRequiredField(transportType, "c1"),
-                GetRequiredField(transportType, "c2"));
-        }
+            if (counter >= PNetMeshWireGuardLifecycle.RejectAfterMessages)
+                return true;
 
-        static FieldInfo GetRequiredField(Type type, string name)
-            => type.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
-               ?? throw new NotSupportedException($"Noise transport field '{name}' was not found.");
-
-        static Action<ulong> CreateNonceSetter(object cipherState)
-        {
-            var setNonce = SetNonceMethods.GetOrAdd(cipherState.GetType(), GetRequiredSetNonceMethod);
-            return (Action<ulong>)setNonce.CreateDelegate(typeof(Action<ulong>), cipherState);
-        }
-
-        static MethodInfo GetRequiredSetNonceMethod(Type cipherStateType)
-            => cipherStateType.GetMethod("SetNonce", new[] { typeof(ulong) })
-               ?? throw new NotSupportedException("Noise cipher state does not expose SetNonce(ulong).");
-
-        readonly struct TransportNonceLayout
-        {
-            public TransportNonceLayout(FieldInfo initiator, FieldInfo c1, FieldInfo c2)
-            {
-                Initiator = initiator;
-                C1 = c1;
-                C2 = c2;
-            }
-
-            public FieldInfo Initiator { get; }
-
-            public FieldInfo C1 { get; }
-
-            public FieldInfo C2 { get; }
+            return _wireGuardKeypair?.ShouldReject(DateTimeOffset.UtcNow) == true;
         }
     }
 

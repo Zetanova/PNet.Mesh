@@ -1,4 +1,4 @@
-﻿using Noise;
+﻿using KeyPair = PNet.Mesh.PNetMeshKeyPair;
 using PNet.Mesh;
 using System;
 using System.Collections.Generic;
