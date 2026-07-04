@@ -33,7 +33,7 @@ namespace PNet.Mesh
 
     public sealed class PNetMeshWireGuardKeypair : IDisposable
     {
-        readonly PNetMeshPacketTracker _replayWindow = new PNetMeshPacketTracker();
+        PNetMeshPacketTracker? _replayWindow;
 
         public PNetMeshWireGuardKeypair(
             uint localReceiverIndex,
@@ -86,6 +86,7 @@ namespace PNet.Mesh
 
         public bool TryAddReceivedCounter(ulong counter)
         {
+            _replayWindow ??= new PNetMeshPacketTracker();
             if (!_replayWindow.TryAdd(counter))
                 return false;
 
@@ -113,7 +114,7 @@ namespace PNet.Mesh
 
         public void Dispose()
         {
-            _replayWindow.Dispose();
+            _replayWindow?.Dispose();
         }
     }
 

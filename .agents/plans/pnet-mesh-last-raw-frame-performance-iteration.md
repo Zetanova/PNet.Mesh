@@ -51,21 +51,40 @@ Improve session handshake/setup performance without changing handshake semantics
 | Session handshake/setup benchmark evidence. | Claims that handshake setup should allocate `0 B`; optimize relative cost instead. |
 | BenchmarkDotNet focused runs. | `--tun-*`, Docker/TUN topology, and `--macro udp-loopback`. |
 
+## Execution Contract
+
+This runbook optimizes implementation, not just benchmark coverage. Benchmark refreshes may update `Latest Execution`, but they do not satisfy the optimization objective.
+
+| Execution type | Requirement |
+|---|---|
+| Implementation optimization | Select a source hotspot, make a small implementation batch, benchmark before/current, and end in one optimization state. |
+| Benchmark refresh | Refresh baseline evidence only; the next implementation run must select a hotspot or prove diminishing returns. |
+
+Implementation optimization runs end in exactly one state:
+
+| State | Meaning |
+|---|---|
+| `kept-improvement` | A source change improved at least one primary metric without material regression. Promote this run as the new baseline. |
+| `rejected-batch` | A tested source change failed the success gate. Revert or discard it, record the rejection, and continue with the next hotspot. |
+| `diminishing-returns` | No low-risk implementation hotspot remains after comparable benchmark evidence and candidate attempts. This is the only terminal state. |
+
 ## Loop
 
-1. Select one likely hotspot from secure-frame crypto, buffer ownership, frame dispatch, first-byte classification, or session handshake/setup evidence.
-2. Make one small optimization batch, preferably one to three related changes.
-3. Run cheap correctness validation after each micro-change:
+1. Establish the current working baseline with raw-boundary, handshake/setup, and raw SecureFrame throughput checkpoints.
+2. Inspect benchmark evidence and source for one likely implementation hotspot.
+3. Make one small implementation batch, preferably one to three related source changes.
+4. Run cheap correctness validation after each micro-change:
    - scoped Release build for touched projects
    - targeted unit test only when correctness-sensitive behavior changed
    - scoped whitespace verification for touched files
-4. Run the fast raw delivery smoke after changes touching secure-frame write/read, payload framing, buffers, dispatcher routing, or first-byte classification.
-5. Run the fast handshake smoke after changes touching handshake/setup paths.
-6. Run the full raw in-memory and handshake checkpoints before keeping a batch, before claiming improvement, and at final closeout.
-7. Run the 5-second raw SecureFrame throughput checkpoint last before keeping a batch and at final closeout.
-8. Keep a batch only when it improves at least one primary metric without material regression in the others.
-9. Promote the latest successful checkpoint as the working baseline and continue until diminishing returns.
-10. Replace `Latest Execution` for each run; do not append historical execution sections to this plan.
+5. Run the fast raw delivery smoke after changes touching secure-frame write/read, payload framing, buffers, dispatcher routing, or first-byte classification.
+6. Run the fast handshake smoke after changes touching handshake/setup paths.
+7. Run full comparable raw-boundary, handshake/setup, and raw SecureFrame throughput checkpoints.
+8. Keep a batch only when it improves at least one primary metric outside measured variance without material regression in the others.
+9. If kept, promote the result as the new working baseline and continue.
+10. If rejected, discard the batch, record the rejected hotspot and reason, then select the next hotspot.
+11. Stop only when the `diminishing-returns` gate is proven.
+12. Replace `Latest Execution` for each run; do not append historical execution sections to this plan.
 
 ## Fast Benchmark Smoke
 
@@ -158,19 +177,22 @@ Regression triage is not a stop condition.
 
 ## Stop Condition
 
-Diminishing returns is the only terminal stop condition.
+Diminishing returns is the only terminal stop condition for implementation optimization.
 
 Stop when all are true:
 
 | Condition | Requirement |
 |---|---|
-| Checkpoint trend | Multiple comparable checkpoint runs show no material relative gain. |
-| Hotspot search | Source inspection finds no remaining low-risk, plausible secure-frame/dispatch/classification or handshake/setup hotspot. |
-| Next-step cost | Further improvement would require a larger transport/framing redesign, crypto-library change, workload change, or riskier rewrite. |
+| Comparable baseline | At least three comparable runs exist for the current baseline, including raw-boundary, handshake/setup, and raw SecureFrame throughput. |
+| Candidate coverage | At least three distinct low-risk hotspot classes were attempted or source-dispositioned, such as secure-frame crypto, buffer ownership, dispatch, first-byte classification, and handshake/setup. |
+| No retained gain | Recent candidate batches failed to improve a primary metric outside measured variance, or caused material regression elsewhere. |
+| No low-risk hotspot remains | Source inspection finds no remaining small implementation change likely to improve the measured path. |
+| Remaining work is larger-scope | Further gains require redesign, workload change, crypto-library replacement, protocol/framing change, or riskier rewrite. |
+| Follow-up captured | Any larger-scope remaining opportunity is recorded outside this runbook, for example in a discovered issue or benchmark note. |
 
 ## Closeout
 
-When diminishing returns is reached:
+When `diminishing-returns` is proven:
 
 1. Run final full raw in-memory and `FullHandshakeSetup` checkpoints.
 2. Run the 5-second raw SecureFrame throughput checkpoint last.
@@ -194,15 +216,25 @@ Update this section in place for each run. Do not append historical executions h
 |---|---|
 | Execution date | `2026-07-04` |
 | Status | `completed` |
-| Baseline artifacts | `artifacts/benchmarks/raw-frame/20260703T225900Z-baseline/` |
-| Final artifacts | `artifacts/benchmarks/raw-frame/20260704T020700Z-final/` |
-| Improvement log entry | `.agents/docs/benchmarks/improvement-log.md` row dated `2026-07-04`, scope `raw-frame-boundary`, commit `d038a90` |
-| Completion report | `.agents/docs/issues/095-split-session-secure-frame-transport.md#performance-closeout-2026-07-04` |
-| Retained source change | `d038a90 Add raw-frame boundary benchmark coverage` |
-| Result | Raw-boundary benchmark coverage retained; product optimization candidates rejected. |
-| Allocation note | Raw-boundary steady-state remained `0 B`; this does not apply to `FullHandshakeSetup`. |
-| Throughput note | Latest completed optimization execution predates `--macro raw-secureframe`; next optimization run must replace this row with the 5-second packets/sec artifact. |
-| Diminishing returns | Issue #095 performance closeout records rejected micro-candidates and remaining bottlenecks in transport encryption/decryption and Noise.NET internals. |
+| Execution type | `implementation optimization closeout` |
+| Optimization state | `diminishing-returns` |
+| Candidate hotspot | Final current-baseline repeat and remaining-hotspot source disposition. |
+| Source commit | `98af0d8+dirty` |
+| Source changes | Retained the Noise reflection metadata cache in `src/PNet.Mesh/PNetMeshProtocol.cs` and the lazy keypair replay tracker in `src/PNet.Mesh/PNetMeshWireGuardPeerState.cs`. Rejected candidate source changes were reverted. |
+| Baseline artifacts | Initial baseline `artifacts/benchmarks/raw-frame/20260704T035013Z-runbook/`; retained current-baseline set `artifacts/benchmarks/raw-frame/20260704T060105Z-lazy-keypair-tracker/`, `artifacts/benchmarks/raw-frame/20260704T070000Z-current-baseline-repeat-2/`, and `artifacts/benchmarks/raw-frame/20260704T070500Z-current-baseline-repeat-3/`. |
+| Candidate artifacts | Rejected candidates: `artifacts/benchmarks/raw-frame/20260704T063738Z-lazy-transport-tracker-rejected/` and `artifacts/benchmarks/raw-frame/20260704T065200Z-response-remote-key-copy-rejected/`. |
+| Build evidence | `timeout 300s rtk dotnet build PNet.Mesh.sln -c Release --no-restore` passed with `0 Warning(s)` and `0 Error(s)`. |
+| Unit evidence | `timeout 300s rtk dotnet run --project src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -parallel none` passed `205` tests, `0` failed, `0` skipped. |
+| Format evidence | `timeout 180s rtk dotnet format whitespace PNet.Mesh.sln --include src/PNet.Mesh/PNetMeshWireGuardPeerState.cs src/PNet.Mesh/PNetMeshProtocol.cs --no-restore --verify-no-changes --verbosity minimal` passed. |
+| Smoke evidence | Not run separately for closeout; final evidence uses full build, unit, format, raw-boundary, handshake, and raw SecureFrame macro checkpoints. |
+| Raw-boundary checkpoint | Three retained current-baseline runs completed with `0 B` allocated. Mean ranges: `1.307`-`6.748 us`, `1.361`-`5.831 us`, and `1.262`-`6.072 us`. |
+| Handshake checkpoint | Three retained current-baseline runs completed. `FullHandshakeSetup` allocation range was `10.75`-`10.82 KB`, improved from the initial `12.44`-`12.65 KB` baseline; mean ranges were `664.0`-`856.3 us`, `669.2`-`734.9 us`, and `654.0`-`758.2 us`. |
+| Throughput checkpoint | Three raw SecureFrame macro runs completed: `523,640.022`, `538,579.071`, and `541,032.368` packets/sec. p50 was `1.5 us`; p95 was `2.301`-`2.4 us`; p99 was `3.3`-`4.2 us`; allocated bytes were `16,777,696`-`16,783,888`; Gen0/1/2 remained `2/2/2`. |
+| Result | Diminishing returns reached under the low-risk/local-micro-change gate. The retained changes reduce handshake/setup allocation, raw-boundary allocation remains `0 B`, and the last two candidate batches failed to improve outside variance or were too risky for the measured gain. |
+| Decision | Keep the retained source changes, reject the lazy transport replay tracker and response remote-key copy candidates, and close this runbook. |
+| Rejected alternate | A temporary .NET 10 `UnsafeAccessorTypeAttribute` probe could read Noise `initiator`, but `c1` failed with `MissingFieldException` and `SetNonce` failed with `InvalidProgramException`; not retained. The lazy transport replay tracker and response remote-key copy removal were also not retained. |
+| Next hotspot | None under the low-risk gate; remaining opportunities require larger Noise.NET/private-state integration, crypto allocation, replay-tracker ownership, or protocol/framing work. |
+| Prior closeout | Product and benchmark closeout details are captured in `.agents/docs/issues/095-split-session-secure-frame-transport.md#performance-diminishing-returns-closeout-2026-07-04`. |
 
 ## Assumptions
 
@@ -221,3 +253,16 @@ Update this section in place for each run. Do not append historical executions h
 | 11 | F | `FullHandshakeSetup` exists in `WireGuardTransportBenchmarks`. | verified | source | `src/PNet.Mesh.Benchmarks/WireGuardTransportBenchmarks.cs` includes the benchmark method. |
 | 12 | C | Raw SecureFrame throughput should use a real multi-second packets/sec checkpoint with a short 5-second duration as the last benchmark. | verified | source | User requested this update on 2026-07-04. |
 | 13 | F | `--macro raw-secureframe` is the fixed-duration raw SecureFrame throughput scenario. | verified | source | `src/PNet.Mesh.Benchmarks/MacroBenchmarkRunner.cs` includes `MacroBenchmarkOptions.RawSecureFrameScenario`. |
+| 14 | C | The runbook should drive implementation optimization until the diminishing-returns stop condition is proven. | verified | source | User requested this update on 2026-07-04. |
+| 15 | F | Caching Noise transport field metadata and `SetNonce(ulong)` method metadata does not change secure-frame or handshake semantics. | verified | test | Release build, `PNet.Mesh.UnitTests`, whitespace verification, `FullHandshakeSetup` smoke, raw-boundary checkpoint, handshake checkpoint, and raw SecureFrame macro all completed after the source change. |
+| 16 | F | .NET 10 `UnsafeAccessorTypeAttribute` cannot fully replace the Noise private-member reflection path for this code. | verified | test | A temporary probe read Noise `initiator`, but `c1` field access failed with `MissingFieldException` and `SetNonce` failed with `InvalidProgramException`; the probe was removed. |
+| 17 | F | Lazy allocation avoids constructing `PNetMeshPacketTracker` during normal handshake keypair setup. | verified | test | `FullHandshakeSetup` allocation moved from `11.88`-`11.94 KB` to `10.75`-`10.81 KB`; a temporary allocation probe showed `TryReadResponseMessage` fell from `2528.0 B/op` to `1416.0 B/op`. |
+| 18 | F | Lazy allocation preserves the keypair replay-window behavior when `TryAddReceivedCounter` is used. | verified | test | `keypair_tracks_timers_counters_and_replay_window` asserts first counter acceptance, duplicate rejection, and `LastReceivedCounter`; the unit suite passed after the change. |
+| 19 | F | Lazy allocation of the transport replay tracker does not produce a material handshake/setup allocation win. | verified | test | The rejected candidate measured `10.74 KB` per `FullHandshakeSetup` operation versus the retained `10.75`-`10.81 KB` baseline, a delta too small to justify the hot-path lazy property. |
+| 20 | F | The working tree no longer contains the rejected transport replay tracker lazy-allocation change. | verified | source | `PNetMeshTransport2` again has a readonly `_tracker`, initializes it in the constructor, returns it directly from `Tracker`, and disposes it directly. |
+| 21 | F | Removing the duplicate responder remote-public-key copy does not produce a material handshake/setup allocation win. | verified | test | The rejected candidate measured `10.76 KB` per `FullHandshakeSetup` operation versus the retained `10.75`-`10.81 KB` baseline. |
+| 22 | F | The working tree no longer contains the rejected response remote-public-key copy removal. | verified | source | `TryWriteResponseMessage` again assigns `RemotePublicKey = _handshake.RemoteStaticPublicKey.ToArray()` before responder keypair registration. |
+| 23 | F | The retained current-baseline set has three comparable runs that include raw-boundary, handshake/setup, and raw SecureFrame macro evidence. | verified | test | Artifacts exist under `20260704T060105Z-lazy-keypair-tracker`, `20260704T070000Z-current-baseline-repeat-2`, and `20260704T070500Z-current-baseline-repeat-3`. |
+| 24 | F | The final retained current-baseline runs keep raw-boundary allocation at `0 B` and handshake/setup allocation at `10.75`-`10.82 KB`. | verified | test | Read `raw-boundary-report.csv` and `handshake-report.csv` from the three retained current-baseline artifact directories. |
+| 25 | F | The remaining inspected hotspot classes require larger changes than this low-risk local micro-optimization gate allows. | verified | source | Remaining classes are Noise.NET private-state integration, BouncyCastle digest allocation/pooling, replay tracker/key ownership, and protocol/framing design. |
+| 26 | F | The larger-scope remaining work is captured outside the runbook. | verified | source | See `.agents/docs/issues/095-split-session-secure-frame-transport.md#performance-diminishing-returns-closeout-2026-07-04`. |

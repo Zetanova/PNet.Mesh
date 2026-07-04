@@ -3,6 +3,7 @@ using Org.BouncyCastle.Crypto.Digests;
 using System;
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
@@ -787,6 +788,10 @@ namespace PNet.Mesh
 
     public sealed class PNetMeshTransport2 : IDisposable
     {
+        static readonly ConcurrentDictionary<Type, TransportNonceLayout> NonceLayouts = new ConcurrentDictionary<Type, TransportNonceLayout>();
+
+        static readonly ConcurrentDictionary<Type, MethodInfo> SetNonceMethods = new ConcurrentDictionary<Type, MethodInfo>();
+
         readonly Transport _transport;
 
         readonly PNetMeshPacketTracker _tracker;
@@ -964,12 +969,12 @@ namespace PNet.Mesh
 
         static (Action<ulong> write, Action<ulong> read) CreateNonceSetters(Transport transport)
         {
-            var transportType = transport.GetType();
-            var initiator = (bool)(GetRequiredField(transportType, "initiator").GetValue(transport)
+            var layout = NonceLayouts.GetOrAdd(transport.GetType(), CreateNonceLayout);
+            var initiator = (bool)(layout.Initiator.GetValue(transport)
                 ?? throw new NotSupportedException("Noise transport field 'initiator' was null."));
-            var c1 = GetRequiredField(transportType, "c1").GetValue(transport)
+            var c1 = layout.C1.GetValue(transport)
                 ?? throw new NotSupportedException("Noise transport field 'c1' was null.");
-            var c2 = GetRequiredField(transportType, "c2").GetValue(transport)
+            var c2 = layout.C2.GetValue(transport)
                 ?? throw new NotSupportedException("Noise transport field 'c2' was null.");
 
             var writeState = initiator ? c1 : c2;
@@ -978,16 +983,42 @@ namespace PNet.Mesh
             return (CreateNonceSetter(writeState), CreateNonceSetter(readState));
         }
 
+        static TransportNonceLayout CreateNonceLayout(Type transportType)
+        {
+            return new TransportNonceLayout(
+                GetRequiredField(transportType, "initiator"),
+                GetRequiredField(transportType, "c1"),
+                GetRequiredField(transportType, "c2"));
+        }
+
         static FieldInfo GetRequiredField(Type type, string name)
             => type.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
                ?? throw new NotSupportedException($"Noise transport field '{name}' was not found.");
 
         static Action<ulong> CreateNonceSetter(object cipherState)
         {
-            var setNonce = cipherState.GetType().GetMethod("SetNonce", new[] { typeof(ulong) })
-                ?? throw new NotSupportedException("Noise cipher state does not expose SetNonce(ulong).");
-
+            var setNonce = SetNonceMethods.GetOrAdd(cipherState.GetType(), GetRequiredSetNonceMethod);
             return (Action<ulong>)setNonce.CreateDelegate(typeof(Action<ulong>), cipherState);
+        }
+
+        static MethodInfo GetRequiredSetNonceMethod(Type cipherStateType)
+            => cipherStateType.GetMethod("SetNonce", new[] { typeof(ulong) })
+               ?? throw new NotSupportedException("Noise cipher state does not expose SetNonce(ulong).");
+
+        readonly struct TransportNonceLayout
+        {
+            public TransportNonceLayout(FieldInfo initiator, FieldInfo c1, FieldInfo c2)
+            {
+                Initiator = initiator;
+                C1 = c1;
+                C2 = c2;
+            }
+
+            public FieldInfo Initiator { get; }
+
+            public FieldInfo C1 { get; }
+
+            public FieldInfo C2 { get; }
         }
     }
 

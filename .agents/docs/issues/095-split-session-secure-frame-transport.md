@@ -21,7 +21,7 @@ brief: "description+playbook+proposed-split+scope+benchmark-plan+acceptance-crit
 views:
   enrich: "description+related-issues+playbook+proposed-split+scope+out-of-scope+benchmark-plan+acceptance-criteria+assumptions"
   fix: "description+related-issues+playbook+proposed-split+scope+out-of-scope+benchmark-plan+acceptance-criteria+assumptions"
-  complete: "description+completion-report+performance-closeout-2026-07-04+resolving-commits"
+  complete: "description+completion-report+performance-closeout-2026-07-04+performance-iteration-2026-07-04-reflection-cache+performance-iteration-2026-07-04-lazy-keypair-tracker+performance-iteration-2026-07-04-lazy-transport-tracker-rejection+performance-iteration-2026-07-04-response-key-copy-rejection+performance-diminishing-returns-closeout-2026-07-04+resolving-commits"
 ---
 
 # 095 - Split Session Secure Frame Transport
@@ -196,6 +196,167 @@ Closeout assumptions:
 | 7 | F | The final retained source diff changes only `src/PNet.Mesh.Benchmarks/WireGuardTransportBenchmarks.cs`. | verified | source | `git diff --stat` showed one changed source file after all product candidates were reverted. |
 | 8 | F | The final raw-boundary checkpoint completed and artifacts were preserved under `artifacts/benchmarks/raw-frame/20260704T020700Z-final/`. | verified | test | The final `BenchmarkDotNet` command exited 0 and exported CSV/Markdown reports before archival. |
 | 9 | R | Final timing deltas are run variance rather than a retained product performance change. | verified | logical | The retained diff is benchmark-only, while comparable short-run checkpoints moved individual cases both faster and slower with no product code difference. |
+
+## Performance Iteration 2026-07-04 Reflection Cache
+
+Retained change: `PNetMeshTransport2` now caches Noise transport private field metadata and `SetNonce(ulong)` method metadata used while creating nonce setter delegates. This targets session handshake/setup, where each established transport pair creates two `PNetMeshTransport2` instances.
+
+Artifacts:
+
+| Kind | Artifact |
+|---|---|
+| Baseline | `artifacts/benchmarks/raw-frame/20260704T035013Z-runbook/` |
+| Candidate | `artifacts/benchmarks/raw-frame/20260704T051607Z-reflection-cache/` |
+
+Result: `FullHandshakeSetup` allocation improved from `12.44`-`12.65 KB` to `11.88`-`11.94 KB` per operation. Raw-boundary allocations stayed `0 B`; raw-boundary timing moved both directions and is treated as guardrail noise for this constructor-only change. The raw SecureFrame macro completed with unchanged allocation/GC shape.
+
+Correctness and format evidence:
+
+| Command | Result |
+|---|---|
+| `timeout 300s dotnet build PNet.Mesh.sln -c Release --no-restore` | Passed, `0` warnings, `0` errors. |
+| `timeout 300s dotnet run --project src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -parallel none` | Passed `205` tests. |
+| `timeout 180s dotnet format whitespace PNet.Mesh.sln --include src/PNet.Mesh/PNetMeshProtocol.cs --no-restore --verify-no-changes --verbosity minimal` | Passed. |
+
+Attempted alternate: a temporary .NET 10 `UnsafeAccessorTypeAttribute` probe could read Noise `initiator`, but `c1` field access failed with `MissingFieldException` and `SetNonce` failed with `InvalidProgramException`. That path was not retained.
+
+Iteration assumptions:
+
+| # | Cat | Assumption | Status | Method | Detail |
+|---|---|---|---|---|---|
+| 10 | F | Caching Noise reflection metadata preserves secure-frame and handshake behavior. | verified | test | Build, unit tests, whitespace check, handshake smoke, raw-boundary checkpoint, handshake checkpoint, and raw SecureFrame macro completed after the change. |
+| 11 | F | `UnsafeAccessorTypeAttribute` cannot fully replace the Noise private-member reflection path for this transport. | verified | test | Temporary probe read `initiator`, but failed for `c1` and `SetNonce`; the probe was removed. |
+
+## Performance Iteration 2026-07-04 Lazy Keypair Tracker
+
+Retained change: `PNetMeshWireGuardKeypair` now allocates its `PNetMeshPacketTracker` replay window lazily when `TryAddReceivedCounter` is used. The product secure-frame transport already uses its transport-level replay tracker on the normal encrypted packet receive path, so this avoids constructing an unused keypair tracker during handshake keypair setup while preserving the public keypair replay API.
+
+Artifacts:
+
+| Kind | Artifact |
+|---|---|
+| Baseline | `artifacts/benchmarks/raw-frame/20260704T051607Z-reflection-cache/` |
+| Candidate | `artifacts/benchmarks/raw-frame/20260704T060105Z-lazy-keypair-tracker/` |
+
+Result: `FullHandshakeSetup` allocation improved from `11.88`-`11.94 KB` to `10.75`-`10.81 KB` per operation. Raw-boundary allocations stayed `0 B`; raw-boundary timing moved both directions and is treated as guardrail noise for this handshake/setup-only change. The raw SecureFrame macro completed with the same allocation/GC shape.
+
+Correctness and format evidence:
+
+| Command | Result |
+|---|---|
+| `timeout 300s rtk dotnet build PNet.Mesh.sln -c Release --no-restore` | Passed, `0` warnings, `0` errors. |
+| `timeout 300s rtk dotnet run --project src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -parallel none` | Passed `205` tests. |
+| `timeout 180s rtk dotnet format whitespace PNet.Mesh.sln --include src/PNet.Mesh/PNetMeshWireGuardPeerState.cs src/PNet.Mesh/PNetMeshProtocol.cs --no-restore --verify-no-changes --verbosity minimal` | Passed. |
+
+Iteration assumptions:
+
+| # | Cat | Assumption | Status | Method | Detail |
+|---|---|---|---|---|---|
+| 12 | F | Lazy allocation avoids constructing `PNetMeshPacketTracker` during normal handshake keypair setup. | verified | test | `FullHandshakeSetup` allocation moved from `11.88`-`11.94 KB` to `10.75`-`10.81 KB`; a temporary allocation probe showed `TryReadResponseMessage` fell from `2528.0 B/op` to `1416.0 B/op`. |
+| 13 | F | Lazy allocation preserves keypair replay-window behavior when `TryAddReceivedCounter` is used. | verified | test | `keypair_tracks_timers_counters_and_replay_window` asserts first counter acceptance, duplicate rejection, and `LastReceivedCounter`; the unit suite passed after the change. |
+
+## Performance Iteration 2026-07-04 Lazy Transport Tracker Rejection
+
+Rejected change: `PNetMeshTransport2.Tracker` was temporarily changed from an eager constructor allocation to a lazy `PNetMeshPacketTracker` property. The property surface and receive path remained behaviorally valid after using an explicit `LazyInitializer` factory, but the measured allocation delta was too small for a hotter receive/ACK path change.
+
+Artifacts:
+
+| Kind | Artifact |
+|---|---|
+| Baseline | `artifacts/benchmarks/raw-frame/20260704T060105Z-lazy-keypair-tracker/` |
+| Rejected candidate | `artifacts/benchmarks/raw-frame/20260704T063738Z-lazy-transport-tracker-rejected/` |
+
+Result: `FullHandshakeSetup` allocation moved from `10.75`-`10.81 KB` to `10.74 KB` per operation, only about `0.01`-`0.07 KB/op`. The same run widened the `1420` payload mean from `719.5 us` to `1,405.0 us`. The batch was reverted before raw-boundary and raw SecureFrame macro checkpoints.
+
+Validation and rejection evidence:
+
+| Command | Result |
+|---|---|
+| `timeout 300s rtk dotnet build PNet.Mesh.sln -c Release --no-restore` | Passed, `0` warnings, `0` errors after the candidate and after revert. |
+| `timeout 300s rtk dotnet run --project src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -parallel none` | Passed `205` tests after the candidate and after revert. |
+| `timeout 600s rtk dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release --no-build -- --filter '*WireGuardTransportBenchmarks.FullHandshakeSetup*'` | Candidate measured `10.74 KB`; no material allocation win. |
+| `timeout 180s rtk dotnet format whitespace PNet.Mesh.sln --include src/PNet.Mesh/PNetMeshWireGuardPeerState.cs src/PNet.Mesh/PNetMeshProtocol.cs --no-restore --verify-no-changes --verbosity minimal` | Passed after revert. |
+
+Iteration assumptions:
+
+| # | Cat | Assumption | Status | Method | Detail |
+|---|---|---|---|---|---|
+| 14 | F | Lazy allocation of the transport replay tracker does not produce a material handshake/setup allocation win. | verified | test | The rejected candidate measured `10.74 KB` per `FullHandshakeSetup` operation versus the retained `10.75`-`10.81 KB` baseline. |
+| 15 | F | The retained source no longer contains the rejected transport replay tracker lazy-allocation change. | verified | source | `PNetMeshTransport2` again has a readonly `_tracker`, initializes it in the constructor, returns it directly from `Tracker`, and disposes it directly. |
+
+## Performance Iteration 2026-07-04 Response Key Copy Rejection
+
+Rejected change: `PNetMeshHandshake.TryWriteResponseMessage` was temporarily changed to avoid copying `_handshake.RemoteStaticPublicKey` a second time on the responder path. `TryReadInitiationMessage` already populates `RemotePublicKey` before a valid response can be written, but the measured result did not justify retaining the micro-change.
+
+Artifacts:
+
+| Kind | Artifact |
+|---|---|
+| Baseline | `artifacts/benchmarks/raw-frame/20260704T060105Z-lazy-keypair-tracker/` |
+| Rejected candidate | `artifacts/benchmarks/raw-frame/20260704T065200Z-response-remote-key-copy-rejected/` |
+
+Result: `FullHandshakeSetup` allocation stayed inside the retained baseline band: candidate `10.76 KB` versus baseline `10.75`-`10.81 KB` per operation. Candidate timing measured `642.4`-`686.6 us`, but the error bars were wide enough that it was not a defensible timing win. The batch was reverted before raw-boundary and raw SecureFrame macro checkpoints.
+
+Validation and rejection evidence:
+
+| Command | Result |
+|---|---|
+| `timeout 300s rtk dotnet build PNet.Mesh.sln -c Release --no-restore` | Passed, `0` warnings, `0` errors after the candidate and after revert. |
+| `timeout 300s rtk dotnet run --project src/PNet.Mesh.UnitTests/PNet.Mesh.UnitTests.csproj -c Release --no-build -- -parallel none` | Passed `205` tests after the candidate and after revert. |
+| `timeout 600s rtk dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release --no-build -- --filter '*WireGuardTransportBenchmarks.FullHandshakeSetup*'` | Candidate measured `10.76 KB`; no material allocation win. |
+| `timeout 180s rtk dotnet format whitespace PNet.Mesh.sln --include src/PNet.Mesh/PNetMeshWireGuardPeerState.cs src/PNet.Mesh/PNetMeshProtocol.cs --no-restore --verify-no-changes --verbosity minimal` | Passed after revert. |
+
+Iteration assumptions:
+
+| # | Cat | Assumption | Status | Method | Detail |
+|---|---|---|---|---|---|
+| 16 | F | Removing the duplicate responder remote-public-key copy does not produce a material handshake/setup allocation win. | verified | test | The rejected candidate measured `10.76 KB` per `FullHandshakeSetup` operation versus the retained `10.75`-`10.81 KB` baseline. |
+| 17 | F | The retained source no longer contains the rejected response remote-public-key copy removal. | verified | source | `TryWriteResponseMessage` again assigns `RemotePublicKey = _handshake.RemoteStaticPublicKey.ToArray()` before responder keypair registration. |
+
+## Performance Diminishing Returns Closeout 2026-07-04
+
+Retained changes:
+
+| Area | Source | Result |
+|---|---|---|
+| Noise transport setup | `src/PNet.Mesh/PNetMeshProtocol.cs` | Caches Noise private-field metadata and `SetNonce(ulong)` method metadata by runtime type. |
+| WireGuard keypair setup | `src/PNet.Mesh/PNetMeshWireGuardPeerState.cs` | Lazily allocates the keypair replay tracker only when receive counters are checked. |
+
+Final retained current-baseline artifacts:
+
+| Run | Artifact | Key result |
+|---|---|---|
+| 1 | `artifacts/benchmarks/raw-frame/20260704T060105Z-lazy-keypair-tracker/` | Raw-boundary `0 B`; handshake `10.75`-`10.81 KB`; macro `523,640.022` packets/sec. |
+| 2 | `artifacts/benchmarks/raw-frame/20260704T070000Z-current-baseline-repeat-2/` | Raw-boundary `0 B`; handshake `10.78`-`10.81 KB`; macro `538,579.071` packets/sec. |
+| 3 | `artifacts/benchmarks/raw-frame/20260704T070500Z-current-baseline-repeat-3/` | Raw-boundary `0 B`; handshake `10.81`-`10.82 KB`; macro `541,032.368` packets/sec. |
+
+Stop-gate result:
+
+| Gate | Status | Evidence |
+|---|---|---|
+| Three comparable current-baseline runs | Satisfied | Each retained run includes raw-boundary CSV/Markdown, `FullHandshakeSetup` CSV/Markdown, and `raw-secureframe-macro.json`. |
+| Candidate coverage | Satisfied | Raw-boundary micro-candidates, reflection metadata cache, lazy keypair tracker, lazy transport tracker, response remote-key copy removal, and `UnsafeAccessorTypeAttribute` probe were attempted or source-dispositioned. |
+| Recent no-retain batch | Satisfied | Lazy transport tracker and response remote-key copy removal were reverted after no material allocation win. |
+| No low-risk hotspot remains | Satisfied | Remaining opportunities cross dependency/private internals, crypto allocation policy, replay tracker/key ownership, or protocol/framing design. |
+| Larger-scope follow-up captured | Satisfied | This section preserves the remaining hotspot classes and defers them outside the local micro-optimization runbook. |
+
+Remaining hotspot classes:
+
+| Class | Disposition |
+|---|---|
+| Noise.NET transport private state and nonce setup | Further improvement needs dependency/source integration or a public API change; the .NET 10 `UnsafeAccessorTypeAttribute` probe did not cover the needed field and method access. |
+| BouncyCastle BLAKE2s digest allocation in MAC/hash paths | Further improvement needs pooling, replacement, or a crypto-library change with a wider safety and benchmark pass. |
+| Replay tracker and key ownership structures | A keypair-local lazy allocation was retained, but transport tracker laziness was not worth the receive-path complexity. Broader ownership changes should be designed separately. |
+| Raw frame/protocol framing design | Raw-boundary steady state is already zero-allocation in the measured path; larger protocol or framing changes need their own issue and benchmark campaign. |
+
+Closeout assumptions:
+
+| # | Cat | Assumption | Status | Method | Detail |
+|---|---|---|---|---|---|
+| 18 | F | The final retained current-baseline set has three comparable runs with raw-boundary, handshake/setup, and raw SecureFrame macro evidence. | verified | test | Artifacts exist under `20260704T060105Z-lazy-keypair-tracker`, `20260704T070000Z-current-baseline-repeat-2`, and `20260704T070500Z-current-baseline-repeat-3`. |
+| 19 | F | The retained current source keeps raw-boundary allocation at `0 B` and handshake/setup allocation at `10.75`-`10.82 KB` across the final baseline repeat set. | verified | test | Read the three `raw-boundary-report.csv` and `handshake-report.csv` files. |
+| 20 | F | The last two product candidates did not produce a material retained improvement. | verified | test | Lazy transport tracker and response remote-key copy removal benchmark artifacts are recorded under their rejected artifact directories. |
+| 21 | F | Remaining inspected hotspot classes are larger-scope than the local low-risk micro-change gate. | verified | source | The remaining classes require dependency/private internals, crypto-library/pooling, replay tracker ownership, or protocol/framing changes. |
 
 ## Resolving Commits
 
