@@ -1082,8 +1082,6 @@ namespace PNet.Mesh
 
     public sealed class PNetMeshTransport2 : IDisposable
     {
-        readonly PNetMeshPacketTracker _tracker;
-
         readonly uint _senderIndex;
 
         readonly uint _receiverIndex;
@@ -1091,6 +1089,8 @@ namespace PNet.Mesh
         readonly byte[] _writeKey;
 
         readonly byte[] _readKey;
+
+        readonly PNetMeshPacketTracker _legacyReplayTracker;
 
         PNetMeshWireGuardKeypair? _wireGuardKeypair;
 
@@ -1100,7 +1100,8 @@ namespace PNet.Mesh
 
         public uint ReceiverIndex => _receiverIndex;
 
-        public PNetMeshPacketTracker Tracker => _tracker;
+        [Obsolete("Session-owned replay tracking should pass an explicit PNetMeshPacketTracker to read methods.")]
+        public PNetMeshPacketTracker Tracker => _legacyReplayTracker;
 
         public PNetMeshWireGuardKeypair? WireGuardKeypair => _wireGuardKeypair;
 
@@ -1113,9 +1114,9 @@ namespace PNet.Mesh
 
             _senderIndex = senderIndex;
             _receiverIndex = receiverIndex;
-            _tracker = new PNetMeshPacketTracker();
             _writeKey = writeKey.ToArray();
             _readKey = readKey.ToArray();
+            _legacyReplayTracker = new PNetMeshPacketTracker();
         }
 
         internal void SetWireGuardKeypair(PNetMeshWireGuardKeypair keypair)
@@ -1195,9 +1196,69 @@ namespace PNet.Mesh
             BinaryPrimitives.WriteUInt64LittleEndian(buffer[8..16], counter);
         }
 
+        public static int CalculatePacketSize(int plaintextFrameLength)
+        {
+            if (plaintextFrameLength < 0)
+                throw new ArgumentOutOfRangeException(nameof(plaintextFrameLength));
+
+            var padding = (16 - (plaintextFrameLength % 16)) % 16;
+            return checked(PNetMeshPacketFraming.PacketDataHeaderSize + plaintextFrameLength + padding + 16);
+        }
+
+        public bool TryWriteFrame(
+            ReadOnlySpan<byte> plaintextFrame,
+            Span<byte> packet,
+            out int bytesWritten,
+            out ulong counter)
+        {
+            bytesWritten = CalculatePacketSize(plaintextFrame.Length);
+            counter = 0;
+            if (packet.Length < bytesWritten)
+                return false;
+
+            WriteMessage(plaintextFrame, packet, out bytesWritten, out counter);
+            return true;
+        }
+
+        public bool TryReadFrame(
+            ReadOnlySpan<byte> packet,
+            Span<byte> plaintextFrame,
+            out PNetMeshTransportPlaintext plaintext)
+        {
+            return TryReadPlaintext(packet, plaintextFrame, out plaintext);
+        }
+
+        public bool TryReadFrame(
+            ReadOnlySpan<byte> packet,
+            Span<byte> plaintextFrame,
+            PNetMeshPacketTracker tracker,
+            out PNetMeshTransportPlaintext plaintext)
+        {
+            return TryReadPlaintext(packet, plaintextFrame, tracker, out plaintext);
+        }
+
         public bool TryReadMessage(ReadOnlySpan<byte> payload, Span<byte> buffer, out int bytesWritten, out ulong counter)
         {
-            return TryReadRawMessage(payload, buffer, out bytesWritten, out counter);
+            return TryReadMessage(payload, buffer, _legacyReplayTracker, out bytesWritten, out counter);
+        }
+
+        public bool TryReadMessage(
+            ReadOnlySpan<byte> payload,
+            Span<byte> buffer,
+            PNetMeshPacketTracker tracker,
+            out int bytesWritten,
+            out ulong counter)
+        {
+            if (tracker == null)
+                throw new ArgumentNullException(nameof(tracker));
+            if (!TryReadRawMessage(payload, buffer, out bytesWritten, out counter))
+                return false;
+
+            if (!TryTrackReceivedCounter(tracker, counter, buffer, ref bytesWritten))
+                return false;
+
+            RecordWireGuardReceived(counter);
+            return true;
         }
 
         public bool TryReadPlaintext(
@@ -1205,10 +1266,26 @@ namespace PNet.Mesh
             Span<byte> buffer,
             out PNetMeshTransportPlaintext plaintext)
         {
+            return TryReadPlaintext(payload, buffer, _legacyReplayTracker, out plaintext);
+        }
+
+        public bool TryReadPlaintext(
+            ReadOnlySpan<byte> payload,
+            Span<byte> buffer,
+            PNetMeshPacketTracker tracker,
+            out PNetMeshTransportPlaintext plaintext)
+        {
+            if (tracker == null)
+                throw new ArgumentNullException(nameof(tracker));
+
             plaintext = default;
             if (!TryReadRawMessage(payload, buffer, out var bytesWritten, out var counter))
                 return false;
 
+            if (!TryTrackReceivedCounter(tracker, counter, buffer, ref bytesWritten))
+                return false;
+
+            RecordWireGuardReceived(counter);
             plaintext = new PNetMeshTransportPlaintext(bytesWritten, counter, _wireGuardKeypair);
             return true;
         }
@@ -1249,16 +1326,6 @@ namespace PNet.Mesh
                 return false;
             }
 
-            if (!_tracker.TryAdd(counter))
-            {
-                //duplicate message
-                buffer.Slice(0, bytesWritten).Clear();
-                bytesWritten = 0;
-                return false;
-            }
-
-            RecordWireGuardReceived(counter);
-
             return true;
         }
 
@@ -1266,7 +1333,21 @@ namespace PNet.Mesh
         {
             CryptographicOperations.ZeroMemory(_writeKey);
             CryptographicOperations.ZeroMemory(_readKey);
-            _tracker.Dispose();
+            _legacyReplayTracker.Dispose();
+        }
+
+        static bool TryTrackReceivedCounter(
+            PNetMeshPacketTracker tracker,
+            ulong counter,
+            Span<byte> buffer,
+            ref int bytesWritten)
+        {
+            if (tracker.TryAdd(counter))
+                return true;
+
+            buffer.Slice(0, bytesWritten).Clear();
+            bytesWritten = 0;
+            return false;
         }
 
         void RecordWireGuardSent(ulong counter)

@@ -14,10 +14,10 @@ namespace PNet.Actor.UnitTests.Mesh
         public void secure_frame_session_round_trips_raw_plaintext_without_protobuf_packet()
         {
             using var transports = CreateEstablishedTransports();
-            var sender = new PNetMeshSecureFrameSession(transports.Initiator);
-            var receiver = new PNetMeshSecureFrameSession(transports.Responder);
+            var sender = transports.Initiator;
+            var receiver = transports.Responder;
             var frame = new byte[] { 0x45, 0x00, 0x01, 0x02 };
-            var encrypted = new byte[PNetMeshSecureFrameSession.CalculatePacketSize(frame.Length)];
+            var encrypted = new byte[PNetMeshTransport2.CalculatePacketSize(frame.Length)];
             var plaintext = new byte[encrypted.Length];
 
             Assert.True(sender.TryWriteFrame(frame, encrypted, out var encryptedBytes, out var writtenCounter));

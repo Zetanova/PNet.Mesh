@@ -169,8 +169,8 @@ internal static class MacroBenchmarkRunner
         readonly byte[] _packetBuffer = new byte[BenchmarkProtocolHarness.BufferSize];
         readonly byte[] _plaintextBuffer = new byte[BenchmarkProtocolHarness.BufferSize];
         readonly EstablishedTransportPair _transports;
-        readonly PNetMeshSecureFrameSession _sender;
-        readonly PNetMeshSecureFrameSession _receiver;
+        readonly PNetMeshTransport2 _sender;
+        readonly PNetMeshTransport2 _receiver;
         readonly PNetMeshFrameDispatcher _dispatcher = new PNetMeshFrameDispatcher(
             NoopFrameHandler.Instance,
             NoopFrameHandler.Instance,
@@ -193,8 +193,8 @@ internal static class MacroBenchmarkRunner
                     _payload)
             ];
             _transports = BenchmarkProtocolHarness.CreateEstablishedTransports();
-            _sender = new PNetMeshSecureFrameSession(_transports.Initiator);
-            _receiver = new PNetMeshSecureFrameSession(_transports.Responder);
+            _sender = _transports.Initiator;
+            _receiver = _transports.Responder;
         }
 
         public string Name => MacroBenchmarkOptions.RawSecureFrameScenario;

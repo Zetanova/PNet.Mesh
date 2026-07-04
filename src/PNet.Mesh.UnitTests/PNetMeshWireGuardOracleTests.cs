@@ -246,6 +246,7 @@ namespace PNet.Actor.UnitTests.Mesh
         sealed class LocalWireGuardTestTransport : IWireGuardTestTransport
         {
             readonly PNetMeshTransport2 _transport;
+            readonly PNetMeshPacketTracker _tracker = new PNetMeshPacketTracker();
 
             public LocalWireGuardTestTransport(PNetMeshTransport2 transport)
             {
@@ -259,12 +260,13 @@ namespace PNet.Actor.UnitTests.Mesh
 
             public bool TryReadMessage(ReadOnlySpan<byte> payload, Span<byte> buffer, out int bytesWritten, out ulong counter)
             {
-                return _transport.TryReadMessage(payload, buffer, out bytesWritten, out counter);
+                return _transport.TryReadMessage(payload, buffer, _tracker, out bytesWritten, out counter);
             }
 
             public void Dispose()
             {
                 _transport.Dispose();
+                _tracker.Dispose();
             }
         }
 

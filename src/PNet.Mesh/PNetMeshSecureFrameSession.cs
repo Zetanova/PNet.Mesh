@@ -2,6 +2,7 @@
 
 namespace PNet.Mesh
 {
+    [Obsolete("Use PNetMeshTransport2 directly.")]
     public sealed class PNetMeshSecureFrameSession
     {
         readonly PNetMeshTransport2 _transport;
@@ -11,15 +12,9 @@ namespace PNet.Mesh
             _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         }
 
-        internal PNetMeshPacketTracker Tracker => _transport.Tracker;
-
         public static int CalculatePacketSize(int plaintextFrameLength)
         {
-            if (plaintextFrameLength < 0)
-                throw new ArgumentOutOfRangeException(nameof(plaintextFrameLength));
-
-            var padding = (16 - (plaintextFrameLength % 16)) % 16;
-            return checked(PNetMeshPacketFraming.PacketDataHeaderSize + plaintextFrameLength + padding + 16);
+            return PNetMeshTransport2.CalculatePacketSize(plaintextFrameLength);
         }
 
         public bool TryWriteFrame(
@@ -28,13 +23,7 @@ namespace PNet.Mesh
             out int bytesWritten,
             out ulong counter)
         {
-            bytesWritten = CalculatePacketSize(plaintextFrame.Length);
-            counter = 0;
-            if (packet.Length < bytesWritten)
-                return false;
-
-            _transport.WriteMessage(plaintextFrame, packet, out bytesWritten, out counter);
-            return true;
+            return _transport.TryWriteFrame(plaintextFrame, packet, out bytesWritten, out counter);
         }
 
         public bool TryReadFrame(
@@ -42,7 +31,7 @@ namespace PNet.Mesh
             Span<byte> plaintextFrame,
             out PNetMeshTransportPlaintext plaintext)
         {
-            return _transport.TryReadPlaintext(packet, plaintextFrame, out plaintext);
+            return _transport.TryReadFrame(packet, plaintextFrame, out plaintext);
         }
     }
 }

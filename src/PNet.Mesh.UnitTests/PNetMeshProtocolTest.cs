@@ -679,23 +679,24 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.True(responder.TryReadInitiationMessage(buffer1.Slice(0, bytesWritten)));
             Assert.True(responder.TryWriteResponseMessage(buffer2, out bytesWritten, out var responder_transport));
             Assert.True(initiator.TryReadResponseMessage(buffer2.Slice(0, bytesWritten), out var initiator_transport));
+            using var replayTracker = new PNetMeshPacketTracker();
 
             initiator_transport.WriteMessage(Encoding.UTF8.GetBytes("first"), buffer1, out bytesWritten, out var writtenCounter);
             Assert.Equal(0ul, writtenCounter);
-            Assert.True(responder_transport.TryReadMessage(buffer1.Slice(0, bytesWritten), buffer2, out bytesWritten, out var readCounter));
+            Assert.True(responder_transport.TryReadMessage(buffer1.Slice(0, bytesWritten), buffer2, replayTracker, out bytesWritten, out var readCounter));
             Assert.Equal(0ul, readCounter);
 
             initiator_transport.WriteMessage(Encoding.UTF8.GetBytes("second"), buffer1, out bytesWritten, out writtenCounter);
             Assert.Equal(1ul, writtenCounter);
             var replayed = buffer1.Slice(0, bytesWritten).ToArray();
 
-            Assert.True(responder_transport.TryReadMessage(replayed, buffer2, out bytesWritten, out readCounter));
+            Assert.True(responder_transport.TryReadMessage(replayed, buffer2, replayTracker, out bytesWritten, out readCounter));
             Assert.Equal(1ul, readCounter);
             AssertWireGuardPlaintext(buffer2, bytesWritten, "second");
 
             buffer2.Slice(0, 32).Fill(0x5a);
 
-            Assert.False(responder_transport.TryReadMessage(replayed, buffer2, out bytesWritten, out readCounter));
+            Assert.False(responder_transport.TryReadMessage(replayed, buffer2, replayTracker, out bytesWritten, out readCounter));
             Assert.Equal(0, bytesWritten);
             Assert.Equal(1ul, readCounter);
             Assert.All(buffer2.Slice(0, 16).ToArray(), b => Assert.Equal((byte)0, b));

@@ -25,8 +25,8 @@ public class WireGuardTransportBenchmarks
     byte[] _ipv6Packet = Array.Empty<byte>();
 
     EstablishedTransportPair? _transports;
-    PNetMeshSecureFrameSession? _secureFrameSender;
-    PNetMeshSecureFrameSession? _secureFrameReceiver;
+    PNetMeshTransport2? _secureFrameSender;
+    PNetMeshTransport2? _secureFrameReceiver;
     SessionPair? _sessionPair;
 
     readonly PNetMeshFrameDispatcher _rawFrameDispatcher = new PNetMeshFrameDispatcher(
@@ -41,8 +41,8 @@ public class WireGuardTransportBenchmarks
     public void GlobalSetup()
     {
         _transports = BenchmarkProtocolHarness.CreateEstablishedTransports();
-        _secureFrameSender = new PNetMeshSecureFrameSession(_transports.Initiator);
-        _secureFrameReceiver = new PNetMeshSecureFrameSession(_transports.Responder);
+        _secureFrameSender = _transports.Initiator;
+        _secureFrameReceiver = _transports.Responder;
         _pnetFrame = PNetMeshPayloadFraming.CreatePNet(_payload.AsSpan(0, PayloadSize));
         _ipv4Packet = PNetMeshIpPacket.CreateIPv4(
             IPAddress.Parse("10.10.0.1"),
@@ -307,11 +307,12 @@ public class WireGuardTransportBenchmarks
     bool RejectReplayPacket()
     {
         using var transports = BenchmarkProtocolHarness.CreateEstablishedTransports();
+        using var replayTracker = new PNetMeshPacketTracker();
         var packet = WriteTransportPacket(transports.Initiator);
-        if (!transports.Responder.TryReadMessage(packet, _plaintext, out _, out _))
+        if (!transports.Responder.TryReadMessage(packet, _plaintext, replayTracker, out _, out _))
             throw new InvalidOperationException("Responder rejected first packet before replay.");
 
-        return !transports.Responder.TryReadMessage(packet, _plaintext, out _, out _);
+        return !transports.Responder.TryReadMessage(packet, _plaintext, replayTracker, out _, out _);
     }
 
     bool RejectUnknownReceiverPacket()
