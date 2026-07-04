@@ -1,7 +1,7 @@
 ---
-last-entry: 2026-07-03
+last-entry: 2026-07-04
 last-refined: 2026-07-03
-last-artifact: artifacts/benchmarks/tun-comparison/20260703T162643Z/comparison.json
+last-artifact: artifacts/benchmarks/tun-comparison/noise-removal-candidate-mtu-3/comparison.json
 ---
 
 # Peer Comparison Log
@@ -10,6 +10,14 @@ Compact index of project-vs-peer benchmark results. Detailed setup and caveats s
 
 | Date | Scenario | Metric | Direction | Project | Peer | Ratio/Delta | Result | Evidence |
 |------|----------|--------|-----------|---------|------|-------------|--------|----------|
+| 2026-07-04 | tun-mtu-64k | IPv4 ping avg latency | lower | 2.052-2.400 ms | 1.037-2.107 ms | mixed, 0.97x-2.12x peer | mixed | `.agents/plans/remove-noise-net-direct-libsodium-wireguard.md#completion-report-2026-07-04` |
+| 2026-07-04 | tun-mtu-64k | IPv6 ping avg latency | lower | 1.944-3.361 ms | 0.867-1.229 ms | 1.89x-3.43x higher | worse | `.agents/plans/remove-noise-net-direct-libsodium-wireguard.md#completion-report-2026-07-04` |
+| 2026-07-04 | tun-mtu-64k | IPv4/IPv6 packet loss | lower | 0% | 0% | tied | neutral | `.agents/plans/remove-noise-net-direct-libsodium-wireguard.md#completion-report-2026-07-04` |
+| 2026-07-04 | tun-mtu-64k | IPv4 iperf throughput | higher | 64.259-64.284 Kbit/s | 64.281-64.296 Kbit/s | capped parity | neutral | `.agents/plans/remove-noise-net-direct-libsodium-wireguard.md#completion-report-2026-07-04` |
+| 2026-07-04 | tun-mtu-64k | IPv6 iperf throughput | higher | 64.031-64.287 Kbit/s | 64.269-64.289 Kbit/s | capped parity | neutral | `.agents/plans/remove-noise-net-direct-libsodium-wireguard.md#completion-report-2026-07-04` |
+| 2026-07-04 | tun-mtu-64k | RSS | lower | 139.9-141.6 MB | 12.9-13.5 MB | 10.48x-10.81x higher | worse | `.agents/plans/remove-noise-net-direct-libsodium-wireguard.md#completion-report-2026-07-04` |
+| 2026-07-04 | tun-mtu-64k | Threads | lower | 38-39 | 26 | 1.46x-1.50x higher | worse | `.agents/plans/remove-noise-net-direct-libsodium-wireguard.md#completion-report-2026-07-04` |
+| 2026-07-04 | tun-mtu-64k | CPU ticks | lower | 342-368 | 14-16 | 23.00x-24.43x higher | worse | `.agents/plans/remove-noise-net-direct-libsodium-wireguard.md#completion-report-2026-07-04` |
 | 2026-07-02 | tun-mtu-64k | IPv4 ping avg latency | lower | 1.876 ms | 1.020 ms | 1.84x higher | worse | `artifacts/benchmarks/tun-comparison/20260702T161457Z/comparison.json` |
 | 2026-07-02 | tun-mtu-64k | IPv6 ping avg latency | lower | 2.079 ms | 0.982 ms | 2.12x higher | worse | `artifacts/benchmarks/tun-comparison/20260702T161457Z/comparison.json` |
 | 2026-07-02 | tun-mtu-64k | IPv4 packet loss | lower | 0% | 0% | tied | neutral | `artifacts/benchmarks/tun-comparison/20260702T161457Z/comparison.json` |
