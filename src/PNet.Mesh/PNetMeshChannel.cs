@@ -498,6 +498,31 @@ namespace PNet.Mesh
             return EnqueueRawFrameCommandAsync(packet.Slice(0, packetLength), memoryOwner, cancellationToken);
         }
 
+        /// <summary>
+        /// Encrypts and queues an owned IPv4/IPv6 packet immediately when an open session is available.
+        /// </summary>
+        /// <remarks>
+        /// The <paramref name="packet"/> memory must be backed by <paramref name="memoryOwner"/>.
+        /// On success, ownership transfers to the channel and the owner is cleared and disposed before
+        /// this method returns. On a false result or validation exception, ownership remains with the caller.
+        /// This fast path is intended for unreliable raw IP frames and bypasses control-queue ordering.
+        /// </remarks>
+        public bool TryWriteUnreliableIpPacket(ReadOnlyMemory<byte> packet, IMemoryOwner<byte> memoryOwner)
+        {
+            if (memoryOwner == null)
+                throw new ArgumentNullException(nameof(memoryOwner));
+            if (Volatile.Read(ref _disposed))
+                throw new ObjectDisposedException(nameof(PNetMeshChannel));
+
+            var packetLength = GetIpPacketLength(packet.Span, nameof(packet));
+            var session = Volatile.Read(ref _currentSession);
+            if (session is null || !session.TryWriteRawFrame(packet.Span, packetLength))
+                return false;
+
+            ClearAndDispose(memoryOwner);
+            return true;
+        }
+
         async ValueTask EnqueueWriteAsync(
             ReadOnlyMemory<byte> payload,
             IMemoryOwner<byte> memoryOwner,

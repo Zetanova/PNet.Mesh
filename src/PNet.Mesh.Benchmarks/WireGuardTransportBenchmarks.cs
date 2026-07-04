@@ -4,6 +4,7 @@ using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Engines;
 using BenchmarkDotNet.Reports;
 using BenchmarkDotNet.Running;
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Globalization;
 using System.Net;
@@ -28,6 +29,8 @@ public class WireGuardTransportBenchmarks
     PNetMeshTransport2? _secureFrameSender;
     PNetMeshTransport2? _secureFrameReceiver;
     SessionPair? _sessionPair;
+    SessionPair? _rawFrameSessionPair;
+    PNetMeshChannel? _rawFrameChannel;
 
     readonly PNetMeshFrameDispatcher _rawFrameDispatcher = new PNetMeshFrameDispatcher(
         NoopFrameHandler.Instance,
@@ -55,6 +58,10 @@ public class WireGuardTransportBenchmarks
         _sessionPair = BenchmarkProtocolHarness.CreateOpenSessionPair();
         _sessionPair.Sender.UnreliablePayloadDelivery = true;
         DrainSessionState(_sessionPair);
+        _rawFrameSessionPair = BenchmarkProtocolHarness.CreateOpenSessionPair();
+        _rawFrameChannel = new PNetMeshChannel();
+        _rawFrameChannel.AddSession(_rawFrameSessionPair.Sender);
+        DrainSessionState(_rawFrameSessionPair);
     }
 
     [GlobalCleanup]
@@ -66,6 +73,10 @@ public class WireGuardTransportBenchmarks
         _transports = null;
         _sessionPair?.Dispose();
         _sessionPair = null;
+        _rawFrameChannel?.Dispose();
+        _rawFrameChannel = null;
+        _rawFrameSessionPair?.Dispose();
+        _rawFrameSessionPair = null;
     }
 
     [Benchmark(Description = "WireGuard transport write/read")]
@@ -296,6 +307,94 @@ public class WireGuardTransportBenchmarks
         return WriteReadSteadyStateSessionPayloadPacket(pair, _payload.AsSpan(0, PayloadSize));
     }
 
+    [Benchmark(Description = "Channel queued raw IPv4 encrypt/write")]
+    [BenchmarkCategory("channel-raw")]
+    public int ChannelQueuedRawIPv4Packet()
+    {
+        var pair = _rawFrameSessionPair ?? throw new InvalidOperationException("Benchmark setup did not create a raw-frame session pair.");
+        var channel = _rawFrameChannel ?? throw new InvalidOperationException("Benchmark setup did not create a raw-frame channel.");
+        IMemoryOwner<byte>? owner = RentPacket(_ipv4Packet, out var packet);
+        try
+        {
+            channel.EnqueueUnreliableIpPacketAsync(packet, owner).AsTask().GetAwaiter().GetResult();
+            owner = null;
+            var encrypted = ReadPacketBlocking(pair.SenderOutbound);
+            try
+            {
+                return encrypted.MemoryBuffer.Length;
+            }
+            finally
+            {
+                encrypted.MemoryOwner?.Dispose();
+            }
+        }
+        finally
+        {
+            owner?.Dispose();
+        }
+    }
+
+    [Benchmark(Description = "Channel direct raw IPv4 encrypt/write")]
+    [BenchmarkCategory("channel-raw")]
+    public int ChannelDirectRawIPv4Packet()
+    {
+        var pair = _rawFrameSessionPair ?? throw new InvalidOperationException("Benchmark setup did not create a raw-frame session pair.");
+        var channel = _rawFrameChannel ?? throw new InvalidOperationException("Benchmark setup did not create a raw-frame channel.");
+        IMemoryOwner<byte>? owner = RentPacket(_ipv4Packet, out var packet);
+        try
+        {
+            if (!channel.TryWriteUnreliableIpPacket(packet, owner))
+                throw new InvalidOperationException("Raw IP packet was not written directly.");
+
+            owner = null;
+            var encrypted = ReadPacketBlocking(pair.SenderOutbound);
+            try
+            {
+                return encrypted.MemoryBuffer.Length;
+            }
+            finally
+            {
+                encrypted.MemoryOwner?.Dispose();
+            }
+        }
+        finally
+        {
+            owner?.Dispose();
+        }
+    }
+
+    [Benchmark(Description = "Channel direct raw IPv4 mixed with session payload")]
+    [BenchmarkCategory("channel-raw")]
+    public int ChannelDirectRawIPv4PacketMixedSessionPayload()
+    {
+        var pair = _rawFrameSessionPair ?? throw new InvalidOperationException("Benchmark setup did not create a raw-frame session pair.");
+        var channel = _rawFrameChannel ?? throw new InvalidOperationException("Benchmark setup did not create a raw-frame channel.");
+        IMemoryOwner<byte>? owner = RentPacket(_ipv4Packet, out var packet);
+        try
+        {
+            pair.Sender.WritePayload(_payload.AsSpan(0, PayloadSize), null, unreliablePayloadDelivery: true);
+            if (!channel.TryWriteUnreliableIpPacket(packet, owner))
+                throw new InvalidOperationException("Raw IP packet was not written directly.");
+
+            owner = null;
+            var first = ReadPacketBlocking(pair.SenderOutbound);
+            var second = ReadPacketBlocking(pair.SenderOutbound);
+            try
+            {
+                return first.MemoryBuffer.Length + second.MemoryBuffer.Length;
+            }
+            finally
+            {
+                first.MemoryOwner?.Dispose();
+                second.MemoryOwner?.Dispose();
+            }
+        }
+        finally
+        {
+            owner?.Dispose();
+        }
+    }
+
     bool RejectTamperedPacket()
     {
         using var transports = BenchmarkProtocolHarness.CreateEstablishedTransports();
@@ -465,12 +564,38 @@ public class WireGuardTransportBenchmarks
                 case PNetMeshChannelCommands.Send send:
                     send.MemoryOwner?.Dispose();
                     break;
+                case PNetMeshChannelCommands.RawFrame rawFrame:
+                    rawFrame.MemoryOwner?.Dispose();
+                    break;
                 case PNetMeshChannelCommands.Relay relay:
                     relay.CancellationRegistration.Dispose();
                     relay.MemoryOwner?.Dispose();
                     break;
             }
         }
+    }
+
+    static IMemoryOwner<byte> RentPacket(ReadOnlyMemory<byte> packet, out Memory<byte> memory)
+    {
+        var owner = MemoryPool<byte>.Shared.Rent(packet.Length);
+        memory = owner.Memory.Slice(0, packet.Length);
+        packet.CopyTo(memory);
+        return owner;
+    }
+
+    static PNetMeshOutboundMessages.Packet ReadPacketBlocking(Channel<PNetMeshOutboundMessages.Message> channel)
+    {
+        if (!channel.Reader.TryRead(out var message))
+        {
+            message = channel.Reader.ReadAsync()
+                .AsTask()
+                .WaitAsync(TimeSpan.FromSeconds(1))
+                .GetAwaiter()
+                .GetResult();
+        }
+
+        return message as PNetMeshOutboundMessages.Packet
+            ?? throw new InvalidOperationException("Expected packet message.");
     }
 
     sealed class BenchmarkConfig : ManualConfig

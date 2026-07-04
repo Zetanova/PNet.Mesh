@@ -306,6 +306,43 @@ namespace PNet.Mesh
         Timer? _retransTimer;
         Timer? _cumAckTimer;
 
+        // multi-threading: raw-frame fast-path writers reserve the transport under _sessionOwnerLock,
+        // encrypt outside the lock, then release in a finally block. Dispose waits on this drain event
+        // before ClearTransport() so a reserved transport cannot be cleared while encryption is active.
+        int _activeTransportWriters;
+        ManualResetEventSlim? _transportWritersDrained;
+
+        readonly struct RawFrameWriteReservation
+        {
+            public RawFrameWriteReservation(
+                PNetMeshTransport2.WriteReservation transportReservation,
+                EndPoint? localEndPoint,
+                byte[] localAddress,
+                EndPoint? remoteEndPoint,
+                byte[] remoteAddress,
+                EndPoint? directProbeEndPoint)
+            {
+                TransportReservation = transportReservation;
+                LocalEndPoint = localEndPoint;
+                LocalAddress = localAddress;
+                RemoteEndPoint = remoteEndPoint;
+                RemoteAddress = remoteAddress;
+                DirectProbeEndPoint = directProbeEndPoint;
+            }
+
+            public PNetMeshTransport2.WriteReservation TransportReservation { get; }
+
+            public EndPoint? LocalEndPoint { get; }
+
+            public byte[] LocalAddress { get; }
+
+            public EndPoint? RemoteEndPoint { get; }
+
+            public byte[] RemoteAddress { get; }
+
+            public EndPoint? DirectProbeEndPoint { get; }
+        }
+
         internal PNetMeshSession(PNetMeshProtocol protocol, ChannelWriter<PNetMeshOutboundMessages.Message> writer, ILogger? logger = null)
         {
             _protocol = protocol;
@@ -323,19 +360,25 @@ namespace PNet.Mesh
         {
             var exception = new ObjectDisposedException(nameof(PNetMeshSession));
             TaskCompletionSource?[]? results;
+            ManualResetEventSlim? transportWritersDrained;
             lock (_sessionOwnerLock)
             {
                 _disposing = true;
                 Status = PNetMeshSessionStatus.Disposed;
                 results = FailOpenPacket();
+                transportWritersDrained = _activeTransportWriters == 0
+                    ? null
+                    : (_transportWritersDrained ??= new ManualResetEventSlim(false));
             }
             CompleteOpenPacketResults(results, exception);
+            transportWritersDrained?.Wait();
 
             _cumAckTimer?.Dispose();
             _retransTimer?.Dispose();
 
             _handshake?.Dispose();
             ClearTransport();
+            _transportWritersDrained?.Dispose();
         }
 
         internal void AttachTo(ChannelWriter<ReadOnlyMemory<byte>> inboundWriter, ChannelWriter<PNetMeshChannelCommands.Command>? controlWriter)
@@ -611,11 +654,8 @@ namespace PNet.Mesh
         {
             try
             {
-                lock (_sessionOwnerLock)
-                {
-                    var frameLength = GetRawIpFrameLength(frame, nameof(frame));
-                    WriteRawFrame(frame.Slice(0, frameLength));
-                }
+                if (!TryWriteRawFrame(frame))
+                    throw new InvalidOperationException("session not open");
 
                 result?.TrySetResult();
             }
@@ -626,43 +666,112 @@ namespace PNet.Mesh
             }
         }
 
-        void WriteRawFrame(ReadOnlySpan<byte> frame)
+        internal bool TryWriteRawFrame(ReadOnlySpan<byte> frame)
         {
-            ThrowIfDisposing();
-            if (_status != PNetMeshSessionStatus.Open)
-                throw new InvalidOperationException("session not open");
+            var frameLength = GetRawIpFrameLength(frame, nameof(frame));
+            return TryWriteRawFrame(frame, frameLength);
+        }
 
-            TryGetDirectProbeEndpointCore(DateTimeOffset.UtcNow, out var directProbeEndPoint);
-            var bufferOwner = MemoryPool<byte>.Shared.Rent(PNetMeshTransport2.CalculatePacketSize(frame.Length));
+        internal bool TryWriteRawFrame(ReadOnlySpan<byte> frame, int frameLength)
+        {
+            if ((uint)frameLength > (uint)frame.Length)
+                throw new ArgumentOutOfRangeException(nameof(frameLength));
+
+            Debug.Assert(frameLength == GetRawIpFrameLength(frame, nameof(frame)));
+            return TryWriteRawFrameCore(frame.Slice(0, frameLength));
+        }
+
+        bool TryWriteRawFrameCore(ReadOnlySpan<byte> frame)
+        {
+            if (!TryReserveRawFrameWrite(out var reservation))
+                return false;
+
+            IMemoryOwner<byte>? bufferOwner = null;
             try
             {
+                bufferOwner = MemoryPool<byte>.Shared.Rent(PNetMeshTransport2.CalculatePacketSize(frame.Length));
                 var buffer = bufferOwner.Memory;
-                if (!Transport.TryWriteFrame(frame, buffer.Span, out var byteWritten, out var counter))
+                if (!reservation.TransportReservation.TryWriteFrame(frame, buffer.Span, out var byteWritten))
                     throw new InvalidOperationException("Unable to write secure frame.");
 
+                CompleteRawFrameWrite(reservation);
                 var item = new PNetMeshOutboundMessages.Packet
                 {
                     MemoryOwner = bufferOwner,
                     MemoryBuffer = buffer.Slice(0, byteWritten),
-                    LocalEndPoint = _localEndPoint,
-                    LocalAddress = LocalAddress,
-                    RemoteEndPoint = _remoteEndPoint,
-                    RemoteAddress = RemoteAddress
+                    LocalEndPoint = reservation.LocalEndPoint,
+                    LocalAddress = reservation.LocalAddress,
+                    RemoteEndPoint = reservation.RemoteEndPoint,
+                    RemoteAddress = reservation.RemoteAddress
                 };
 
-                TryWriteDirectProbe(item.MemoryBuffer, directProbeEndPoint);
+                TryWriteDirectProbe(
+                    item.MemoryBuffer,
+                    reservation.DirectProbeEndPoint,
+                    reservation.LocalEndPoint,
+                    reservation.LocalAddress,
+                    reservation.RemoteAddress);
 
                 if (!_outboundWriter.TryWrite(item))
                 {
                     _ = WriteOutboundPacketAsync(_outboundWriter, item, _logger);
                 }
 
-                _retransBuffer.AddUntracked(counter);
                 bufferOwner = null;
+                return true;
             }
             finally
             {
+                ReleaseTransportWriter();
                 bufferOwner?.Dispose();
+            }
+        }
+
+        bool TryReserveRawFrameWrite(out RawFrameWriteReservation reservation)
+        {
+            lock (_sessionOwnerLock)
+            {
+                if (_status != PNetMeshSessionStatus.Open)
+                {
+                    reservation = default;
+                    return false;
+                }
+
+                ThrowIfDisposing();
+                var transportReservation = Transport.ReserveWrite();
+                _retransBuffer.AddUntracked(transportReservation.Counter);
+                TryGetDirectProbeEndpointCore(DateTimeOffset.UtcNow, out var directProbeEndPoint);
+                _activeTransportWriters++;
+                _transportWritersDrained?.Reset();
+                reservation = new RawFrameWriteReservation(
+                    transportReservation,
+                    _localEndPoint,
+                    LocalAddress,
+                    _remoteEndPoint,
+                    RemoteAddress,
+                    directProbeEndPoint);
+                return true;
+            }
+        }
+
+        void CompleteRawFrameWrite(RawFrameWriteReservation reservation)
+        {
+            lock (_sessionOwnerLock)
+            {
+                reservation.TransportReservation.RecordWritten();
+            }
+        }
+
+        void ReleaseTransportWriter()
+        {
+            lock (_sessionOwnerLock)
+            {
+                if (_activeTransportWriters == 0)
+                    throw new InvalidOperationException("No active transport writer is available.");
+
+                _activeTransportWriters--;
+                if (_activeTransportWriters == 0)
+                    _transportWritersDrained?.Set();
             }
         }
 
@@ -1002,6 +1111,16 @@ namespace PNet.Mesh
 
         void TryWriteDirectProbe(Memory<byte> packet, EndPoint? directProbeEndPoint)
         {
+            TryWriteDirectProbe(packet, directProbeEndPoint, _localEndPoint, LocalAddress, RemoteAddress);
+        }
+
+        void TryWriteDirectProbe(
+            Memory<byte> packet,
+            EndPoint? directProbeEndPoint,
+            EndPoint? localEndPoint,
+            byte[] localAddress,
+            byte[] remoteAddress)
+        {
             if (directProbeEndPoint is null)
                 return;
 
@@ -1011,10 +1130,10 @@ namespace PNet.Mesh
             {
                 MemoryOwner = bufferOwner,
                 MemoryBuffer = bufferOwner.Memory.Slice(0, packet.Length),
-                LocalEndPoint = _localEndPoint,
-                LocalAddress = LocalAddress,
+                LocalEndPoint = localEndPoint,
+                LocalAddress = localAddress,
                 RemoteEndPoint = directProbeEndPoint,
-                RemoteAddress = RemoteAddress
+                RemoteAddress = remoteAddress
             };
 
             if (!_outboundWriter.TryWrite(item))

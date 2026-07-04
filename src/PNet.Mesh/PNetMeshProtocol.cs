@@ -1126,11 +1126,27 @@ namespace PNet.Mesh
 
         public void WriteMessage(ReadOnlySpan<byte> payload, Span<byte> buffer, out int bytesWritten, out ulong counter)
         {
+            if (buffer.Length < CalculatePacketSize(payload.Length))
+                throw new ArgumentOutOfRangeException(nameof(buffer));
+
+            var reservation = ReserveWrite();
+            counter = reservation.Counter;
+            WriteMessageWithCounter(payload, counter, buffer, out bytesWritten);
+            reservation.RecordWritten();
+        }
+
+        internal WriteReservation ReserveWrite()
+        {
+            var counter = _sendCounter;
+            ThrowIfWriteKeypairExpired(counter);
+            _sendCounter = counter + 1;
+            return new WriteReservation(this, counter);
+        }
+
+        void WriteMessageWithCounter(ReadOnlySpan<byte> payload, ulong counter, Span<byte> buffer, out int bytesWritten)
+        {
             var padding = (16 - (payload.Length % 16)) % 16;
             var paddedSize = payload.Length + padding;
-
-            if (buffer.Length < (8 + 8 + 16 + paddedSize))
-                throw new ArgumentOutOfRangeException(nameof(buffer));
 
             /*
                 msg = packet_data {
@@ -1158,8 +1174,6 @@ namespace PNet.Mesh
                 payload.CopyTo(padded_payload);
                 padded_payload.Slice(payload.Length, padding).Clear();
 
-                counter = _sendCounter;
-                ThrowIfWriteKeypairExpired(counter);
                 PNetMeshLibSodium.EncryptChaCha20Poly1305Ietf(
                     _writeKey,
                     counter,
@@ -1168,8 +1182,6 @@ namespace PNet.Mesh
                     buffer[16..],
                     out var encryptedBytes);
                 bytesWritten += encryptedBytes;
-                RecordWireGuardSent(counter);
-                _sendCounter++;
 
                 if (rented_padded_payload != null)
                 {
@@ -1179,8 +1191,6 @@ namespace PNet.Mesh
             }
             else
             {
-                counter = _sendCounter;
-                ThrowIfWriteKeypairExpired(counter);
                 PNetMeshLibSodium.EncryptChaCha20Poly1305Ietf(
                     _writeKey,
                     counter,
@@ -1189,8 +1199,6 @@ namespace PNet.Mesh
                     buffer[16..],
                     out var encryptedBytes);
                 bytesWritten += encryptedBytes;
-                RecordWireGuardSent(counter);
-                _sendCounter++;
             }
 
             BinaryPrimitives.WriteUInt64LittleEndian(buffer[8..16], counter);
@@ -1218,6 +1226,37 @@ namespace PNet.Mesh
 
             WriteMessage(plaintextFrame, packet, out bytesWritten, out counter);
             return true;
+        }
+
+        internal readonly struct WriteReservation
+        {
+            readonly PNetMeshTransport2 _transport;
+
+            internal WriteReservation(PNetMeshTransport2 transport, ulong counter)
+            {
+                _transport = transport;
+                Counter = counter;
+            }
+
+            public ulong Counter { get; }
+
+            internal bool TryWriteFrame(
+                ReadOnlySpan<byte> plaintextFrame,
+                Span<byte> packet,
+                out int bytesWritten)
+            {
+                bytesWritten = CalculatePacketSize(plaintextFrame.Length);
+                if (packet.Length < bytesWritten)
+                    return false;
+
+                _transport.WriteMessageWithCounter(plaintextFrame, Counter, packet, out bytesWritten);
+                return true;
+            }
+
+            internal void RecordWritten()
+            {
+                _transport.RecordWireGuardSent(Counter);
+            }
         }
 
         public bool TryReadFrame(
