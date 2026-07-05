@@ -724,11 +724,23 @@ namespace PNet.Mesh
             IMemoryOwner<byte>? bufferOwner = null;
             try
             {
+#if PNET_MESH_PACKET_TRACE
+                var hasTraceKey = PNetMeshPacketTrace.TryCreateKey(frame, out var traceKey);
+#endif
+                PNetMeshPacketTrace.RecordPacket(
+                    PNetMeshPacketTraceStage.EncryptStart,
+                    frame,
+                    frame.Length);
                 bufferOwner = MemoryPool<byte>.Shared.Rent(PNetMeshTransport2.CalculatePacketSize(frame.Length));
                 var buffer = bufferOwner.Memory;
                 if (!reservation.TransportReservation.TryWriteFrame(frame, buffer.Span, out var byteWritten))
                     throw new InvalidOperationException("Unable to write secure frame.");
 
+                PNetMeshPacketTrace.RecordPacket(
+                    PNetMeshPacketTraceStage.EncryptDone,
+                    frame,
+                    frame.Length,
+                    byteWritten);
                 CompleteRawFrameWrite(reservation);
                 var item = new PNetMeshOutboundMessages.Packet
                 {
@@ -739,6 +751,10 @@ namespace PNet.Mesh
                     RemoteEndPoint = reservation.RemoteEndPoint,
                     RemoteAddress = reservation.RemoteAddress
                 };
+#if PNET_MESH_PACKET_TRACE
+                if (hasTraceKey)
+                    item.PacketTraceKey = traceKey;
+#endif
 
                 TryWriteDirectProbe(
                     item.MemoryBuffer,
@@ -1390,6 +1406,7 @@ namespace PNet.Mesh
         {
             payloadReceived = false;
             rawIpFrame = null;
+            PNetMeshPacketTrace.MarkDecryptStart();
             if (!Transport.TryReadFrame(payload, buffer.Span, TransportReplayTracker, out var plaintext))
             {
                 //buffer.Dispose();
@@ -1417,6 +1434,10 @@ namespace PNet.Mesh
             }
 
             var frame = buffer.Span.Slice(0, plaintext.BytesWritten);
+            PNetMeshPacketTrace.RecordPacket(
+                PNetMeshPacketTraceStage.DecryptDone,
+                frame,
+                plaintext.BytesWritten);
             if (!PNetMeshPayloadFraming.TryClassify(frame, out var kind, out _))
                 return false;
 
@@ -1429,6 +1450,12 @@ namespace PNet.Mesh
                     if (!PNetMeshPayloadFraming.TryRead(frame, out var payloadFrame, out _))
                         return false;
 
+                    PNetMeshPacketTrace.RecordPacket(
+                        kind == PNetMeshPayloadFrameKind.IPv4
+                            ? PNetMeshPacketTraceStage.PlaintextIPv4Detected
+                            : PNetMeshPacketTraceStage.PlaintextIPv6Detected,
+                        frame,
+                        payloadFrame.TotalLength);
                     rawIpFrame = new RawIpFrameReceive(
                         kind,
                         payloadFrame.TotalLength,
@@ -1473,6 +1500,11 @@ namespace PNet.Mesh
             if (inboundWriter is null || !inboundWriter.TryWrite(packet))
                 return false;
 
+            PNetMeshPacketTrace.RecordPacket(
+                PNetMeshPacketTraceStage.InboundFallbackQueued,
+                frame,
+                frame.Length,
+                1);
             payloadReceived = true;
             return true;
         }

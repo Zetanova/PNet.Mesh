@@ -64,11 +64,21 @@ namespace PNet.Mesh.Tun
                     if (bytesRead == 0)
                         continue;
 
+                    PNetMeshPacketTrace.RecordPacket(
+                        PNetMeshPacketTraceStage.TunReadDone,
+                        buffer.Span[..bytesRead],
+                        bytesRead);
+
                     if (!PNetMeshIpPacket.TryRead(buffer.Span[..bytesRead], out var packet))
                     {
                         _logger.LogDebug("dropping invalid packet read from TUN device {interfaceName}", _tunDevice.Name);
                         continue;
                     }
+
+                    PNetMeshPacketTrace.RecordPacket(
+                        PNetMeshPacketTraceStage.IpParsed,
+                        buffer.Span[..bytesRead],
+                        packet.TotalLength);
 
                     var peer = FindPeerByDestination(packet.DestinationAddress);
                     if (peer == null)
@@ -78,8 +88,30 @@ namespace PNet.Mesh.Tun
                     }
 
                     var packetBytes = buffer.Slice(0, packet.TotalLength);
+                    PNetMeshPacketTrace.RecordPacket(
+                        PNetMeshPacketTraceStage.PeerRouteFound,
+                        packetBytes.Span,
+                        packet.TotalLength);
                     var channel = await peer.GetChannelAsync(_server, cancellationToken);
-                    if (!PeerState.TryWriteUnreliableIpPacket(channel, packetBytes, packet.Version, packetOwner))
+                    PNetMeshPacketTrace.RecordPacket(
+                        PNetMeshPacketTraceStage.RawSendAttempt,
+                        packetBytes.Span,
+                        packet.TotalLength);
+#if PNET_MESH_PACKET_TRACE
+                    var hasTraceKey = PNetMeshPacketTrace.TryCreateKey(packetBytes.Span, out var traceKey);
+#endif
+                    var sent = PeerState.TryWriteUnreliableIpPacket(channel, packetBytes, packet.Version, packetOwner);
+#if PNET_MESH_PACKET_TRACE
+                    if (hasTraceKey)
+                    {
+                        PNetMeshPacketTrace.RecordKey(
+                            sent ? PNetMeshPacketTraceStage.RawSendDispatched : PNetMeshPacketTraceStage.RawSendDropped,
+                            traceKey,
+                            packet.TotalLength,
+                            sent ? 1 : 0);
+                    }
+#endif
+                    if (!sent)
                     {
                         _logger.LogDebug("dropping packet to {peerName} because the peer session pending queue is full", peer.Route.Name);
                         continue;
@@ -120,7 +152,15 @@ namespace PNet.Mesh.Tun
                             continue;
                         }
 
+                        PNetMeshPacketTrace.RecordPacket(
+                            PNetMeshPacketTraceStage.QueuedTunWriteStart,
+                            payload.Span[..packet.TotalLength],
+                            packet.TotalLength);
                         await _tunDevice.WritePacketAsync(payload[..packet.TotalLength], cancellationToken);
+                        PNetMeshPacketTrace.RecordPacket(
+                            PNetMeshPacketTraceStage.QueuedTunWriteDone,
+                            payload.Span[..packet.TotalLength],
+                            packet.TotalLength);
                         if (_logger.IsEnabled(LogLevel.Debug))
                             LogForwardedPeerPacket(peer, packet);
                     }
@@ -153,14 +193,37 @@ namespace PNet.Mesh.Tun
             }
 
             if (_tunDevice is ITunDeviceFastWriter fastWriter
-                && fastWriter.TryWritePacket(packet[..parsed.TotalLength]))
+                && TryWritePacketDirect(fastWriter, packet[..parsed.TotalLength]))
             {
                 if (_logger.IsEnabled(LogLevel.Debug))
                     LogForwardedPeerPacket(peer, parsed);
                 return PNetMeshRawIpFrameSinkResult.Delivered;
             }
 
+            PNetMeshPacketTrace.RecordPacket(
+                PNetMeshPacketTraceStage.TunWriteFallbackToChannel,
+                packet[..parsed.TotalLength],
+                parsed.TotalLength);
             return PNetMeshRawIpFrameSinkResult.FallbackToChannel;
+        }
+
+        static bool TryWritePacketDirect(ITunDeviceFastWriter writer, ReadOnlySpan<byte> packet)
+        {
+            PNetMeshPacketTrace.RecordPacket(
+                PNetMeshPacketTraceStage.TunWriteStart,
+                packet,
+                packet.Length);
+            var success = writer.TryWritePacket(packet);
+            if (success)
+            {
+                PNetMeshPacketTrace.RecordPacket(
+                    PNetMeshPacketTraceStage.TunWriteDone,
+                    packet,
+                    packet.Length,
+                    1);
+            }
+
+            return success;
         }
 
         PeerState? FindPeerByDestination(IPAddress destinationAddress)

@@ -22,6 +22,10 @@ namespace PNet.Mesh
             public EndPoint? LocalEndPoint { get; set; }
 
             public ReadOnlyMemory<byte> MemoryBuffer { get; set; }
+
+#if PNET_MESH_PACKET_TRACE
+            public long PacketTraceReceiveTimestamp { get; set; }
+#endif
         }
 
         public sealed class OpenChannel : Command

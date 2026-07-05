@@ -29,6 +29,10 @@ namespace PNet.Mesh
             public EndPoint? LocalEndPoint { get; set; }
 
             public Memory<byte> MemoryBuffer { get; set; }
+
+#if PNET_MESH_PACKET_TRACE
+            internal PNetMeshPacketTraceKey? PacketTraceKey { get; set; }
+#endif
         }
 
         public sealed class Relay : Message

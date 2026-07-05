@@ -72,8 +72,21 @@ namespace PNet.Mesh
                 if (!session.SupportsDirectEndpointDiscovery)
                     _endpointUpdater.ApplyLegacyEndpointUpdate(session, command);
 
-                if (session.TryReadMessage(command.MemoryBuffer.Span)
-                    && session.SupportsDirectEndpointDiscovery)
+                var read = false;
+                try
+                {
+#if PNET_MESH_PACKET_TRACE
+                    PNetMeshPacketTrace.SetUdpReceiveTimestamp(command.PacketTraceReceiveTimestamp);
+                    PNetMeshPacketTrace.MarkInboundDirectStart();
+#endif
+                    read = session.TryReadMessage(command.MemoryBuffer.Span);
+                }
+                finally
+                {
+                    PNetMeshPacketTrace.ClearUdpReceiveTimestamp();
+                }
+
+                if (read && session.SupportsDirectEndpointDiscovery)
                 {
                     _endpointUpdater.ApplyAuthenticatedEndpointUpdate(session, command);
                 }

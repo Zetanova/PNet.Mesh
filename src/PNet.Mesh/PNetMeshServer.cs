@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -34,7 +35,7 @@ namespace PNet.Mesh
         Task _controlTask = Task.CompletedTask;
 
         ImmutableArray<Socket> _sockets = ImmutableArray<Socket>.Empty;
-
+        ImmutableArray<Task> _receiveTasks = ImmutableArray<Task>.Empty;
 
         Channel<PNetMeshControlCommands.Command> ControlChannel => _controlChannel ?? throw new InvalidOperationException("Server is not started.");
 
@@ -111,6 +112,9 @@ namespace PNet.Mesh
             _ = _controlTask.ContinueWith(t => _logger.LogError(t.Exception, "control process error"), TaskContinuationOptions.OnlyOnFaulted);
 
             var sockets = ImmutableArray.CreateBuilder<Socket>();
+            var receiveTasks = ImmutableArray.CreateBuilder<Task>();
+            var useBlockingUdpReceive = IsBlockingUdpReceiveEnabled();
+            var udpSocketBufferBytes = GetUdpSocketBufferBytes();
 
             foreach (var bind in _settings.BindTo)
             {
@@ -118,6 +122,7 @@ namespace PNet.Mesh
                 //todo any endpoint parsing
 
                 var socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
+                ApplyUdpSocketBufferSize(socket, udpSocketBufferBytes);
                 socket.Bind(ep);
                 sockets.Add(socket);
             }
@@ -138,6 +143,24 @@ namespace PNet.Mesh
                     InboundDispatcher = inboundDispatcher,
                     Logger = _logger
                 };
+
+                if (useBlockingUdpReceive)
+                {
+                    var task = Task.Factory.StartNew(
+                        static state =>
+                        {
+                            var (receiveSocket, receiveItem) = ((Socket, PNetMeshSocketReceiveWorkItem))state!;
+                            ProcessReceiveLoop(receiveSocket, receiveItem);
+                        },
+                        (socket, item),
+                        CancellationToken.None,
+                        TaskCreationOptions.LongRunning,
+                        TaskScheduler.Default);
+                    _ = task.ContinueWith(t => _logger.LogError(t.Exception, "udp receive process error"), TaskContinuationOptions.OnlyOnFaulted);
+                    receiveTasks.Add(task);
+                    continue;
+                }
+
                 var args = new SocketAsyncEventArgs();
                 args.UserToken = item;
                 args.SetBuffer(item.MemoryOwner.Memory);
@@ -149,6 +172,8 @@ namespace PNet.Mesh
                     ProcessReceive(socket, args);
                 }
             }
+
+            _receiveTasks = receiveTasks.ToImmutable();
         }
 
         public void Stop()
@@ -164,6 +189,7 @@ namespace PNet.Mesh
                 socket.Dispose();
             }
             _sockets = ImmutableArray<Socket>.Empty;
+            _receiveTasks = ImmutableArray<Task>.Empty;
         }
 
         public async Task ShutdownAsync(CancellationToken cancellationToken = default)
@@ -240,8 +266,21 @@ namespace PNet.Mesh
                                                 if (!session.SupportsDirectEndpointDiscovery)
                                                     ApplyLegacyEndpointUpdate(session, cmd);
 
-                                                if (session.TryReadMessage(cmd.MemoryBuffer.Span)
-                                                    && session.SupportsDirectEndpointDiscovery)
+                                                var read = false;
+                                                try
+                                                {
+#if PNET_MESH_PACKET_TRACE
+                                                    PNetMeshPacketTrace.SetUdpReceiveTimestamp(cmd.PacketTraceReceiveTimestamp);
+                                                    PNetMeshPacketTrace.MarkInboundDirectStart();
+#endif
+                                                    read = session.TryReadMessage(cmd.MemoryBuffer.Span);
+                                                }
+                                                finally
+                                                {
+                                                    PNetMeshPacketTrace.ClearUdpReceiveTimestamp();
+                                                }
+
+                                                if (read && session.SupportsDirectEndpointDiscovery)
                                                 {
                                                     ApplyAuthenticatedEndpointUpdate(session, cmd);
                                                 }
@@ -934,6 +973,117 @@ namespace PNet.Mesh
             item.Writer.TryWrite(args);
         }
 
+        static bool IsBlockingUdpReceiveEnabled()
+        {
+            var mode = Environment.GetEnvironmentVariable("PNET_MESH_UDP_RECEIVE_MODE");
+            if (string.IsNullOrWhiteSpace(mode))
+                return false;
+            if (string.Equals(mode, "async", StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (string.Equals(mode, "blocking", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            throw new InvalidOperationException("PNET_MESH_UDP_RECEIVE_MODE must be either 'async' or 'blocking'.");
+        }
+
+        static int? GetUdpSocketBufferBytes()
+        {
+            var value = Environment.GetEnvironmentVariable("PNET_MESH_UDP_SOCKET_BUFFER_BYTES");
+            if (string.IsNullOrWhiteSpace(value))
+                return null;
+
+            if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var bytes)
+                || bytes <= 0)
+            {
+                throw new InvalidOperationException("PNET_MESH_UDP_SOCKET_BUFFER_BYTES must be a positive integer.");
+            }
+
+            return bytes;
+        }
+
+        static void ApplyUdpSocketBufferSize(Socket socket, int? bufferBytes)
+        {
+            if (bufferBytes is not { } bytes)
+                return;
+
+            socket.ReceiveBufferSize = bytes;
+            socket.SendBufferSize = bytes;
+        }
+
+        static EndPoint CreateReceiveRemoteEndPoint(Socket socket)
+        {
+            return socket.AddressFamily == AddressFamily.InterNetworkV6
+                ? new IPEndPoint(IPAddress.IPv6Any, 0)
+                : new IPEndPoint(IPAddress.Any, 0);
+        }
+
+        static bool IsSocketClosed(SocketError error)
+        {
+            return error is SocketError.Interrupted
+                   or SocketError.NotSocket
+                   or SocketError.OperationAborted
+                   or SocketError.Shutdown;
+        }
+
+        static void ProcessReceiveLoop(Socket socket, PNetMeshSocketReceiveWorkItem item)
+        {
+            var remoteEndPoint = CreateReceiveRemoteEndPoint(socket);
+            while (true)
+            {
+                try
+                {
+                    var socketFlags = SocketFlags.None;
+                    var bytesRead = socket.ReceiveMessageFrom(
+                        item.MemoryOwner.Memory.Span,
+                        ref socketFlags,
+                        ref remoteEndPoint,
+                        out _);
+#if PNET_MESH_PACKET_TRACE
+                    var packetTraceReceiveTimestamp = Stopwatch.GetTimestamp();
+#endif
+                    if (socketFlags.HasFlag(SocketFlags.Truncated))
+                        continue;
+
+                    var data = item.MemoryOwner.Memory.Span.Slice(0, bytesRead);
+                    if (!ShouldAcceptReceivedPacket(socket, item, remoteEndPoint, data))
+                        continue;
+
+                    if (!TryGetReceiveLocalEndPoint(socket, item.MemoryOwner, out var localEndPoint))
+                        return;
+
+                    var cmd = CreateReceiveCommand(
+                        item.MemoryOwner,
+                        localEndPoint,
+                        remoteEndPoint,
+                        item.MemoryOwner.Memory.Slice(0, bytesRead));
+#if PNET_MESH_PACKET_TRACE
+                    cmd.PacketTraceReceiveTimestamp = packetTraceReceiveTimestamp;
+#endif
+
+                    item.InboundDispatcher.Dispatch(cmd);
+                    item.MemoryOwner = MemoryPool<byte>.Shared.Rent(ushort.MaxValue);
+                }
+                catch (ObjectDisposedException)
+                {
+                    item.MemoryOwner.Dispose();
+                    return;
+                }
+                catch (SocketException ex) when (IsSocketClosed(ex.SocketErrorCode))
+                {
+                    item.MemoryOwner.Dispose();
+                    return;
+                }
+                catch (SocketException ex) when (ex.SocketErrorCode == SocketError.MessageSize)
+                {
+                }
+                catch
+                {
+                    item.MemoryOwner.Dispose();
+                    throw;
+                }
+            }
+        }
+
         static void ProcessReceive(object? sender, SocketAsyncEventArgs args)
         {
             //receive data from any socket
@@ -950,11 +1100,14 @@ namespace PNet.Mesh
 
                 if (args.SocketError == SocketError.Success)
                 {
+#if PNET_MESH_PACKET_TRACE
+                    var packetTraceReceiveTimestamp = Stopwatch.GetTimestamp();
+#endif
                     //read packet
                     var data = args.MemoryBuffer.Span.Slice(args.Offset, args.BytesTransferred);
-                    if (ShouldAcceptReceivedPacket(socket, item, args, data))
+                    if (ShouldAcceptReceivedPacket(socket, item, args.RemoteEndPoint, data))
                     {
-                        if (!TryGetReceiveLocalEndPoint(socket, item, out var localEndPoint))
+                        if (!TryGetReceiveLocalEndPoint(socket, item.MemoryOwner, out var localEndPoint))
                             return;
 
                         //try write packet to channel
@@ -963,6 +1116,9 @@ namespace PNet.Mesh
                             localEndPoint,
                             args.RemoteEndPoint,
                             args.MemoryBuffer.Slice(args.Offset, args.BytesTransferred));
+#if PNET_MESH_PACKET_TRACE
+                        cmd.PacketTraceReceiveTimestamp = packetTraceReceiveTimestamp;
+#endif
 
                         item.InboundDispatcher.Dispatch(cmd);
 
@@ -998,7 +1154,7 @@ namespace PNet.Mesh
 
         internal static bool TryGetReceiveLocalEndPoint(
             Socket socket,
-            PNetMeshSocketReceiveWorkItem item,
+            IMemoryOwner<byte> memoryOwner,
             out EndPoint? localEndPoint)
         {
             try
@@ -1008,7 +1164,7 @@ namespace PNet.Mesh
             }
             catch (ObjectDisposedException)
             {
-                item.MemoryOwner.Dispose();
+                memoryOwner.Dispose();
                 localEndPoint = null;
                 return false;
             }
@@ -1017,28 +1173,28 @@ namespace PNet.Mesh
         static bool ShouldAcceptReceivedPacket(
             Socket socket,
             PNetMeshSocketReceiveWorkItem item,
-            SocketAsyncEventArgs args,
+            EndPoint? remoteEndPoint,
             ReadOnlySpan<byte> data)
         {
             if (PNetMeshPacketFraming.TryReadMessageType(data, out var messageType)
                 && (messageType == PNetMeshMessageType.HandshakeInitiation
                     || messageType == PNetMeshMessageType.HandshakeResponse))
             {
-                if (args.RemoteEndPoint == null)
+                if (remoteEndPoint == null)
                     return false;
 
                 var result = item.Protocol.CookieGate.EvaluateHandshake(
                     data,
-                    args.RemoteEndPoint,
+                    remoteEndPoint,
                     DateTimeOffset.UtcNow,
                     item.Protocol.RequireCookieMac2);
                 if (result == PNetMeshCookieGateResult.CookieRequired)
-                    TrySendCookieReply(socket, item.Protocol, args.RemoteEndPoint, data);
+                    TrySendCookieReply(socket, item.Protocol, remoteEndPoint, data);
                 item.Logger?.LogDebug(
                     "event=wireguard_cookie_gate result={result} message_type={messageType} endpoint_id={endpointId}",
                     result,
                     messageType,
-                    PNetMeshDiagnosticRedactor.EndpointId(args.RemoteEndPoint));
+                    PNetMeshDiagnosticRedactor.EndpointId(remoteEndPoint));
                 return result == PNetMeshCookieGateResult.Accepted;
             }
 

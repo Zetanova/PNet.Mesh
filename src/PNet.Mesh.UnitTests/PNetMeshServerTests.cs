@@ -255,29 +255,11 @@ namespace PNet.Actor.UnitTests.Mesh
         [Fact]
         public void disposed_receive_socket_local_endpoint_disposes_active_buffer()
         {
-            using var key = KeyPair.Generate();
-            var psk = new byte[32];
-            RandomNumberGenerator.Fill(psk);
-            var protocol = new PNetMeshProtocol(key.PrivateKey, key.PublicKey, psk);
-            var control = Channel.CreateUnbounded<PNetMeshControlCommands.Command>();
-            var inboundDispatcher = new PNetMeshInboundDispatcher(
-                protocol,
-                new PNetMeshSessionTable(),
-                new PNetMeshEndpointUpdater(new PNetMeshRouter(), NullLogger.Instance),
-                control.Writer,
-                NullLogger.Instance);
             using var socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
             var memoryOwner = new TrackingMemoryOwner(256);
-            var item = new PNetMeshSocketReceiveWorkItem
-            {
-                Protocol = protocol,
-                MemoryOwner = memoryOwner,
-                InboundDispatcher = inboundDispatcher,
-                Logger = NullLogger.Instance
-            };
             socket.Dispose();
 
-            var accepted = PNetMeshServer.TryGetReceiveLocalEndPoint(socket, item, out var localEndPoint);
+            var accepted = PNetMeshServer.TryGetReceiveLocalEndPoint(socket, memoryOwner, out var localEndPoint);
 
             Assert.False(accepted);
             Assert.Null(localEndPoint);

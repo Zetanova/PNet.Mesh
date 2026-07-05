@@ -57,6 +57,16 @@ namespace PNet.Mesh
                 return true;
             }
 
+#if PNET_MESH_PACKET_TRACE
+            if (message is PNetMeshOutboundMessages.Packet queuedPacket
+                && queuedPacket.PacketTraceKey is { } queuedTraceKey)
+            {
+                PNetMeshPacketTrace.RecordKey(
+                    PNetMeshPacketTraceStage.UdpSendFallbackQueued,
+                    queuedTraceKey,
+                    queuedPacket.MemoryBuffer.Length);
+            }
+#endif
             return _pending.Writer.TryWrite(message);
         }
 
@@ -79,6 +89,16 @@ namespace PNet.Mesh
             var memoryOwner = packet.MemoryOwner;
             try
             {
+#if PNET_MESH_PACKET_TRACE
+                var traceKey = packet.PacketTraceKey;
+                if (traceKey is { } sendStartKey)
+                {
+                    PNetMeshPacketTrace.RecordKey(
+                        PNetMeshPacketTraceStage.UdpSendStart,
+                        sendStartKey,
+                        packet.MemoryBuffer.Length);
+                }
+#endif
                 var send = socket.SendToAsync(
                     packet.MemoryBuffer,
                     SocketFlags.None,
@@ -89,11 +109,29 @@ namespace PNet.Mesh
                 if (send.IsCompletedSuccessfully)
                 {
                     _ = send.Result;
+#if PNET_MESH_PACKET_TRACE
+                    if (traceKey is { } completedSyncKey)
+                    {
+                        PNetMeshPacketTrace.RecordKey(
+                            PNetMeshPacketTraceStage.UdpSendCompletedSync,
+                            completedSyncKey,
+                            packet.MemoryBuffer.Length);
+                    }
+#endif
                     memoryOwner?.Dispose();
                 }
                 else
                 {
+#if PNET_MESH_PACKET_TRACE
+                    _ = CompleteSendAsync(
+                        send,
+                        memoryOwner,
+                        _logger,
+                        traceKey,
+                        packet.MemoryBuffer.Length);
+#else
                     _ = CompleteSendAsync(send, memoryOwner, _logger);
+#endif
                 }
 
                 return true;
@@ -128,11 +166,26 @@ namespace PNet.Mesh
         static async Task CompleteSendAsync(
             ValueTask<int> send,
             IMemoryOwner<byte>? memoryOwner,
-            ILogger logger)
+            ILogger logger
+#if PNET_MESH_PACKET_TRACE
+            ,
+            PNetMeshPacketTraceKey? traceKey,
+            int byteCount
+#endif
+            )
         {
             try
             {
                 _ = await send.ConfigureAwait(false);
+#if PNET_MESH_PACKET_TRACE
+                if (traceKey is { } completedAsyncKey)
+                {
+                    PNetMeshPacketTrace.RecordKey(
+                        PNetMeshPacketTraceStage.UdpSendCompletedAsync,
+                        completedAsyncKey,
+                        byteCount);
+                }
+#endif
             }
             catch (Exception ex) when (ex is SocketException or ObjectDisposedException or InvalidOperationException)
             {
