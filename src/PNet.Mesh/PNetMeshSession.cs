@@ -29,26 +29,34 @@ namespace PNet.Mesh
 
     public sealed class PNetMeshSession : IDisposable, IPNetMeshReliableControlPacketHandler
     {
+        readonly struct RawIpFrameReceive
+        {
+            public RawIpFrameReceive(
+                PNetMeshPayloadFrameKind kind,
+                int frameLength,
+                IPNetMeshRawIpFrameSink? sink,
+                ChannelWriter<ReadOnlyMemory<byte>>? inboundWriter)
+            {
+                Kind = kind;
+                FrameLength = frameLength;
+                Sink = sink;
+                InboundWriter = inboundWriter;
+            }
+
+            public PNetMeshPayloadFrameKind Kind { get; }
+
+            public int FrameLength { get; }
+
+            public IPNetMeshRawIpFrameSink? Sink { get; }
+
+            public ChannelWriter<ReadOnlyMemory<byte>>? InboundWriter { get; }
+        }
+
         private readonly struct Ack
         {
             public ulong SeqNumber { get; init; }
 
             public ReadOnlyMemory<byte> OutOfOrder { get; init; }
-        }
-
-        sealed class RawIpFrameHandler : IPNetMeshFrameHandler
-        {
-            readonly PNetMeshSession _session;
-
-            public RawIpFrameHandler(PNetMeshSession session)
-            {
-                _session = session;
-            }
-
-            public bool TryHandleFrame(ReadOnlySpan<byte> frame, ulong counter, out bool payloadReceived)
-            {
-                return _session.TryHandleRawIpFrame(frame, out payloadReceived);
-            }
         }
 
         readonly PNetMeshProtocol _protocol;
@@ -70,7 +78,7 @@ namespace PNet.Mesh
 
         PNetMeshPacketTracker? _transportReplayTracker;
 
-        readonly PNetMeshFrameDispatcher _frameDispatcher;
+        readonly PNetMeshReliableControlSession _reliableControlSession;
 
         readonly PNetMeshWireGuardEndpointDiscovery _endpointDiscovery =
             new PNetMeshWireGuardEndpointDiscovery(null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(10));
@@ -276,6 +284,7 @@ namespace PNet.Mesh
 
         ChannelWriter<ReadOnlyMemory<byte>>? _inboundWriter;
         ChannelWriter<PNetMeshChannelCommands.Command>? _controlWriter;
+        IPNetMeshRawIpFrameSink? _rawIpFrameSink;
         readonly Queue<PNetMeshChannelCommands.Invoke> _pendingControlCommands = new Queue<PNetMeshChannelCommands.Invoke>();
         bool _controlQueueDraining;
         const int MaxPendingControlCommands = 32;
@@ -349,11 +358,7 @@ namespace PNet.Mesh
             _outboundWriter = writer;
             _logger = logger ?? NullLogger<PNetMeshSession>.Instance;
             _retransBuffer = new PNetMeshPacketBuffer();
-            var rawIpFrames = new RawIpFrameHandler(this);
-            _frameDispatcher = new PNetMeshFrameDispatcher(
-                pnetFrameHandler: new PNetMeshReliableControlSession(this),
-                ipv4FrameHandler: rawIpFrames,
-                ipv6FrameHandler: rawIpFrames);
+            _reliableControlSession = new PNetMeshReliableControlSession(this);
         }
 
         public void Dispose()
@@ -390,6 +395,27 @@ namespace PNet.Mesh
 
                 _retransTimer = new Timer(OnRetransTimeout, null, Timeout.Infinite, Timeout.Infinite);
                 _cumAckTimer = new Timer(OnCumAckTimeout, null, Timeout.Infinite, Timeout.Infinite);
+            }
+        }
+
+        internal void AttachRawIpFrameSink(IPNetMeshRawIpFrameSink sink)
+        {
+            if (sink == null)
+                throw new ArgumentNullException(nameof(sink));
+
+            lock (_sessionOwnerLock)
+                _rawIpFrameSink = sink;
+        }
+
+        internal void DetachRawIpFrameSink(IPNetMeshRawIpFrameSink sink)
+        {
+            if (sink == null)
+                throw new ArgumentNullException(nameof(sink));
+
+            lock (_sessionOwnerLock)
+            {
+                if (ReferenceEquals(_rawIpFrameSink, sink))
+                    _rawIpFrameSink = null;
             }
         }
 
@@ -1318,6 +1344,7 @@ namespace PNet.Mesh
             using var buffer = MemoryPool<byte>.Shared.Rent(payload.Length);
             bool result;
             bool payloadReceived;
+            RawIpFrameReceive? rawIpFrame;
 
             lock (_sessionOwnerLock)
             {
@@ -1328,8 +1355,16 @@ namespace PNet.Mesh
                     return false;
                 }
 
-                result = ReadMessage(payload, buffer.Memory, openResponderSession, out payloadReceived);
+                result = ReadMessage(payload, buffer.Memory, openResponderSession, out payloadReceived, out rawIpFrame);
             }
+
+            if (result && rawIpFrame is { } frame)
+                result = TryHandleRawIpFrame(
+                    buffer.Memory.Span.Slice(0, frame.FrameLength),
+                    frame.Kind,
+                    frame.Sink,
+                    frame.InboundWriter,
+                    out payloadReceived);
 
             if (result && payloadReceived)
                 MessageReceived?.Invoke(this, EventArgs.Empty);
@@ -1341,9 +1376,11 @@ namespace PNet.Mesh
             ReadOnlySpan<byte> payload,
             Memory<byte> buffer,
             bool openResponderSession,
-            out bool payloadReceived)
+            out bool payloadReceived,
+            out RawIpFrameReceive? rawIpFrame)
         {
             payloadReceived = false;
+            rawIpFrame = null;
             if (!Transport.TryReadFrame(payload, buffer.Span, TransportReplayTracker, out var plaintext))
             {
                 //buffer.Dispose();
@@ -1370,20 +1407,61 @@ namespace PNet.Mesh
                 Status = PNetMeshSessionStatus.Open;
             }
 
-            return _frameDispatcher.TryDispatch(
-                buffer.Span.Slice(0, plaintext.BytesWritten),
-                plaintext.Counter,
-                out payloadReceived,
-                out _);
+            var frame = buffer.Span.Slice(0, plaintext.BytesWritten);
+            if (!PNetMeshPayloadFraming.TryClassify(frame, out var kind, out _))
+                return false;
+
+            switch (kind)
+            {
+                case PNetMeshPayloadFrameKind.PNet:
+                    return _reliableControlSession.TryHandleFrame(frame, plaintext.Counter, out payloadReceived);
+                case PNetMeshPayloadFrameKind.IPv4:
+                case PNetMeshPayloadFrameKind.IPv6:
+                    if (!PNetMeshPayloadFraming.TryRead(frame, out var payloadFrame, out _))
+                        return false;
+
+                    rawIpFrame = new RawIpFrameReceive(
+                        kind,
+                        payloadFrame.TotalLength,
+                        _rawIpFrameSink,
+                        _inboundWriter);
+                    return true;
+                default:
+                    return false;
+            }
         }
 
-        bool TryHandleRawIpFrame(ReadOnlySpan<byte> frame, out bool payloadReceived)
+        bool TryHandleRawIpFrame(
+            ReadOnlySpan<byte> frame,
+            PNetMeshPayloadFrameKind kind,
+            IPNetMeshRawIpFrameSink? sink,
+            ChannelWriter<ReadOnlyMemory<byte>>? inboundWriter,
+            out bool payloadReceived)
         {
             payloadReceived = false;
-            var frameLength = GetRawIpFrameLength(frame, nameof(frame));
-            var packet = frame.Slice(0, frameLength).ToArray();
+            if (sink is not null)
+            {
+                var result = kind == PNetMeshPayloadFrameKind.IPv4
+                    ? sink.TryReceiveIPv4(frame)
+                    : sink.TryReceiveIPv6(frame);
 
-            if (_inboundWriter is null || !_inboundWriter.TryWrite(packet))
+                switch (result)
+                {
+                    case PNetMeshRawIpFrameSinkResult.Delivered:
+                        payloadReceived = true;
+                        return true;
+                    case PNetMeshRawIpFrameSinkResult.Consumed:
+                        return true;
+                    case PNetMeshRawIpFrameSinkResult.FallbackToChannel:
+                        break;
+                    default:
+                        return false;
+                }
+            }
+
+            var packet = frame.ToArray();
+
+            if (inboundWriter is null || !inboundWriter.TryWrite(packet))
                 return false;
 
             payloadReceived = true;

@@ -14,4 +14,9 @@ namespace PNet.Mesh.Tun
 
         ValueTask WritePacketAsync(ReadOnlyMemory<byte> packet, CancellationToken cancellationToken = default);
     }
+
+    internal interface ITunDeviceFastWriter
+    {
+        bool TryWritePacket(ReadOnlySpan<byte> packet);
+    }
 }

@@ -157,6 +157,148 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
         }
 
         [Fact]
+        public async Task bridge_uses_fast_tun_writer_after_peer_channel_is_attached()
+        {
+            using var key1 = KeyPair.Generate();
+            using var key2 = KeyPair.Generate();
+
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            var bind1 = $"127.0.0.1:{NextPort()}";
+            var bind2 = $"127.0.0.1:{NextPort()}";
+
+            var settings1 = CreateSettings(key1.PublicKey, key1.PrivateKey, psk, bind1, key2.PublicKey, bind2);
+            var settings2 = CreateSettings(key2.PublicKey, key2.PrivateKey, psk, bind2, key1.PublicKey, bind1);
+
+            using var server1 = new PNetMeshServer(settings1);
+            using var server2 = new PNetMeshServer(settings2);
+            await using var tun1 = new FakeTunDevice("pnet-test1");
+            await using var tun2 = new FakeTunDevice("pnet-test2");
+
+            server1.Start();
+            server2.Start();
+
+            var bridge1 = new PNetMeshTunBridge(server1, tun1, new[]
+            {
+                CreateRoute("node2", key2.PublicKey, bind2, "10.80.0.2/32")
+            });
+            var bridge2 = new PNetMeshTunBridge(server2, tun2, new[]
+            {
+                CreateRoute("node1", key1.PublicKey, bind1, "10.80.0.1/32")
+            });
+
+            using var runCancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+            var bridge1Task = bridge1.RunAsync(runCancellation.Token);
+            var bridge2Task = bridge2.RunAsync(runCancellation.Token);
+
+            try
+            {
+                var warmup = PNetMeshIpPacket.CreateIPv4(
+                    IPAddress.Parse("10.80.0.1"),
+                    IPAddress.Parse("10.80.0.2"),
+                    new byte[] { 1 },
+                    protocol: 17);
+                tun1.QueueRead(warmup);
+                Assert.Equal(warmup, await tun2.ReadWrittenAsync("node2 waiting for warmup packet", TestContext.Current.CancellationToken));
+                tun2.ResetWriteCounts();
+
+                var packet = PNetMeshIpPacket.CreateIPv4(
+                    IPAddress.Parse("10.80.0.1"),
+                    IPAddress.Parse("10.80.0.2"),
+                    new byte[] { 2, 3, 4, 5 },
+                    protocol: 17);
+
+                tun1.QueueRead(packet);
+                var received = await tun2.ReadWrittenAsync("node2 waiting for fast-path packet", TestContext.Current.CancellationToken);
+
+                Assert.Equal(packet, received);
+                Assert.Equal(1, tun2.FastWriteCount);
+                Assert.Equal(0, tun2.AsyncWriteCount);
+            }
+            finally
+            {
+                runCancellation.Cancel();
+                await IgnoreCancellationAsync(bridge1Task);
+                await IgnoreCancellationAsync(bridge2Task);
+                await Task.WhenAll(
+                    server1.ShutdownAsync(TestContext.Current.CancellationToken),
+                    server2.ShutdownAsync(TestContext.Current.CancellationToken));
+            }
+        }
+
+        [Fact]
+        public async Task bridge_falls_back_to_async_tun_write_when_fast_writer_declines_packet()
+        {
+            using var key1 = KeyPair.Generate();
+            using var key2 = KeyPair.Generate();
+
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            var bind1 = $"127.0.0.1:{NextPort()}";
+            var bind2 = $"127.0.0.1:{NextPort()}";
+
+            var settings1 = CreateSettings(key1.PublicKey, key1.PrivateKey, psk, bind1, key2.PublicKey, bind2);
+            var settings2 = CreateSettings(key2.PublicKey, key2.PrivateKey, psk, bind2, key1.PublicKey, bind1);
+
+            using var server1 = new PNetMeshServer(settings1);
+            using var server2 = new PNetMeshServer(settings2);
+            await using var tun1 = new FakeTunDevice("pnet-test1");
+            await using var tun2 = new FakeTunDevice("pnet-test2", enableFastWrites: false);
+
+            server1.Start();
+            server2.Start();
+
+            var bridge1 = new PNetMeshTunBridge(server1, tun1, new[]
+            {
+                CreateRoute("node2", key2.PublicKey, bind2, "10.80.0.2/32")
+            });
+            var bridge2 = new PNetMeshTunBridge(server2, tun2, new[]
+            {
+                CreateRoute("node1", key1.PublicKey, bind1, "10.80.0.1/32")
+            });
+
+            using var runCancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+            var bridge1Task = bridge1.RunAsync(runCancellation.Token);
+            var bridge2Task = bridge2.RunAsync(runCancellation.Token);
+
+            try
+            {
+                var warmup = PNetMeshIpPacket.CreateIPv4(
+                    IPAddress.Parse("10.80.0.1"),
+                    IPAddress.Parse("10.80.0.2"),
+                    new byte[] { 1 },
+                    protocol: 17);
+                tun1.QueueRead(warmup);
+                Assert.Equal(warmup, await tun2.ReadWrittenAsync("node2 waiting for warmup packet", TestContext.Current.CancellationToken));
+                tun2.ResetWriteCounts();
+
+                var packet = PNetMeshIpPacket.CreateIPv4(
+                    IPAddress.Parse("10.80.0.1"),
+                    IPAddress.Parse("10.80.0.2"),
+                    new byte[] { 2, 3, 4, 5 },
+                    protocol: 17);
+
+                tun1.QueueRead(packet);
+                var received = await tun2.ReadWrittenAsync("node2 waiting for fallback packet", TestContext.Current.CancellationToken);
+
+                Assert.Equal(packet, received);
+                Assert.Equal(0, tun2.FastWriteCount);
+                Assert.Equal(1, tun2.AsyncWriteCount);
+            }
+            finally
+            {
+                runCancellation.Cancel();
+                await IgnoreCancellationAsync(bridge1Task);
+                await IgnoreCancellationAsync(bridge2Task);
+                await Task.WhenAll(
+                    server1.ShutdownAsync(TestContext.Current.CancellationToken),
+                    server2.ShutdownAsync(TestContext.Current.CancellationToken));
+            }
+        }
+
+        [Fact]
         public void ip_prefix_matches_ipv4_and_ipv6_cidr_boundaries()
         {
             Assert.True(IpPrefix.Parse("10.80.0.0/24").Contains(IPAddress.Parse("10.80.0.42")));
@@ -509,19 +651,33 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             }
         }
 
-        sealed class FakeTunDevice : ITunDevice
+        sealed class FakeTunDevice : ITunDevice, ITunDeviceFastWriter
         {
             readonly Channel<byte[]> _reads = Channel.CreateUnbounded<byte[]>();
             readonly Channel<byte[]> _writes = Channel.CreateUnbounded<byte[]>();
+            readonly bool _enableFastWrites;
+            int _fastWriteCount;
+            int _asyncWriteCount;
 
-            public FakeTunDevice(string name)
+            public FakeTunDevice(string name, bool enableFastWrites = true)
             {
                 Name = name;
+                _enableFastWrites = enableFastWrites;
             }
 
             public string Name { get; }
 
             public int Mtu { get; } = 1280;
+
+            public int FastWriteCount => Volatile.Read(ref _fastWriteCount);
+
+            public int AsyncWriteCount => Volatile.Read(ref _asyncWriteCount);
+
+            public void ResetWriteCounts()
+            {
+                Volatile.Write(ref _fastWriteCount, 0);
+                Volatile.Write(ref _asyncWriteCount, 0);
+            }
 
             public void QueueRead(byte[] packet)
             {
@@ -573,8 +729,19 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
 
             public ValueTask WritePacketAsync(ReadOnlyMemory<byte> packet, CancellationToken cancellationToken = default)
             {
+                Interlocked.Increment(ref _asyncWriteCount);
                 Assert.True(_writes.Writer.TryWrite(packet.ToArray()));
                 return ValueTask.CompletedTask;
+            }
+
+            public bool TryWritePacket(ReadOnlySpan<byte> packet)
+            {
+                if (!_enableFastWrites)
+                    return false;
+
+                Interlocked.Increment(ref _fastWriteCount);
+                Assert.True(_writes.Writer.TryWrite(packet.ToArray()));
+                return true;
             }
 
             public ValueTask DisposeAsync()

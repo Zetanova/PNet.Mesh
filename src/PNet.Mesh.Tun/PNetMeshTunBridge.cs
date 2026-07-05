@@ -38,7 +38,7 @@ namespace PNet.Mesh.Tun
             _server = server ?? throw new ArgumentNullException(nameof(server));
             _tunDevice = tunDevice ?? throw new ArgumentNullException(nameof(tunDevice));
             _logger = logger ?? NullLogger<PNetMeshTunBridge>.Instance;
-            _peers = ValidatePeerRoutes(peerRoutes).Select(route => new PeerState(route)).ToArray();
+            _peers = ValidatePeerRoutes(peerRoutes).Select(route => new PeerState(this, route)).ToArray();
         }
 
         public IReadOnlyList<PNetMeshTunPeerRoute> PeerRoutes => _peers.Select(peer => peer.Route).ToArray();
@@ -151,31 +151,70 @@ namespace PNet.Mesh.Tun
         async Task RunPeerReaderAsync(PeerState peer, CancellationToken cancellationToken)
         {
             var channel = await peer.GetChannelAsync(_server, cancellationToken);
+            channel.AttachRawIpFrameSink(peer);
 
-            while (await channel.WaitToReadAsync(cancellationToken))
+            try
             {
-                while (channel.TryRead(out var payload))
+                while (await channel.WaitToReadAsync(cancellationToken))
                 {
-                    if (!PNetMeshIpPacket.TryRead(payload.Span, out var packet))
+                    while (channel.TryRead(out var payload))
                     {
-                        _logger.LogDebug("dropping non-IP payload from peer {peerName}", peer.Route.Name);
-                        continue;
-                    }
+                        if (!PNetMeshIpPacket.TryRead(payload.Span, out var packet))
+                        {
+                            _logger.LogDebug("dropping non-IP payload from peer {peerName}", peer.Route.Name);
+                            continue;
+                        }
 
-                    if (!peer.AllowsSource(packet.SourceAddress))
-                    {
-                        _logger.LogWarning(
-                            "dropping spoofed packet from peer {peerName}: source {sourceAddress} is outside AllowedIPs",
-                            peer.Route.Name,
-                            packet.SourceAddress);
-                        continue;
-                    }
+                        if (!peer.AllowsSource(packet.SourceAddress))
+                        {
+                            _logger.LogWarning(
+                                "dropping spoofed packet from peer {peerName}: source {sourceAddress} is outside AllowedIPs",
+                                peer.Route.Name,
+                                packet.SourceAddress);
+                            continue;
+                        }
 
-                    await _tunDevice.WritePacketAsync(payload[..packet.TotalLength], cancellationToken);
-                    if (_logger.IsEnabled(LogLevel.Debug))
-                        LogForwardedPeerPacket(peer, packet);
+                        await _tunDevice.WritePacketAsync(payload[..packet.TotalLength], cancellationToken);
+                        if (_logger.IsEnabled(LogLevel.Debug))
+                            LogForwardedPeerPacket(peer, packet);
+                    }
                 }
             }
+            finally
+            {
+                channel.DetachRawIpFrameSink(peer);
+            }
+        }
+
+        PNetMeshRawIpFrameSinkResult TryReceivePeerPacket(
+            PeerState peer,
+            ReadOnlySpan<byte> packet,
+            PNetMeshIpPacketVersion expectedVersion)
+        {
+            if (!PNetMeshIpPacket.TryRead(packet, out var parsed) || parsed.Version != expectedVersion)
+            {
+                _logger.LogDebug("dropping invalid raw IP payload from peer {peerName}", peer.Route.Name);
+                return PNetMeshRawIpFrameSinkResult.Consumed;
+            }
+
+            if (!peer.AllowsSource(parsed.SourceAddress))
+            {
+                _logger.LogWarning(
+                    "dropping spoofed packet from peer {peerName}: source {sourceAddress} is outside AllowedIPs",
+                    peer.Route.Name,
+                    parsed.SourceAddress);
+                return PNetMeshRawIpFrameSinkResult.Consumed;
+            }
+
+            if (_tunDevice is ITunDeviceFastWriter fastWriter
+                && fastWriter.TryWritePacket(packet[..parsed.TotalLength]))
+            {
+                if (_logger.IsEnabled(LogLevel.Debug))
+                    LogForwardedPeerPacket(peer, parsed);
+                return PNetMeshRawIpFrameSinkResult.Delivered;
+            }
+
+            return PNetMeshRawIpFrameSinkResult.FallbackToChannel;
         }
 
         PeerState? FindPeerByDestination(IPAddress destinationAddress)
@@ -255,7 +294,7 @@ namespace PNet.Mesh.Tun
                 null);
         }
 
-        sealed class PeerState
+        sealed class PeerState : IPNetMeshRawIpFrameSink
         {
             // multi-threading: the TUN reader and peer reader startup loops can both open the same peer channel; memoize one connect task and cache one channel.
             readonly Channel<QueuedPacket> _sendQueue = Channel.CreateBounded<QueuedPacket>(new BoundedChannelOptions(256)
@@ -265,8 +304,15 @@ namespace PNet.Mesh.Tun
                 SingleWriter = false,
                 FullMode = BoundedChannelFullMode.Wait
             });
+            readonly PNetMeshTunBridge? _bridge;
             Task<PNetMeshChannel>? _connectTask;
             PNetMeshChannel? _channel;
+
+            public PeerState(PNetMeshTunBridge bridge, PNetMeshTunPeerRoute route)
+                : this(route)
+            {
+                _bridge = bridge ?? throw new ArgumentNullException(nameof(bridge));
+            }
 
             public PeerState(PNetMeshTunPeerRoute route)
             {
@@ -285,6 +331,18 @@ namespace PNet.Mesh.Tun
 
                 return false;
             }
+
+            public PNetMeshRawIpFrameSinkResult TryReceiveIPv4(ReadOnlySpan<byte> packet)
+            {
+                return Bridge.TryReceivePeerPacket(this, packet, PNetMeshIpPacketVersion.IPv4);
+            }
+
+            public PNetMeshRawIpFrameSinkResult TryReceiveIPv6(ReadOnlySpan<byte> packet)
+            {
+                return Bridge.TryReceivePeerPacket(this, packet, PNetMeshIpPacketVersion.IPv6);
+            }
+
+            PNetMeshTunBridge Bridge => _bridge ?? throw new InvalidOperationException("Peer state is not attached to a TUN bridge.");
 
             public bool TryQueuePacket(ReadOnlyMemory<byte> packet, IMemoryOwner<byte> memoryOwner)
             {

@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace PNet.Mesh.Tun.Linux
 {
-    public sealed class LinuxTunDevice : ITunDevice
+    public sealed class LinuxTunDevice : ITunDevice, ITunDeviceFastWriter
     {
         readonly FileStream _stream;
 
@@ -62,6 +62,19 @@ namespace PNet.Mesh.Tun.Linux
         public async ValueTask WritePacketAsync(ReadOnlyMemory<byte> packet, CancellationToken cancellationToken = default)
         {
             await _stream.WriteAsync(packet, cancellationToken);
+        }
+
+        public bool TryWritePacket(ReadOnlySpan<byte> packet)
+        {
+            try
+            {
+                _stream.Write(packet);
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+            {
+                return false;
+            }
         }
 
         public async ValueTask DisposeAsync()

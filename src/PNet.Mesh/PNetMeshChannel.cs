@@ -27,9 +27,11 @@ namespace PNet.Mesh
         Task _relayTask;
 
         // multi-threading: public send/relay APIs, session callbacks, control/relay loops,
-        // cancellation callbacks, and Dispose publish or observe channel/session state concurrently.
+        // sink attach/detach, cancellation callbacks, and Dispose publish or observe channel/session state concurrently.
+        readonly object _rawIpFrameSinkLock = new object();
         ImmutableList<PNetMeshSession> _sessions = ImmutableList<PNetMeshSession>.Empty;
         PNetMeshSession? _currentSession;
+        IPNetMeshRawIpFrameSink? _rawIpFrameSink;
         TaskCompletionSource _relayStateChanged = CreateRelayStateChanged();
         bool _disposed;
 
@@ -95,6 +97,8 @@ namespace PNet.Mesh
             Volatile.Write(ref _disposed, true);
             Volatile.Read(ref _currentSession)?.Dispose();
             Volatile.Write(ref _currentSession, null);
+            lock (_rawIpFrameSinkLock)
+                _rawIpFrameSink = null;
 
             _inboundChannel?.Writer.Complete();
             _inboundChannel = null;
@@ -127,6 +131,12 @@ namespace PNet.Mesh
             Timestamp = Math.Max(session.Timestamp, Timestamp);
 
             session.AttachTo(InboundChannel.Writer, ControlChannel.Writer);
+            lock (_rawIpFrameSinkLock)
+            {
+                if (_rawIpFrameSink is not null)
+                    session.AttachRawIpFrameSink(_rawIpFrameSink);
+            }
+
             session.StatusChanged += OnSessionStatusChanged;
             session.MessageReceived += OnSessionMessageReceived;
             OnSessionStatusChanged(session, EventArgs.Empty);
@@ -398,6 +408,37 @@ namespace PNet.Mesh
         internal bool TryWriteRoutePath(PNetMeshRoutePath routePath)
         {
             return RoutePathChannel.Writer.TryWrite(routePath);
+        }
+
+        internal void AttachRawIpFrameSink(IPNetMeshRawIpFrameSink sink)
+        {
+            if (sink == null)
+                throw new ArgumentNullException(nameof(sink));
+            if (Volatile.Read(ref _disposed))
+                throw new ObjectDisposedException(nameof(PNetMeshChannel));
+
+            lock (_rawIpFrameSinkLock)
+            {
+                _rawIpFrameSink = sink;
+                foreach (var session in Volatile.Read(ref _sessions))
+                    session.AttachRawIpFrameSink(sink);
+            }
+        }
+
+        internal void DetachRawIpFrameSink(IPNetMeshRawIpFrameSink sink)
+        {
+            if (sink == null)
+                throw new ArgumentNullException(nameof(sink));
+
+            lock (_rawIpFrameSinkLock)
+            {
+                if (!ReferenceEquals(_rawIpFrameSink, sink))
+                    return;
+
+                _rawIpFrameSink = null;
+                foreach (var session in Volatile.Read(ref _sessions))
+                    session.DetachRawIpFrameSink(sink);
+            }
         }
 
         public bool TryWrite(ReadOnlyMemory<byte> payload, IMemoryOwner<byte>? memoryOwner = default)

@@ -3549,6 +3549,235 @@ namespace PNet.Actor.UnitTests.Mesh
         }
 
         [Fact]
+        public async Task session_raw_ip_sink_receives_ipv4_without_inbound_channel_handoff()
+        {
+            using var senderKey = KeyPair.Generate();
+            using var receiverKey = KeyPair.Generate();
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            var senderProtocol = new PNetMeshProtocol(senderKey.PrivateKey, senderKey.PublicKey, psk);
+            var receiverProtocol = new PNetMeshProtocol(receiverKey.PrivateKey, receiverKey.PublicKey, psk);
+
+            var senderOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+            var receiverOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+
+            using var sender = new PNetMeshSession(senderProtocol, senderOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 24537),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 24538)
+            };
+            using var receiver = new PNetMeshSession(receiverProtocol, receiverOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 24538),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 24537)
+            };
+
+            OpenSessionPair(sender, receiver, senderOutbound, receiverOutbound, receiverKey.PublicKey);
+
+            using var senderChannel = new PNetMeshChannel();
+            using var receiverChannel = new PNetMeshChannel();
+            var sink = new RecordingRawIpFrameSink(PNetMeshRawIpFrameSinkResult.Delivered);
+            receiverChannel.AttachRawIpFrameSink(sink);
+            senderChannel.AddSession(sender);
+            receiverChannel.AddSession(receiver);
+
+            var packet = PNetMeshIpPacket.CreateIPv4(
+                IPAddress.Parse("10.80.0.1"),
+                IPAddress.Parse("10.80.0.2"),
+                new byte[] { 1, 2, 3, 4 },
+                protocol: 17);
+            var owner = new TrackingMemoryOwner(packet.Length);
+            packet.CopyTo(owner.Memory.Span);
+
+            Assert.True(senderChannel.TryWriteUnreliableIpPacket(owner.Memory.Slice(0, packet.Length), owner));
+            var encrypted = await ReadPacketAsync(senderOutbound);
+            try
+            {
+                Assert.True(receiver.TryReadMessage(encrypted.MemoryBuffer.Span));
+                var received = Assert.Single(sink.IPv4Packets);
+                Assert.Equal(packet, received);
+                Assert.Empty(sink.IPv6Packets);
+                Assert.False(receiverChannel.TryRead(out _));
+            }
+            finally
+            {
+                DisposeRequired(encrypted.MemoryOwner);
+            }
+        }
+
+        [Fact]
+        public async Task session_raw_ip_sink_receives_ipv6_without_inbound_channel_handoff()
+        {
+            using var senderKey = KeyPair.Generate();
+            using var receiverKey = KeyPair.Generate();
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            var senderProtocol = new PNetMeshProtocol(senderKey.PrivateKey, senderKey.PublicKey, psk);
+            var receiverProtocol = new PNetMeshProtocol(receiverKey.PrivateKey, receiverKey.PublicKey, psk);
+
+            var senderOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+            var receiverOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+
+            using var sender = new PNetMeshSession(senderProtocol, senderOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 24539),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 24540)
+            };
+            using var receiver = new PNetMeshSession(receiverProtocol, receiverOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 24540),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 24539)
+            };
+
+            OpenSessionPair(sender, receiver, senderOutbound, receiverOutbound, receiverKey.PublicKey);
+
+            using var senderChannel = new PNetMeshChannel();
+            using var receiverChannel = new PNetMeshChannel();
+            var sink = new RecordingRawIpFrameSink(PNetMeshRawIpFrameSinkResult.Delivered);
+            senderChannel.AddSession(sender);
+            receiverChannel.AddSession(receiver);
+            receiverChannel.AttachRawIpFrameSink(sink);
+
+            var packet = PNetMeshIpPacket.CreateIPv6(
+                IPAddress.Parse("fd80::1"),
+                IPAddress.Parse("fd80::2"),
+                new byte[] { 5, 6, 7, 8 },
+                nextHeader: 59);
+            var owner = new TrackingMemoryOwner(packet.Length);
+            packet.CopyTo(owner.Memory.Span);
+
+            Assert.True(senderChannel.TryWriteUnreliableIpPacket(owner.Memory.Slice(0, packet.Length), owner));
+            var encrypted = await ReadPacketAsync(senderOutbound);
+            try
+            {
+                Assert.True(receiver.TryReadMessage(encrypted.MemoryBuffer.Span));
+                Assert.Empty(sink.IPv4Packets);
+                var received = Assert.Single(sink.IPv6Packets);
+                Assert.Equal(packet, received);
+                Assert.False(receiverChannel.TryRead(out _));
+            }
+            finally
+            {
+                DisposeRequired(encrypted.MemoryOwner);
+            }
+        }
+
+        [Fact]
+        public async Task session_raw_ip_sink_fallback_uses_inbound_channel()
+        {
+            using var senderKey = KeyPair.Generate();
+            using var receiverKey = KeyPair.Generate();
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            var senderProtocol = new PNetMeshProtocol(senderKey.PrivateKey, senderKey.PublicKey, psk);
+            var receiverProtocol = new PNetMeshProtocol(receiverKey.PrivateKey, receiverKey.PublicKey, psk);
+
+            var senderOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+            var receiverOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+
+            using var sender = new PNetMeshSession(senderProtocol, senderOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 24541),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 24542)
+            };
+            using var receiver = new PNetMeshSession(receiverProtocol, receiverOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 24542),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 24541)
+            };
+
+            OpenSessionPair(sender, receiver, senderOutbound, receiverOutbound, receiverKey.PublicKey);
+
+            using var senderChannel = new PNetMeshChannel();
+            using var receiverChannel = new PNetMeshChannel();
+            var sink = new RecordingRawIpFrameSink(PNetMeshRawIpFrameSinkResult.FallbackToChannel);
+            senderChannel.AddSession(sender);
+            receiverChannel.AddSession(receiver);
+            receiverChannel.AttachRawIpFrameSink(sink);
+
+            var packet = PNetMeshIpPacket.CreateIPv4(
+                IPAddress.Parse("10.80.0.1"),
+                IPAddress.Parse("10.80.0.2"),
+                new byte[] { 1, 2, 3, 4 },
+                protocol: 17);
+            var owner = new TrackingMemoryOwner(packet.Length);
+            packet.CopyTo(owner.Memory.Span);
+
+            Assert.True(senderChannel.TryWriteUnreliableIpPacket(owner.Memory.Slice(0, packet.Length), owner));
+            var encrypted = await ReadPacketAsync(senderOutbound);
+            try
+            {
+                Assert.True(receiver.TryReadMessage(encrypted.MemoryBuffer.Span));
+                Assert.Single(sink.IPv4Packets);
+                Assert.True(receiverChannel.TryRead(out var received));
+                Assert.Equal(packet, received.ToArray());
+            }
+            finally
+            {
+                DisposeRequired(encrypted.MemoryOwner);
+            }
+        }
+
+        [Fact]
+        public async Task session_raw_ip_sink_consumed_skips_inbound_channel()
+        {
+            using var senderKey = KeyPair.Generate();
+            using var receiverKey = KeyPair.Generate();
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            var senderProtocol = new PNetMeshProtocol(senderKey.PrivateKey, senderKey.PublicKey, psk);
+            var receiverProtocol = new PNetMeshProtocol(receiverKey.PrivateKey, receiverKey.PublicKey, psk);
+
+            var senderOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+            var receiverOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+
+            using var sender = new PNetMeshSession(senderProtocol, senderOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 24543),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 24544)
+            };
+            using var receiver = new PNetMeshSession(receiverProtocol, receiverOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 24544),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 24543)
+            };
+
+            OpenSessionPair(sender, receiver, senderOutbound, receiverOutbound, receiverKey.PublicKey);
+
+            using var senderChannel = new PNetMeshChannel();
+            using var receiverChannel = new PNetMeshChannel();
+            var sink = new RecordingRawIpFrameSink(PNetMeshRawIpFrameSinkResult.Consumed);
+            senderChannel.AddSession(sender);
+            receiverChannel.AddSession(receiver);
+            receiverChannel.AttachRawIpFrameSink(sink);
+
+            var packet = PNetMeshIpPacket.CreateIPv4(
+                IPAddress.Parse("10.80.0.1"),
+                IPAddress.Parse("10.80.0.2"),
+                new byte[] { 1, 2, 3, 4 },
+                protocol: 17);
+            var owner = new TrackingMemoryOwner(packet.Length);
+            packet.CopyTo(owner.Memory.Span);
+
+            Assert.True(senderChannel.TryWriteUnreliableIpPacket(owner.Memory.Slice(0, packet.Length), owner));
+            var encrypted = await ReadPacketAsync(senderOutbound);
+            try
+            {
+                Assert.True(receiver.TryReadMessage(encrypted.MemoryBuffer.Span));
+                Assert.Single(sink.IPv4Packets);
+                Assert.False(receiverChannel.TryRead(out _));
+            }
+            finally
+            {
+                DisposeRequired(encrypted.MemoryOwner);
+            }
+        }
+
+        [Fact]
         public async Task channel_try_write_owned_ip_packet_parallel_raw_sends_use_unique_counters()
         {
             using var senderKey = KeyPair.Generate();
@@ -3978,6 +4207,32 @@ namespace PNet.Actor.UnitTests.Mesh
             public void Dispose()
             {
                 DisposeCount++;
+            }
+        }
+
+        sealed class RecordingRawIpFrameSink : IPNetMeshRawIpFrameSink
+        {
+            readonly PNetMeshRawIpFrameSinkResult _result;
+
+            public RecordingRawIpFrameSink(PNetMeshRawIpFrameSinkResult result)
+            {
+                _result = result;
+            }
+
+            public List<byte[]> IPv4Packets { get; } = new List<byte[]>();
+
+            public List<byte[]> IPv6Packets { get; } = new List<byte[]>();
+
+            public PNetMeshRawIpFrameSinkResult TryReceiveIPv4(ReadOnlySpan<byte> packet)
+            {
+                IPv4Packets.Add(packet.ToArray());
+                return _result;
+            }
+
+            public PNetMeshRawIpFrameSinkResult TryReceiveIPv6(ReadOnlySpan<byte> packet)
+            {
+                IPv6Packets.Add(packet.ToArray());
+                return _result;
             }
         }
 
