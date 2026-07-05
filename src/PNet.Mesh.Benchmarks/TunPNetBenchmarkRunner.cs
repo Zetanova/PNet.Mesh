@@ -97,42 +97,62 @@ internal static partial class TunPNetBenchmarkRunner
                 Thread.Sleep(options.Warmup);
                 if (tunOnly)
                 {
-                    WarmupTunnel(commandRunner, options, left, "ipv4", "10.80.0.2", false, commands);
-                    traffic.Add(RunPing(commandRunner, options, left, right, "ipv4", "10.80.0.2", false, commands));
-                    DumpTunOnlyIcmpEchoMetrics(commandRunner, options, left, commands);
-                    CaptureProcessLog(commandRunner, options, left, commands);
-                    processes.Add(ReadProcessMetrics(commandRunner, options, left, commands));
+                    if (!RunReadinessPing(commandRunner, options, left, right, "ipv4", "10.80.0.2", false, commands, out message))
+                    {
+                        status = "fail";
+                    }
+                    else
+                    {
+                        traffic.Add(RunPing(commandRunner, options, left, right, "ipv4", "10.80.0.2", false, commands));
+                        DumpTunOnlyIcmpEchoMetrics(commandRunner, options, left, commands);
+                        CaptureProcessLog(commandRunner, options, left, commands);
+                        processes.Add(ReadProcessMetrics(commandRunner, options, left, commands));
+                    }
                 }
                 else if (options.Scenario == WireGuardGoPNetIcmpEchoScenario)
                 {
-                    WarmupTunnel(commandRunner, options, left, "ipv4", "10.80.0.2", false, commands);
-                    traffic.Add(RunPing(commandRunner, options, left, right, "ipv4", "10.80.0.2", false, commands));
-                    CaptureProcessLog(commandRunner, options, left, commands);
-                    CaptureProcessLog(commandRunner, options, right, commands);
-                    processes.Add(ReadProcessMetrics(commandRunner, options, left, commands));
-                    processes.Add(ReadProcessMetrics(commandRunner, options, right, commands));
+                    if (!RunReadinessPing(commandRunner, options, left, right, "ipv4", "10.80.0.2", false, commands, out message))
+                    {
+                        status = "fail";
+                    }
+                    else
+                    {
+                        traffic.Add(RunPing(commandRunner, options, left, right, "ipv4", "10.80.0.2", false, commands));
+                        CaptureProcessLog(commandRunner, options, left, commands);
+                        CaptureProcessLog(commandRunner, options, right, commands);
+                        processes.Add(ReadProcessMetrics(commandRunner, options, left, commands));
+                        processes.Add(ReadProcessMetrics(commandRunner, options, right, commands));
+                    }
                 }
                 else
                 {
-                    WarmupTunnel(commandRunner, options, left, "ipv4", "10.80.0.2", false, commands);
-                    WarmupTunnel(commandRunner, options, left, "ipv6", "fd80::2", true, commands);
-
-                    traffic.Add(RunPing(commandRunner, options, left, right, "ipv4", "10.80.0.2", false, commands));
-                    traffic.Add(RunPing(commandRunner, options, left, right, "ipv6", "fd80::2", true, commands));
-                    traffic.Add(RunIperf(commandRunner, options, left, right, "ipv4", "10.80.0.2", false, commands));
-                    traffic.Add(RunIperf(commandRunner, options, left, right, "ipv6", "fd80::2", true, commands));
-                    CaptureProcessLog(commandRunner, options, left, commands);
-                    CaptureProcessLog(commandRunner, options, right, commands);
-                    processes.Add(ReadProcessMetrics(commandRunner, options, left, commands));
-                    processes.Add(ReadProcessMetrics(commandRunner, options, right, commands));
+                    if (!RunReadinessPing(commandRunner, options, left, right, "ipv4", "10.80.0.2", false, commands, out message)
+                        || !RunReadinessPing(commandRunner, options, left, right, "ipv6", "fd80::2", true, commands, out message))
+                    {
+                        status = "fail";
+                    }
+                    else
+                    {
+                        traffic.Add(RunPing(commandRunner, options, left, right, "ipv4", "10.80.0.2", false, commands));
+                        traffic.Add(RunPing(commandRunner, options, left, right, "ipv6", "fd80::2", true, commands));
+                        traffic.Add(RunIperf(commandRunner, options, left, right, "ipv4", "10.80.0.2", false, commands));
+                        traffic.Add(RunIperf(commandRunner, options, left, right, "ipv6", "fd80::2", true, commands));
+                        CaptureProcessLog(commandRunner, options, left, commands);
+                        CaptureProcessLog(commandRunner, options, right, commands);
+                        processes.Add(ReadProcessMetrics(commandRunner, options, left, commands));
+                        processes.Add(ReadProcessMetrics(commandRunner, options, right, commands));
+                    }
                 }
 
-                status = traffic.All(IsSuccessfulTrafficResult) && processes.All(process => process.Available)
-                    ? "pass"
-                    : "fail";
-                message = status == "pass"
-                    ? $"{GetScenarioDisplayName(options.Scenario)} benchmark traffic completed."
-                    : $"One or more {GetScenarioDisplayName(options.Scenario)} benchmark probes failed; see traffic and process records.";
+                if (status != "fail")
+                {
+                    status = traffic.All(IsSuccessfulTrafficResult) && processes.All(process => process.Available)
+                        ? "pass"
+                        : "fail";
+                    message = status == "pass"
+                        ? $"{GetScenarioDisplayName(options.Scenario)} benchmark traffic completed."
+                        : $"One or more {GetScenarioDisplayName(options.Scenario)} benchmark probes failed; see traffic and process records.";
+                }
             }
         }
         finally

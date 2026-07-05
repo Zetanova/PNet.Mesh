@@ -561,12 +561,6 @@ public class WireGuardTransportBenchmarks
         {
             switch (command)
             {
-                case PNetMeshChannelCommands.Send send:
-                    send.MemoryOwner?.Dispose();
-                    break;
-                case PNetMeshChannelCommands.RawFrame rawFrame:
-                    rawFrame.MemoryOwner?.Dispose();
-                    break;
                 case PNetMeshChannelCommands.Relay relay:
                     relay.CancellationRegistration.Dispose();
                     relay.MemoryOwner?.Dispose();

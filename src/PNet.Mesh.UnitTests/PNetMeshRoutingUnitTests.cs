@@ -3307,6 +3307,7 @@ namespace PNet.Actor.UnitTests.Mesh
         public async Task channel_enqueue_owned_write_queues_original_owner()
         {
             using var channel = new PNetMeshChannel();
+            var pending = GetSessionDispatchPendingChannel(channel);
             var owner = new TrackingMemoryOwner(16);
             Encoding.UTF8.GetBytes("original").CopyTo(owner.Memory.Span.Slice(4));
 
@@ -3315,14 +3316,14 @@ namespace PNet.Actor.UnitTests.Mesh
                 owner,
                 TestContext.Current.CancellationToken);
 
-            Assert.True(GetControlChannel(channel).Reader.TryRead(out var command));
-            var send = Assert.IsType<PNetMeshChannelCommands.Send>(command);
+            Assert.True(pending.Reader.TryRead(out var item));
 
-            Assert.Same(owner, send.MemoryOwner);
-            Assert.Equal("original", Encoding.UTF8.GetString(send.Payload.Span));
+            Assert.Equal(PNetMeshSessionDispatchKind.PNetPayload, item.Kind);
+            Assert.Same(owner, item.MemoryOwner);
+            Assert.Equal("original", Encoding.UTF8.GetString(item.Payload.Span));
             Assert.Equal(0, owner.DisposeCount);
 
-            DisposeRequired(send.MemoryOwner);
+            DisposeRequired(item.MemoryOwner);
             Assert.Equal(1, owner.DisposeCount);
         }
 
@@ -3330,6 +3331,7 @@ namespace PNet.Actor.UnitTests.Mesh
         public async Task channel_enqueue_owned_ip_packet_queues_raw_frame_command()
         {
             using var channel = new PNetMeshChannel();
+            var pending = GetSessionDispatchPendingChannel(channel);
             var packet = PNetMeshIpPacket.CreateIPv4(
                 IPAddress.Parse("10.80.0.1"),
                 IPAddress.Parse("10.80.0.2"),
@@ -3343,21 +3345,22 @@ namespace PNet.Actor.UnitTests.Mesh
                 owner,
                 TestContext.Current.CancellationToken);
 
-            Assert.True(GetControlChannel(channel).Reader.TryRead(out var command));
-            var rawFrame = Assert.IsType<PNetMeshChannelCommands.RawFrame>(command);
+            Assert.True(pending.Reader.TryRead(out var item));
 
-            Assert.Same(owner, rawFrame.MemoryOwner);
-            Assert.Equal(packet, rawFrame.Payload.ToArray());
+            Assert.Equal(PNetMeshSessionDispatchKind.RawIPv4, item.Kind);
+            Assert.Same(owner, item.MemoryOwner);
+            Assert.Equal(packet, item.Payload.ToArray());
             Assert.Equal(0, owner.DisposeCount);
 
-            DisposeRequired(rawFrame.MemoryOwner);
+            DisposeRequired(item.MemoryOwner);
             Assert.Equal(1, owner.DisposeCount);
         }
 
         [Fact]
-        public async Task channel_try_write_owned_ip_packet_without_session_leaves_owner_for_fallback()
+        public void channel_try_write_owned_ip_packet_without_session_queues_owner_for_session()
         {
             using var channel = new PNetMeshChannel();
+            var pending = GetSessionDispatchPendingChannel(channel);
             var packet = PNetMeshIpPacket.CreateIPv4(
                 IPAddress.Parse("10.80.0.1"),
                 IPAddress.Parse("10.80.0.2"),
@@ -3367,27 +3370,22 @@ namespace PNet.Actor.UnitTests.Mesh
             packet.CopyTo(owner.Memory.Span.Slice(4));
             var payload = owner.Memory.Slice(4, packet.Length + 4);
 
-            Assert.False(channel.TryWriteUnreliableIpPacket(payload, owner));
+            Assert.True(channel.TryWriteUnreliableIpPacket(payload, owner));
             Assert.Equal(0, owner.DisposeCount);
             Assert.False(owner.IsCleared);
 
-            await channel.EnqueueUnreliableIpPacketAsync(
-                payload,
-                owner,
-                TestContext.Current.CancellationToken);
+            Assert.True(pending.Reader.TryRead(out var item));
 
-            Assert.True(GetControlChannel(channel).Reader.TryRead(out var command));
-            var rawFrame = Assert.IsType<PNetMeshChannelCommands.RawFrame>(command);
+            Assert.Equal(PNetMeshSessionDispatchKind.RawIPv4, item.Kind);
+            Assert.Same(owner, item.MemoryOwner);
+            Assert.Equal(packet, item.Payload.ToArray());
 
-            Assert.Same(owner, rawFrame.MemoryOwner);
-            Assert.Equal(packet, rawFrame.Payload.ToArray());
-
-            DisposeRequired(rawFrame.MemoryOwner);
+            DisposeRequired(item.MemoryOwner);
             Assert.Equal(1, owner.DisposeCount);
         }
 
         [Fact]
-        public void channel_try_write_owned_ip_packet_with_disposed_current_session_leaves_owner_for_fallback()
+        public void channel_try_write_owned_ip_packet_with_disposed_current_session_queues_until_dispose()
         {
             using var senderKey = KeyPair.Generate();
             using var receiverKey = KeyPair.Generate();
@@ -3424,12 +3422,14 @@ namespace PNet.Actor.UnitTests.Mesh
             var owner = new TrackingMemoryOwner(packet.Length);
             packet.CopyTo(owner.Memory.Span);
 
-            Assert.False(channel.TryWriteUnreliableIpPacket(owner.Memory.Slice(0, packet.Length), owner));
+            Assert.True(channel.TryWriteUnreliableIpPacket(owner.Memory.Slice(0, packet.Length), owner));
             Assert.Equal(0, owner.DisposeCount);
             Assert.False(owner.IsCleared);
 
-            owner.Dispose();
+            channel.Dispose();
+            Assert.True(SpinWait.SpinUntil(() => owner.DisposeCount == 1, TimeSpan.FromSeconds(2)));
             Assert.Equal(1, owner.DisposeCount);
+            Assert.True(owner.IsCleared);
         }
 
         [Fact]
@@ -3442,6 +3442,38 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.Throws<ArgumentException>(() => channel.TryWriteUnreliableIpPacket(owner.Memory, owner));
             Assert.Equal(0, owner.DisposeCount);
             Assert.False(owner.IsCleared);
+        }
+
+        [Fact]
+        public async Task channel_type_specific_raw_ip_entry_points_reject_wrong_packet_version_without_disposing_owner()
+        {
+            using var channel = new PNetMeshChannel();
+            var ipv4 = PNetMeshIpPacket.CreateIPv4(
+                IPAddress.Parse("10.80.0.1"),
+                IPAddress.Parse("10.80.0.2"),
+                new byte[] { 1, 2, 3, 4 },
+                protocol: 17);
+            var ipv6 = PNetMeshIpPacket.CreateIPv6(
+                IPAddress.Parse("fd80::1"),
+                IPAddress.Parse("fd80::2"),
+                new byte[] { 5, 6, 7, 8 },
+                nextHeader: 59);
+            var ipv4Owner = new TrackingMemoryOwner(ipv4.Length);
+            var ipv6Owner = new TrackingMemoryOwner(ipv6.Length);
+            ipv4.CopyTo(ipv4Owner.Memory.Span);
+            ipv6.CopyTo(ipv6Owner.Memory.Span);
+
+            Assert.Throws<ArgumentException>(() => channel.TryWriteUnreliableIPv6Packet(ipv4Owner.Memory, ipv4Owner));
+            await Assert.ThrowsAsync<ArgumentException>(async () =>
+                await channel.EnqueueUnreliableIPv4PacketAsync(ipv6Owner.Memory, ipv6Owner, TestContext.Current.CancellationToken));
+
+            Assert.Equal(0, ipv4Owner.DisposeCount);
+            Assert.False(ipv4Owner.IsCleared);
+            Assert.Equal(0, ipv6Owner.DisposeCount);
+            Assert.False(ipv6Owner.IsCleared);
+
+            ipv4Owner.Dispose();
+            ipv6Owner.Dispose();
         }
 
         [Fact]
@@ -3482,6 +3514,7 @@ namespace PNet.Actor.UnitTests.Mesh
                 owner.Memory.Slice(0, 8),
                 owner,
                 TestContext.Current.CancellationToken);
+            Assert.False(GetControlChannel(channel).Reader.TryRead(out _));
 
             var packet = await ReadPacketAsync(senderOutbound);
             receiver.ReadMessage(packet.MemoryBuffer.Span);
@@ -4558,6 +4591,12 @@ namespace PNet.Actor.UnitTests.Mesh
         static Channel<PNetMeshChannelCommands.Command> GetControlChannel(PNetMeshChannel channel)
         {
             return GetPrivateField<Channel<PNetMeshChannelCommands.Command>>(channel, "_controlChannel");
+        }
+
+        static Channel<PNetMeshSessionDispatchItem> GetSessionDispatchPendingChannel(PNetMeshChannel channel)
+        {
+            var dispatcher = GetPrivateField<PNetMeshSessionDispatcher>(channel, "_sessionDispatcher");
+            return GetPrivateField<Channel<PNetMeshSessionDispatchItem>>(dispatcher, "_pending");
         }
 
         static Channel<ReadOnlyMemory<byte>> GetInboundChannel(PNetMeshChannel channel)

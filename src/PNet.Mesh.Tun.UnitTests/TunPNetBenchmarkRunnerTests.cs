@@ -188,6 +188,58 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
         }
 
         [Fact]
+        public void run_benchmark_preflights_one_ping_per_protocol_before_measured_traffic()
+        {
+            Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
+                new[] { "pnet-mesh-tun", "--warmup", "0ms", "--ping-count", "2", "--iperf-duration", "1ms", "--timeout", "1s" },
+                TextWriter.Null,
+                out var options));
+
+            var runner = new FakeCommandRunner();
+
+            var report = TunPNetBenchmarkRunner.RunBenchmark(options, runner);
+
+            Assert.Equal("pass", report.Status);
+            var pingCalls = runner.Calls.Where(IsDockerPing).ToArray();
+            Assert.Equal(4, pingCalls.Length);
+            AssertPingCommand(pingCalls[0], ipv6: false, count: "1", wait: "3", deadline: "3", targetAddress: "10.80.0.2", timeout: TimeSpan.FromSeconds(3));
+            AssertPingCommand(pingCalls[1], ipv6: true, count: "1", wait: "3", deadline: "3", targetAddress: "fd80::2", timeout: TimeSpan.FromSeconds(3));
+            AssertPingCommand(pingCalls[2], ipv6: false, count: "2", wait: "5", deadline: "11", targetAddress: "10.80.0.2");
+            AssertPingCommand(pingCalls[3], ipv6: true, count: "2", wait: "5", deadline: "11", targetAddress: "fd80::2");
+
+            var firstReadinessIndex = runner.Calls.IndexOf(pingCalls[0]);
+            var firstMeasuredPingIndex = runner.Calls.IndexOf(pingCalls[2]);
+            var firstIperfIndex = runner.Calls.FindIndex(IsDockerIperfClient);
+            Assert.True(firstMeasuredPingIndex > firstReadinessIndex);
+            Assert.True(firstIperfIndex > firstMeasuredPingIndex);
+            Assert.Equal(4, report.Traffic.Count);
+        }
+
+        [Fact]
+        public void run_benchmark_fails_setup_when_readiness_ping_times_out()
+        {
+            Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
+                new[] { "pnet-mesh-tun", "--warmup", "0ms", "--iperf-duration", "1ms", "--timeout", "1s" },
+                TextWriter.Null,
+                out var options));
+
+            var runner = new FakeCommandRunner { TimeoutReadinessPing = true };
+
+            var report = TunPNetBenchmarkRunner.RunBenchmark(options, runner);
+
+            Assert.Equal("fail", report.Status);
+            Assert.Contains("benchmark setup failed", report.Message, StringComparison.Ordinal);
+            Assert.Contains("readiness ping", report.Message, StringComparison.Ordinal);
+            Assert.Contains("timed out after 3 seconds", report.Message, StringComparison.Ordinal);
+            Assert.Empty(report.Traffic);
+            Assert.DoesNotContain(runner.Calls, IsDockerIperfClient);
+
+            var pingCall = Assert.Single(runner.Calls, IsDockerPing);
+            AssertPingCommand(pingCall, ipv6: false, count: "1", wait: "3", deadline: "3", targetAddress: "10.80.0.2", timeout: TimeSpan.FromSeconds(3));
+            Assert.Contains(report.Commands, command => command.TimedOut && command.Arguments.SequenceEqual(pingCall.Arguments));
+        }
+
+        [Fact]
         public void run_wireguard_go_benchmark_records_version_config_and_redacts_secrets()
         {
             Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
@@ -400,6 +452,49 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             Assert.Equal(50, ipv4Ping.PacketLossPercent);
         }
 
+        static bool IsDockerPing(FakeCommandCall call)
+        {
+            return call.FileName == "docker"
+                   && call.Arguments.Count >= 3
+                   && call.Arguments[0] == "exec"
+                   && call.Arguments[2] == "ping";
+        }
+
+        static bool IsDockerIperfClient(FakeCommandCall call)
+        {
+            return call.FileName == "docker"
+                   && call.Arguments.Count >= 3
+                   && call.Arguments[0] == "exec"
+                   && call.Arguments[2] == "iperf3";
+        }
+
+        static void AssertPingCommand(
+            FakeCommandCall call,
+            bool ipv6,
+            string count,
+            string wait,
+            string deadline,
+            string targetAddress,
+            TimeSpan? timeout = null)
+        {
+            Assert.True(IsDockerPing(call));
+            Assert.Equal(ipv6, call.Arguments.Contains("-6"));
+            Assert.Equal(count, ReadOption(call.Arguments, "-c"));
+            Assert.Equal(wait, ReadOption(call.Arguments, "-W"));
+            Assert.Equal(deadline, ReadOption(call.Arguments, "-w"));
+            Assert.Equal(targetAddress, call.Arguments[^1]);
+            if (timeout.HasValue)
+                Assert.Equal(timeout.Value, call.Timeout);
+        }
+
+        static string? ReadOption(IReadOnlyList<string> arguments, string option)
+        {
+            var index = arguments.ToList().IndexOf(option);
+            return index >= 0 && index + 1 < arguments.Count
+                ? arguments[index + 1]
+                : null;
+        }
+
         sealed class FakeCommandRunner : ITunTopologyCommandRunner
         {
             bool _networkCreated;
@@ -410,6 +505,8 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
 
             public bool PartialFinalIpv4Ping { get; init; }
 
+            public bool TimeoutReadinessPing { get; init; }
+
             public bool FileExists(string path)
             {
                 return string.Equals(path, "/dev/net/tun", StringComparison.Ordinal);
@@ -417,7 +514,7 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
 
             public TunTopologyCommandResult Run(string fileName, IReadOnlyList<string> arguments, TimeSpan timeout)
             {
-                Calls.Add(new FakeCommandCall(fileName, arguments.ToArray()));
+                Calls.Add(new FakeCommandCall(fileName, arguments.ToArray(), timeout));
                 if (fileName != "docker")
                     return new TunTopologyCommandResult(fileName, arguments.ToArray(), 0, string.Empty, string.Empty, false);
 
@@ -490,15 +587,28 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
 
                 if (arguments.Count >= 3 && arguments[0] == "exec" && arguments[2] == "ping")
                 {
-                    var countIndex = arguments.ToList().IndexOf("-c");
+                    var count = ReadOption(arguments, "-c");
+                    var isReadinessPing = count == "1"
+                                          && ReadOption(arguments, "-W") == "3"
+                                          && ReadOption(arguments, "-w") == "3";
+                    if (TimeoutReadinessPing && isReadinessPing)
+                    {
+                        return new TunTopologyCommandResult(
+                            fileName,
+                            arguments.ToArray(),
+                            -1,
+                            string.Empty,
+                            "readiness ping timed out.",
+                            true);
+                    }
+
                     var isFinalIpv4Ping = !arguments.Contains("-6")
-                                          && countIndex >= 0
-                                          && countIndex + 1 < arguments.Count
-                                          && arguments[countIndex + 1] == "1";
+                                          && count == "1"
+                                          && !isReadinessPing;
 
                     var stdout = PartialFinalIpv4Ping && isFinalIpv4Ping
                         ? "2 packets transmitted, 1 received, 50% packet loss, time 1000ms\nrtt min/avg/max/mdev = 0.100/0.100/0.100/0.000 ms\n"
-                        : "1 packets transmitted, 1 received, 0% packet loss, time 0ms\nrtt min/avg/max/mdev = 0.042/0.042/0.042/0.000 ms\n";
+                        : $"{count ?? "1"} packets transmitted, {count ?? "1"} received, 0% packet loss, time 0ms\nrtt min/avg/max/mdev = 0.042/0.042/0.042/0.000 ms\n";
                     return new TunTopologyCommandResult(fileName, arguments.ToArray(), 0, stdout, string.Empty, false);
                 }
 
@@ -509,6 +619,6 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             }
         }
 
-        sealed record FakeCommandCall(string FileName, IReadOnlyList<string> Arguments);
+        sealed record FakeCommandCall(string FileName, IReadOnlyList<string> Arguments, TimeSpan Timeout);
     }
 }

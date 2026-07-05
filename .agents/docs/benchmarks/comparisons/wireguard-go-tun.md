@@ -28,8 +28,8 @@ Use `--baseline <previous-comparison.json>` only after a previous comparison art
 | Name | `pnet-mesh-tun-vs-wireguard-go` |
 | Peer | `wireguard-go` |
 | Reason | Userspace WireGuard implementation exercising an equivalent TUN topology and traffic profile. |
-| Scenario | Dual-container Linux TUN topology, IPv4/IPv6 ping, and UDP `iperf3`. |
-| Equivalence | Same topology name, Docker network, container image, MTU, payload mode, ping count, warmup, `iperf3` duration, port, and datagram size. |
+| Scenario | Dual-container Linux TUN topology, unmeasured one-packet readiness ping, IPv4/IPv6 ping, and UDP `iperf3`. |
+| Equivalence | Same topology name, Docker network, container image, MTU, payload mode, ping count, warmup, 3s readiness ping deadline, `iperf3` duration, port, and datagram size. |
 | Metrics | Ping latency, packet loss, `iperf3` throughput, RSS/HWM RSS, threads, CPU ticks, and managed-runtime counter availability. |
 | Current artifact | `artifacts/benchmarks/tun-comparison/20260703T162643Z/comparison.json` |
 

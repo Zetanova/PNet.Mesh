@@ -40,8 +40,9 @@ Omit `--baseline` for the first run. Keep the whole output directory as the arch
 1. Restore and build Release, or let the wrapper build with its default `--build-timeout`.
 2. Build `localhost/pnet-mesh-tun:dev` from `src/PNet.Mesh.Tun.Cli/Dockerfile`.
 3. Run `scripts/bench-tun-comparison.sh` with a timestamped `--output-dir`.
-4. Treat `summary.json` status `pass` as a completed measurement run, `skip` as inconclusive environment evidence, and `fail` as an actionable run failure.
-5. Promote a successful run by copying its `comparison.json` into the baseline location only when the benchmark code, runtime, host class, or workload intentionally changes.
+4. Treat the unmeasured one-packet readiness ping as setup: a 3s timeout or loss means the measured ping/iperf phase must not start.
+5. Treat `summary.json` status `pass` as a completed measurement run, `skip` as inconclusive environment evidence, and `fail` as an actionable run failure.
+6. Promote a successful run by copying its `comparison.json` into the baseline location only when the benchmark code, runtime, host class, or workload intentionally changes.
 
 ## Scheduled Runner
 

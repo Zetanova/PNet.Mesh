@@ -5,6 +5,9 @@ namespace PNet.Mesh.Benchmarks;
 
 internal static partial class TunPNetBenchmarkRunner
 {
+    const int ReadinessPingTimeoutSeconds = 3;
+    static readonly TimeSpan ReadinessPingTimeout = TimeSpan.FromSeconds(ReadinessPingTimeoutSeconds);
+
     internal static TunBenchmarkTrafficResult ParsePingResult(
         string protocol,
         string sourceNode,
@@ -135,7 +138,8 @@ internal static partial class TunPNetBenchmarkRunner
         string targetAddress,
         bool ipv6,
         int count,
-        int timeoutSeconds)
+        int timeoutSeconds,
+        int? deadlineSeconds = null)
     {
         var arguments = new List<string>
         {
@@ -153,33 +157,44 @@ internal static partial class TunPNetBenchmarkRunner
             "-W",
             timeoutSeconds.ToString(CultureInfo.InvariantCulture),
             "-w",
-            Math.Max(timeoutSeconds, (count * timeoutSeconds) + 1).ToString(CultureInfo.InvariantCulture),
+            (deadlineSeconds ?? Math.Max(timeoutSeconds, (count * timeoutSeconds) + 1)).ToString(CultureInfo.InvariantCulture),
             targetAddress
         });
         return arguments;
     }
 
-    static void WarmupTunnel(
+    static bool RunReadinessPing(
         ITunTopologyCommandRunner commandRunner,
         TunPNetBenchmarkOptions options,
         TunTopologyNode source,
+        TunTopologyNode target,
         string protocol,
         string targetAddress,
         bool ipv6,
-        List<TunTopologyCommandRecord> commands)
+        List<TunTopologyCommandRecord> commands,
+        out string failureMessage)
     {
-        var deadline = DateTimeOffset.UtcNow + options.ProcessStartTimeout + options.CommandTimeout;
-        do
+        var arguments = CreatePingArguments(
+            source,
+            targetAddress,
+            ipv6,
+            count: 1,
+            timeoutSeconds: ReadinessPingTimeoutSeconds,
+            deadlineSeconds: ReadinessPingTimeoutSeconds);
+        var command = RunCommand(commandRunner, "docker", arguments, ReadinessPingTimeout);
+        commands.Add(command);
+        var result = ParsePingResult(protocol, source.Role, target.Role, targetAddress, command);
+        if (IsSuccessfulPing(result))
         {
-            var arguments = CreatePingArguments(source, targetAddress, ipv6, count: 1, timeoutSeconds: 5);
-            var command = RunCommand(commandRunner, "docker", arguments, options.CommandTimeout);
-            commands.Add(command);
-            if (IsSuccessfulPing(ParsePingResult(protocol, source.Role, string.Empty, targetAddress, command)))
-                return;
-
-            Thread.Sleep(TimeSpan.FromMilliseconds(500));
+            failureMessage = string.Empty;
+            return true;
         }
-        while (DateTimeOffset.UtcNow < deadline);
+
+        var reason = command.TimedOut
+            ? $"timed out after {ReadinessPingTimeoutSeconds.ToString(CultureInfo.InvariantCulture)} seconds"
+            : $"failed with exit code {command.ExitCode.ToString(CultureInfo.InvariantCulture)}";
+        failureMessage = $"{GetScenarioDisplayName(options.Scenario)} benchmark setup failed: {protocol} readiness ping to {targetAddress} {reason} before measured traffic.";
+        return false;
     }
 
     static TunBenchmarkTrafficResult RunIperf(

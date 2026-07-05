@@ -25,8 +25,9 @@ namespace PNet.Mesh
         readonly ILogger _logger;
         readonly PNetMeshPeer _localPeer;
         readonly Func<PNetMeshChannel> _channelFactory;
+        readonly PNetMeshEndpointUpdater _endpointUpdater;
 
-        Channel<PNetMeshOutboundMessages.Message>? _outboundChannel;
+        PNetMeshOutboundDispatcher? _outboundDispatcher;
         Task _outboundTask = Task.CompletedTask;
 
         Channel<PNetMeshControlCommands.Command>? _controlChannel;
@@ -58,6 +59,7 @@ namespace PNet.Mesh
             _protocol = new PNetMeshProtocol(settings.PrivateKey, settings.PublicKey, settings.Psk);
 
             _router = new PNetMeshRouter();
+            _endpointUpdater = new PNetMeshEndpointUpdater(_router, _logger);
             var address = new byte[10];
 
             if (settings.Peers != null)
@@ -80,14 +82,6 @@ namespace PNet.Mesh
 
         public void Start()
         {
-            _outboundChannel = Channel.CreateBounded<PNetMeshOutboundMessages.Message>(new BoundedChannelOptions(100)
-            {
-                AllowSynchronousContinuations = false,
-                SingleReader = true,
-                SingleWriter = false,
-                FullMode = BoundedChannelFullMode.Wait
-            });
-
             _controlChannel = Channel.CreateBounded<PNetMeshControlCommands.Command>(new BoundedChannelOptions(100)
             {
                 AllowSynchronousContinuations = true,
@@ -96,12 +90,24 @@ namespace PNet.Mesh
                 FullMode = BoundedChannelFullMode.Wait
             });
 
-            var outboundChannel = _outboundChannel;
             var controlChannel = _controlChannel;
+            _outboundDispatcher = new PNetMeshOutboundDispatcher(() => _sockets, _logger);
+            var outboundDispatcher = _outboundDispatcher;
+            var sessionTable = new PNetMeshSessionTable();
+            var inboundDispatcher = new PNetMeshInboundDispatcher(
+                _protocol,
+                sessionTable,
+                _endpointUpdater,
+                controlChannel.Writer,
+                _logger);
 
-            _outboundTask = Task.Run(() => ProcessOutbound(outboundChannel));
+            _outboundTask = Task.Run(() => ProcessOutbound(outboundDispatcher.Reader));
             _ = _outboundTask.ContinueWith(t => _logger.LogError(t.Exception, "outbound process error"), TaskContinuationOptions.OnlyOnFaulted);
-            _controlTask = Task.Run(() => ProcessControl(controlChannel, outboundChannel.Writer));
+            _controlTask = Task.Run(() => ProcessControl(
+                controlChannel,
+                outboundDispatcher.Writer,
+                sessionTable,
+                inboundDispatcher));
             _ = _controlTask.ContinueWith(t => _logger.LogError(t.Exception, "control process error"), TaskContinuationOptions.OnlyOnFaulted);
 
             var sockets = ImmutableArray.CreateBuilder<Socket>();
@@ -129,7 +135,7 @@ namespace PNet.Mesh
                 {
                     MemoryOwner = MemoryPool<byte>.Shared.Rent(ushort.MaxValue),
                     Protocol = _protocol,
-                    Writer = controlChannel.Writer,
+                    InboundDispatcher = inboundDispatcher,
                     Logger = _logger
                 };
                 var args = new SocketAsyncEventArgs();
@@ -147,8 +153,8 @@ namespace PNet.Mesh
 
         public void Stop()
         {
-            _outboundChannel?.Writer.TryComplete();
-            _outboundChannel = null;
+            _outboundDispatcher?.Complete();
+            _outboundDispatcher = null;
 
             _controlChannel?.Writer.TryComplete();
             _controlChannel = null;
@@ -168,8 +174,8 @@ namespace PNet.Mesh
 
             _controlChannel = null;
 
-            _outboundChannel?.Writer.TryComplete();
-            _outboundChannel = null;
+            _outboundDispatcher?.Complete();
+            _outboundDispatcher = null;
 
             await _outboundTask;
 
@@ -199,12 +205,13 @@ namespace PNet.Mesh
 
         async Task ProcessControl(
             Channel<PNetMeshControlCommands.Command> controlChannel,
-            ChannelWriter<PNetMeshOutboundMessages.Message> outboundWriter)
+            ChannelWriter<PNetMeshOutboundMessages.Message> outboundWriter,
+            PNetMeshSessionTable sessions,
+            PNetMeshInboundDispatcher inboundDispatcher)
         {
             var reader = controlChannel.Reader;
 
             Dictionary<byte[], PNetMeshChannel> channels = new Dictionary<byte[], PNetMeshChannel>(PNetMeshByteArrayComparer.Default);
-            var sessions = new Dictionary<uint, PNetMeshSession>();
             var senderIndex = 0u;
             PNetMeshSession? session;
 
@@ -228,7 +235,7 @@ namespace PNet.Mesh
                                             //push to session
                                             var receiverIndex = _protocol.GetReceiverIndex(cmd.MemoryBuffer.Span);
 
-                                            if (sessions.TryGetValue(receiverIndex, out session))
+                                            if (sessions.TryGet(receiverIndex, out session))
                                             {
                                                 if (!session.SupportsDirectEndpointDiscovery)
                                                     ApplyLegacyEndpointUpdate(session, cmd);
@@ -323,7 +330,7 @@ namespace PNet.Mesh
                                             //push to session
                                             var receiverIndex = _protocol.GetReceiverIndex(cmd.MemoryBuffer.Span);
 
-                                            if (sessions.TryGetValue(receiverIndex, out session))
+                                            if (sessions.TryGet(receiverIndex, out session))
                                             {
                                                 if (!session.SupportsDirectEndpointDiscovery)
                                                     ApplyLegacyEndpointUpdate(session, cmd);
@@ -340,12 +347,12 @@ namespace PNet.Mesh
                                                 }
                                                 else
                                                 {
-                                                    _logger.LogWarning("channel not found");
+                                                    _logger.LogDebug("channel not found");
                                                 }
                                             }
                                             else
                                             {
-                                                _logger.LogWarning("unknown session");
+                                                _logger.LogDebug("unknown session");
                                             }
                                         }
                                         break;
@@ -474,7 +481,8 @@ namespace PNet.Mesh
                                         MemoryBuffer = packet.Payload
                                     };
 
-                                    if (!controlChannel.Writer.TryWrite(receive))
+                                    if (!inboundDispatcher.TryHandleDirect(receive)
+                                        && !controlChannel.Writer.TryWrite(receive))
                                     {
                                         cmd.MemoryOwner?.Dispose();
                                         //todo better error message
@@ -594,31 +602,16 @@ namespace PNet.Mesh
                     }
                 }
 
-                //session cleanup
-                List<uint>? closedSessions = null;
-                foreach (var entry in sessions)
-                {
-                    if (entry.Value.Status == PNetMeshSessionStatus.Closed)
-                    {
-                        //maybe add age filter
-                        entry.Value.Dispose();
-
-                        closedSessions ??= new List<uint>();
-                        closedSessions.Add(entry.Key);
-                    }
-                }
-                if (closedSessions != null)
-                    foreach (var id in closedSessions)
-                        sessions.Remove(id);
+                sessions.DisposeClosedSessions();
             }
             while (await reader.WaitToReadAsync());
 
             _logger.LogDebug("control process completed");
         }
 
-        async Task ProcessOutbound(Channel<PNetMeshOutboundMessages.Message> outboundChannel)
+        async Task ProcessOutbound(ChannelReader<PNetMeshOutboundMessages.Message> outboundReader)
         {
-            var reader = outboundChannel.Reader;
+            var reader = outboundReader;
 
             var sendChannel = Channel.CreateUnbounded<SocketAsyncEventArgs>(new UnboundedChannelOptions()
             {
@@ -684,7 +677,7 @@ namespace PNet.Mesh
                             {
                                 if (msg.RemoteAddress is null || msg.LocalAddress is null)
                                 {
-                                    _logger.LogWarning("event=relay_packet_enqueue_failed reason=missing_address");
+                                    _logger.LogDebug("event=relay_packet_enqueue_failed reason=missing_address");
                                     msg.MemoryOwner?.Dispose();
                                     break;
                                 }
@@ -738,7 +731,7 @@ namespace PNet.Mesh
                                 var controlWriter = _controlChannel?.Writer;
                                 if (controlWriter is null || !controlWriter.TryWrite(cmd))
                                 {
-                                    _logger.LogWarning(
+                                    _logger.LogDebug(
                                         "event=relay_packet_enqueue_failed destination_id={destinationId}",
                                         PNetMeshDiagnosticRedactor.AddressId(msg.RemoteAddress));
 
@@ -758,7 +751,7 @@ namespace PNet.Mesh
                                 var controlWriter = _controlChannel?.Writer;
                                 if (controlWriter is null || !controlWriter.TryWrite(cmd))
                                 {
-                                    _logger.LogWarning(
+                                    _logger.LogDebug(
                                         "event=relay_packet_enqueue_failed destination_id={destinationId}",
                                         PNetMeshDiagnosticRedactor.AddressId(msg.Packet.Address));
 
@@ -776,85 +769,12 @@ namespace PNet.Mesh
 
         void ApplyAuthenticatedEndpointUpdate(PNetMeshSession session, PNetMeshControlCommands.Receive cmd)
         {
-            if (cmd.LocalEndPoint is not null)
-                session.UpdateLocalEndpoint(cmd.LocalEndPoint);
-
-            if (cmd.RelayCandidateEndPoint is not null)
-            {
-                if (session.TryApplyDirectEndpointHint(cmd.RelayCandidateEndPoint, DateTimeOffset.UtcNow))
-                {
-                    _logger.LogInformation(
-                        "event=wireguard_endpoint_hint_queued session={sessionIndex} endpoint_id={endpointId}",
-                        session.SenderIndex,
-                        PNetMeshDiagnosticRedactor.EndpointId(cmd.RelayCandidateEndPoint));
-                }
-                else if (!session.SupportsDirectEndpointDiscovery)
-                {
-                    session.ConfirmRemoteEndpoint(cmd.RelayCandidateEndPoint);
-                    _router.SetEntry(session.RemoteAddress, session.RemoteEndPoint);
-                    _logger.LogInformation(
-                        "event=relay_endpoint_confirmed session={sessionIndex} mode=legacy_hint endpoint_id={endpointId}",
-                        session.SenderIndex,
-                        PNetMeshDiagnosticRedactor.EndpointId(cmd.RelayCandidateEndPoint));
-                }
-                else
-                {
-                    _logger.LogInformation(
-                        "event=wireguard_endpoint_hint_ignored session={sessionIndex} endpoint_id={endpointId}",
-                        session.SenderIndex,
-                        PNetMeshDiagnosticRedactor.EndpointId(cmd.RelayCandidateEndPoint));
-                }
-
-                return;
-            }
-
-            if (cmd.RemoteEndPoint is null)
-                return;
-
-            var remoteEndPoint = NormalizeRemoteEndPoint(cmd.RemoteEndPoint);
-            if (remoteEndPoint is null)
-                return;
-
-            if (EndPointsEqual(session.RemoteEndPoint, remoteEndPoint))
-            {
-                _router.SetEntry(session.RemoteAddress, session.RemoteEndPoint);
-                return;
-            }
-
-            if (session.TryPromoteDirectEndpoint(remoteEndPoint, DateTimeOffset.UtcNow))
-            {
-                _logger.LogInformation(
-                    "event=wireguard_direct_promoted session={sessionIndex} endpoint_id={endpointId}",
-                    session.SenderIndex,
-                    PNetMeshDiagnosticRedactor.EndpointId(remoteEndPoint));
-            }
-            else
-            {
-                _logger.LogInformation(
-                    "event=wireguard_direct_fallback session={sessionIndex} endpoint_id={endpointId}",
-                    session.SenderIndex,
-                    PNetMeshDiagnosticRedactor.EndpointId(remoteEndPoint));
-                session.ConfirmRemoteEndpoint(remoteEndPoint);
-            }
-
-            _router.SetEntry(session.RemoteAddress, session.RemoteEndPoint);
+            _endpointUpdater.ApplyAuthenticatedEndpointUpdate(session, cmd);
         }
 
         void ApplyLegacyEndpointUpdate(PNetMeshSession session, PNetMeshControlCommands.Receive cmd)
         {
-            if (cmd.LocalEndPoint is not null)
-                session.UpdateLocalEndpoint(cmd.LocalEndPoint);
-
-            var remoteEndPoint = cmd.RelayCandidateEndPoint ?? cmd.RemoteEndPoint;
-            if (remoteEndPoint is null)
-                return;
-
-            session.ConfirmRemoteEndpoint(remoteEndPoint);
-            _router.SetEntry(session.RemoteAddress, session.RemoteEndPoint);
-            _logger.LogInformation(
-                "event=relay_endpoint_confirmed session={sessionIndex} mode=legacy endpoint_id={endpointId}",
-                session.SenderIndex,
-                PNetMeshDiagnosticRedactor.EndpointId(remoteEndPoint));
+            _endpointUpdater.ApplyLegacyEndpointUpdate(session, cmd);
         }
 
         internal static bool TryAcceptRelayPacket(PNetMeshRouter router, PNetMeshRelayPacket packet)
@@ -976,11 +896,7 @@ namespace PNet.Mesh
 
         internal static EndPoint? NormalizeRemoteEndPoint(EndPoint? endpoint)
         {
-            return endpoint switch
-            {
-                IPEndPoint ip when ip.Address.IsIPv4MappedToIPv6 => new IPEndPoint(ip.Address.MapToIPv4(), ip.Port),
-                _ => endpoint
-            };
+            return PNetMeshEndpointUpdater.NormalizeRemoteEndPoint(endpoint);
         }
 
         internal static PNetMeshControlCommands.Receive CreateReceiveCommand(
@@ -1007,11 +923,6 @@ namespace PNet.Mesh
                 null => "null",
                 _ => endpoint.ToString() ?? "unknown"
             };
-        }
-
-        static bool EndPointsEqual(EndPoint? left, EndPoint? right)
-        {
-            return string.Equals(GetEndPointKey(left), GetEndPointKey(right), StringComparison.OrdinalIgnoreCase);
         }
 
         static void ProcessSend(object? sender, SocketAsyncEventArgs args)
@@ -1053,10 +964,7 @@ namespace PNet.Mesh
                             args.RemoteEndPoint,
                             args.MemoryBuffer.Slice(args.Offset, args.BytesTransferred));
 
-                        if (!item.Writer.TryWrite(cmd))
-                        {
-                            _ = WriteReceiveCommandAsync(item.Writer, cmd, item.Logger);
-                        }
+                        item.InboundDispatcher.Dispatch(cmd);
 
                         //set new buffer
                         item.MemoryOwner = MemoryPool<byte>.Shared.Rent(ushort.MaxValue);
@@ -1085,28 +993,6 @@ namespace PNet.Mesh
                 {
                     break;
                 }
-            }
-        }
-
-        static async Task WriteReceiveCommandAsync(
-            ChannelWriter<PNetMeshControlCommands.Command> writer,
-            PNetMeshControlCommands.Receive command,
-            ILogger logger)
-        {
-            var queued = false;
-            try
-            {
-                await writer.WriteAsync(command);
-                queued = true;
-            }
-            catch (Exception ex) when (ex is ChannelClosedException or InvalidOperationException)
-            {
-                logger.LogDebug(ex, "dropping received packet because the control channel is closed");
-            }
-            finally
-            {
-                if (!queued)
-                    command.MemoryOwner?.Dispose();
             }
         }
 

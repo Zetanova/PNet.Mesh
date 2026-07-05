@@ -25,6 +25,8 @@ namespace PNet.Mesh
         Channel<PNetMeshChannelCommands.Relay>? _relayChannel;
         Task _controlTask = Task.CompletedTask;
         Task _relayTask;
+        readonly PNetMeshSessionDispatcher _sessionDispatcher;
+        Task _sessionDispatchTask = Task.CompletedTask;
 
         // multi-threading: public send/relay APIs, session callbacks, control/relay loops,
         // sink attach/detach, cancellation callbacks, and Dispose publish or observe channel/session state concurrently.
@@ -88,6 +90,7 @@ namespace PNet.Mesh
                 SingleWriter = false,
                 FullMode = BoundedChannelFullMode.Wait
             });
+            _sessionDispatcher = new PNetMeshSessionDispatcher(_logger);
             _relayTask = Task.Run(ProcessRelays)
                 .ContinueWith(t => _logger.LogError(t.Exception, "relay process error"), TaskContinuationOptions.OnlyOnFaulted);
         }
@@ -97,6 +100,7 @@ namespace PNet.Mesh
             Volatile.Write(ref _disposed, true);
             Volatile.Read(ref _currentSession)?.Dispose();
             Volatile.Write(ref _currentSession, null);
+            _sessionDispatcher.CompleteAndDisposePending();
             lock (_rawIpFrameSinkLock)
                 _rawIpFrameSink = null;
 
@@ -160,6 +164,8 @@ namespace PNet.Mesh
                     if (_controlTask.IsCompleted)
                         _controlTask = Task.Run(ProcessControl)
                             .ContinueWith(t => _logger.LogError(t.Exception, "control process error"), TaskContinuationOptions.OnlyOnFaulted);
+                    _sessionDispatcher.SetCurrentSession(session);
+                    StartSessionDispatchTask();
                     break;
                 case PNetMeshSessionStatus.Closed:
                     session.StatusChanged -= OnSessionStatusChanged;
@@ -174,7 +180,20 @@ namespace PNet.Mesh
         {
             var session = sender as PNetMeshSession;
             if (session?.Status == PNetMeshSessionStatus.Open)
+            {
                 Volatile.Write(ref _currentSession, session);
+                _sessionDispatcher.SetCurrentSession(session);
+                StartSessionDispatchTask();
+            }
+        }
+
+        void StartSessionDispatchTask()
+        {
+            if (!_sessionDispatchTask.IsCompleted)
+                return;
+
+            _sessionDispatchTask = Task.Run(() => _sessionDispatcher.RunAsync())
+                .ContinueWith(t => _logger.LogError(t.Exception, "session dispatch process error"), TaskContinuationOptions.OnlyOnFaulted);
         }
 
         async Task ProcessControl()
@@ -187,48 +206,6 @@ namespace PNet.Mesh
                 {
                     switch (command)
                     {
-                        case PNetMeshChannelCommands.Send cmd:
-                            try
-                            {
-                                cmd.CancellationToken.ThrowIfCancellationRequested();
-                                var session = Volatile.Read(ref _currentSession) ?? throw new InvalidOperationException("No current session is available.");
-                                session.WritePayload(cmd.Payload.Span, cmd.Result, cmd.UnreliablePayloadDelivery);
-                            }
-                            catch (OperationCanceledException ex)
-                            {
-                                cmd.Result?.TrySetCanceled(ex.CancellationToken);
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogError(ex, "send command error");
-                                cmd.Result?.TrySetException(ex);
-                            }
-                            finally
-                            {
-                                ClearAndDispose(cmd.MemoryOwner);
-                            }
-                            break;
-                        case PNetMeshChannelCommands.RawFrame cmd:
-                            try
-                            {
-                                cmd.CancellationToken.ThrowIfCancellationRequested();
-                                var session = Volatile.Read(ref _currentSession) ?? throw new InvalidOperationException("No current session is available.");
-                                session.WriteRawFrame(cmd.Payload.Span, cmd.Result);
-                            }
-                            catch (OperationCanceledException ex)
-                            {
-                                cmd.Result?.TrySetCanceled(ex.CancellationToken);
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogError(ex, "raw frame command error");
-                                cmd.Result?.TrySetException(ex);
-                            }
-                            finally
-                            {
-                                ClearAndDispose(cmd.MemoryOwner);
-                            }
-                            break;
                         case PNetMeshChannelCommands.Invoke cmd:
                             try
                             {
@@ -372,12 +349,6 @@ namespace PNet.Mesh
             {
                 switch (command)
                 {
-                    case PNetMeshChannelCommands.Send send:
-                        ClearAndDispose(send.MemoryOwner);
-                        break;
-                    case PNetMeshChannelCommands.RawFrame rawFrame:
-                        ClearAndDispose(rawFrame.MemoryOwner);
-                        break;
                     case PNetMeshChannelCommands.Relay relay:
                         DisposeRelayCommand(relay);
                         break;
@@ -443,25 +414,27 @@ namespace PNet.Mesh
 
         public bool TryWrite(ReadOnlyMemory<byte> payload, IMemoryOwner<byte>? memoryOwner = default)
         {
-            return ControlChannel.Writer.TryWrite(new PNetMeshChannelCommands.Send
-            {
-                Payload = payload,
-                MemoryOwner = memoryOwner,
-                Result = null
-            });
+            if (Volatile.Read(ref _disposed))
+                throw new ObjectDisposedException(nameof(PNetMeshChannel));
+
+            return _sessionDispatcher.TryDispatchPayload(
+                payload,
+                memoryOwner,
+                result: null,
+                unreliablePayloadDelivery: false);
         }
 
         public async Task WriteAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken = default)
         {
-            var cmd = new PNetMeshChannelCommands.Send
-            {
-                Payload = payload,
-                Result = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
-                CancellationToken = cancellationToken
-            };
+            var result = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-            await ControlChannel.Writer.WriteAsync(cmd, cancellationToken);
-            await cmd.Result.Task;
+            await _sessionDispatcher.DispatchPayloadAsync(
+                payload,
+                memoryOwner: null,
+                result,
+                unreliablePayloadDelivery: false,
+                cancellationToken);
+            await result.Task;
         }
 
         public ValueTask EnqueueWriteAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken = default)
@@ -478,9 +451,10 @@ namespace PNet.Mesh
         {
             if (payload.IsEmpty)
             {
-                await EnqueueWriteCommandAsync(
+                await _sessionDispatcher.DispatchPayloadAsync(
                     ReadOnlyMemory<byte>.Empty,
                     memoryOwner: null,
+                    result: null,
                     unreliablePayloadDelivery,
                     cancellationToken);
                 return;
@@ -536,7 +510,28 @@ namespace PNet.Mesh
                 throw new ArgumentNullException(nameof(memoryOwner));
 
             var packetLength = GetIpPacketLength(packet.Span, nameof(packet));
-            return EnqueueRawFrameCommandAsync(packet.Slice(0, packetLength), memoryOwner, cancellationToken);
+            var kind = GetIpPacketDispatchKind(packet.Span, nameof(packet));
+            return _sessionDispatcher.DispatchRawFrameAsync(
+                packet.Slice(0, packetLength),
+                memoryOwner,
+                kind,
+                cancellationToken);
+        }
+
+        public ValueTask EnqueueUnreliableIPv4PacketAsync(
+            ReadOnlyMemory<byte> packet,
+            IMemoryOwner<byte> memoryOwner,
+            CancellationToken cancellationToken = default)
+        {
+            return EnqueueUnreliableIpPacketAsync(packet, memoryOwner, PNetMeshPayloadFrameKind.IPv4, cancellationToken);
+        }
+
+        public ValueTask EnqueueUnreliableIPv6PacketAsync(
+            ReadOnlyMemory<byte> packet,
+            IMemoryOwner<byte> memoryOwner,
+            CancellationToken cancellationToken = default)
+        {
+            return EnqueueUnreliableIpPacketAsync(packet, memoryOwner, PNetMeshPayloadFrameKind.IPv6, cancellationToken);
         }
 
         /// <summary>
@@ -550,18 +545,34 @@ namespace PNet.Mesh
         /// </remarks>
         public bool TryWriteUnreliableIpPacket(ReadOnlyMemory<byte> packet, IMemoryOwner<byte> memoryOwner)
         {
+            return TryWriteUnreliableIpPacket(packet, memoryOwner, expectedKind: null);
+        }
+
+        public bool TryWriteUnreliableIPv4Packet(ReadOnlyMemory<byte> packet, IMemoryOwner<byte> memoryOwner)
+        {
+            return TryWriteUnreliableIpPacket(packet, memoryOwner, PNetMeshPayloadFrameKind.IPv4);
+        }
+
+        public bool TryWriteUnreliableIPv6Packet(ReadOnlyMemory<byte> packet, IMemoryOwner<byte> memoryOwner)
+        {
+            return TryWriteUnreliableIpPacket(packet, memoryOwner, PNetMeshPayloadFrameKind.IPv6);
+        }
+
+        bool TryWriteUnreliableIpPacket(
+            ReadOnlyMemory<byte> packet,
+            IMemoryOwner<byte> memoryOwner,
+            PNetMeshPayloadFrameKind? expectedKind)
+        {
             if (memoryOwner == null)
                 throw new ArgumentNullException(nameof(memoryOwner));
             if (Volatile.Read(ref _disposed))
                 throw new ObjectDisposedException(nameof(PNetMeshChannel));
 
-            var packetLength = GetIpPacketLength(packet.Span, nameof(packet));
-            var session = Volatile.Read(ref _currentSession);
-            if (session is null || !session.TryWriteRawFrame(packet.Span, packetLength))
-                return false;
-
-            ClearAndDispose(memoryOwner);
-            return true;
+            var packetLength = GetIpPacketLength(packet.Span, nameof(packet), expectedKind);
+            var kind = expectedKind.HasValue
+                ? GetDispatchKind(expectedKind.Value)
+                : GetIpPacketDispatchKind(packet.Span, nameof(packet));
+            return _sessionDispatcher.TryDispatchRawFrame(packet.Slice(0, packetLength), memoryOwner, kind);
         }
 
         async ValueTask EnqueueWriteAsync(
@@ -573,58 +584,29 @@ namespace PNet.Mesh
             if (memoryOwner == null)
                 throw new ArgumentNullException(nameof(memoryOwner));
 
-            await EnqueueWriteCommandAsync(payload, memoryOwner, unreliablePayloadDelivery, cancellationToken);
+            await _sessionDispatcher.DispatchPayloadAsync(
+                payload,
+                memoryOwner,
+                result: null,
+                unreliablePayloadDelivery,
+                cancellationToken);
         }
 
-        async ValueTask EnqueueWriteCommandAsync(
-            ReadOnlyMemory<byte> payload,
-            IMemoryOwner<byte>? memoryOwner,
-            bool unreliablePayloadDelivery,
-            CancellationToken cancellationToken)
-        {
-            var cmd = new PNetMeshChannelCommands.Send
-            {
-                Payload = payload,
-                MemoryOwner = memoryOwner,
-                Result = null,
-                UnreliablePayloadDelivery = unreliablePayloadDelivery,
-                CancellationToken = cancellationToken
-            };
-
-            try
-            {
-                await ControlChannel.Writer.WriteAsync(cmd, cancellationToken);
-                memoryOwner = null;
-            }
-            finally
-            {
-                ClearAndDispose(memoryOwner);
-            }
-        }
-
-        async ValueTask EnqueueRawFrameCommandAsync(
-            ReadOnlyMemory<byte> payload,
+        ValueTask EnqueueUnreliableIpPacketAsync(
+            ReadOnlyMemory<byte> packet,
             IMemoryOwner<byte> memoryOwner,
+            PNetMeshPayloadFrameKind expectedKind,
             CancellationToken cancellationToken)
         {
-            IMemoryOwner<byte>? pendingOwner = memoryOwner;
-            var cmd = new PNetMeshChannelCommands.RawFrame
-            {
-                Payload = payload,
-                MemoryOwner = pendingOwner,
-                Result = null,
-                CancellationToken = cancellationToken
-            };
+            if (memoryOwner == null)
+                throw new ArgumentNullException(nameof(memoryOwner));
 
-            try
-            {
-                await ControlChannel.Writer.WriteAsync(cmd, cancellationToken);
-                pendingOwner = null;
-            }
-            finally
-            {
-                ClearAndDispose(pendingOwner);
-            }
+            var packetLength = GetIpPacketLength(packet.Span, nameof(packet), expectedKind);
+            return _sessionDispatcher.DispatchRawFrameAsync(
+                packet.Slice(0, packetLength),
+                memoryOwner,
+                GetDispatchKind(expectedKind),
+                cancellationToken);
         }
 
         internal bool TryRelay(PNetMeshRelayPacket packet, IMemoryOwner<byte>? memoryOwner = default)
@@ -723,7 +705,10 @@ namespace PNet.Mesh
                        || session.Status == PNetMeshSessionStatus.Opening);
         }
 
-        static int GetIpPacketLength(ReadOnlySpan<byte> payload, string paramName)
+        static int GetIpPacketLength(
+            ReadOnlySpan<byte> payload,
+            string paramName,
+            PNetMeshPayloadFrameKind? expectedKind = null)
         {
             if (!PNetMeshPayloadFraming.TryRead(payload, out var frame, out _)
                 || (frame.Kind != PNetMeshPayloadFrameKind.IPv4 && frame.Kind != PNetMeshPayloadFrameKind.IPv6))
@@ -731,7 +716,31 @@ namespace PNet.Mesh
                 throw new ArgumentException("Payload must be a valid IPv4 or IPv6 packet.", paramName);
             }
 
+            if (expectedKind is { } requiredKind && frame.Kind != requiredKind)
+                throw new ArgumentException($"Payload must be a valid {requiredKind} packet.", paramName);
+
             return frame.TotalLength;
+        }
+
+        static PNetMeshSessionDispatchKind GetIpPacketDispatchKind(ReadOnlySpan<byte> payload, string paramName)
+        {
+            if (!PNetMeshPayloadFraming.TryRead(payload, out var frame, out _)
+                || (frame.Kind != PNetMeshPayloadFrameKind.IPv4 && frame.Kind != PNetMeshPayloadFrameKind.IPv6))
+            {
+                throw new ArgumentException("Payload must be a valid IPv4 or IPv6 packet.", paramName);
+            }
+
+            return GetDispatchKind(frame.Kind);
+        }
+
+        static PNetMeshSessionDispatchKind GetDispatchKind(PNetMeshPayloadFrameKind kind)
+        {
+            return kind switch
+            {
+                PNetMeshPayloadFrameKind.IPv4 => PNetMeshSessionDispatchKind.RawIPv4,
+                PNetMeshPayloadFrameKind.IPv6 => PNetMeshSessionDispatchKind.RawIPv6,
+                _ => throw new ArgumentOutOfRangeException(nameof(kind))
+            };
         }
 
         static TaskCompletionSource CreateRelayStateChanged()
@@ -792,30 +801,6 @@ namespace PNet.Mesh
     {
         public abstract class Command
         {
-        }
-
-        public sealed class Send : Command
-        {
-            public ReadOnlyMemory<byte> Payload { get; init; }
-
-            public IMemoryOwner<byte>? MemoryOwner { get; init; }
-
-            public TaskCompletionSource? Result { get; init; }
-
-            public bool UnreliablePayloadDelivery { get; init; }
-
-            public CancellationToken CancellationToken { get; init; }
-        }
-
-        public sealed class RawFrame : Command
-        {
-            public ReadOnlyMemory<byte> Payload { get; init; }
-
-            public IMemoryOwner<byte>? MemoryOwner { get; init; }
-
-            public TaskCompletionSource? Result { get; init; }
-
-            public CancellationToken CancellationToken { get; init; }
         }
 
         public sealed class Invoke : Command

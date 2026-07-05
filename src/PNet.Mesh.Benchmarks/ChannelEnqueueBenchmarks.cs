@@ -12,13 +12,16 @@ namespace PNet.Mesh.Benchmarks;
 [Config(typeof(BenchmarkConfig))]
 public class ChannelEnqueueBenchmarks
 {
-    static readonly FieldInfo ControlChannelField = typeof(PNetMeshChannel)
-        .GetField("_controlChannel", BindingFlags.Instance | BindingFlags.NonPublic)
-        ?? throw new InvalidOperationException("PNetMeshChannel._controlChannel was not found.");
+    static readonly FieldInfo DispatcherField = typeof(PNetMeshChannel)
+        .GetField("_sessionDispatcher", BindingFlags.Instance | BindingFlags.NonPublic)
+        ?? throw new InvalidOperationException("PNetMeshChannel._sessionDispatcher was not found.");
+    static readonly FieldInfo PendingChannelField = typeof(PNetMeshSessionDispatcher)
+        .GetField("_pending", BindingFlags.Instance | BindingFlags.NonPublic)
+        ?? throw new InvalidOperationException("PNetMeshSessionDispatcher._pending was not found.");
 
     readonly byte[] _payload = BenchmarkProtocolHarness.CreatePayload(BenchmarkProtocolHarness.MaxPayloadSize);
     PNetMeshChannel _channel = null!;
-    Channel<PNetMeshChannelCommands.Command> _controlChannel = null!;
+    Channel<PNetMeshSessionDispatchItem> _pendingChannel = null!;
 
     [Params(128, 1280)]
     public int PayloadSize { get; set; }
@@ -27,7 +30,8 @@ public class ChannelEnqueueBenchmarks
     public void GlobalSetup()
     {
         _channel = new PNetMeshChannel();
-        _controlChannel = (Channel<PNetMeshChannelCommands.Command>)ControlChannelField.GetValue(_channel)!;
+        var dispatcher = (PNetMeshSessionDispatcher)DispatcherField.GetValue(_channel)!;
+        _pendingChannel = (Channel<PNetMeshSessionDispatchItem>)PendingChannelField.GetValue(dispatcher)!;
     }
 
     [GlobalCleanup]
@@ -64,21 +68,16 @@ public class ChannelEnqueueBenchmarks
 
     void DisposeQueuedSend()
     {
-        if (!_controlChannel.Reader.TryRead(out var command))
-            throw new InvalidOperationException("Channel enqueue did not queue a send command.");
+        if (!_pendingChannel.Reader.TryRead(out var item))
+            throw new InvalidOperationException("Channel enqueue did not queue a session dispatch item.");
 
-        var send = command as PNetMeshChannelCommands.Send
-            ?? throw new InvalidOperationException($"Expected send command, got {command.GetType().Name}.");
-        ClearAndDispose(send.MemoryOwner);
+        ClearAndDispose(item.MemoryOwner);
     }
 
     void DrainQueuedCommands()
     {
-        while (_controlChannel.Reader.TryRead(out var command))
-        {
-            if (command is PNetMeshChannelCommands.Send send)
-                ClearAndDispose(send.MemoryOwner);
-        }
+        while (_pendingChannel.Reader.TryRead(out var item))
+            ClearAndDispose(item.MemoryOwner);
     }
 
     static void ClearAndDispose(IMemoryOwner<byte>? owner)

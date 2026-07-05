@@ -625,13 +625,20 @@ namespace PNet.Mesh
 
         internal void WritePayload(ReadOnlySpan<byte> payload, TaskCompletionSource? result, bool unreliablePayloadDelivery)
         {
+            if (!TryWritePayload(payload, result, unreliablePayloadDelivery))
+                throw new InvalidOperationException("session not open");
+        }
+
+        internal bool TryWritePayload(ReadOnlySpan<byte> payload, TaskCompletionSource? result, bool unreliablePayloadDelivery)
+        {
             TaskCompletionSource?[]? results = null;
             Exception? resultException = null;
             try
             {
                 lock (_sessionOwnerLock)
                 {
-                    ThrowIfDisposing();
+                    if (_disposing || _status != PNetMeshSessionStatus.Open)
+                        return false;
 
                     var item = new Protos.Payload();
                     item.Raw = ByteString.CopyFrom(payload);
@@ -674,6 +681,8 @@ namespace PNet.Mesh
             {
                 CompleteOpenPacketResults(results, resultException);
             }
+
+            return true;
         }
 
         internal void WriteRawFrame(ReadOnlySpan<byte> frame, TaskCompletionSource? result)

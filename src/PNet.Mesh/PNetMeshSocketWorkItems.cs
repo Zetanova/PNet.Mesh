@@ -11,7 +11,7 @@ namespace PNet.Mesh
 
         public required IMemoryOwner<byte> MemoryOwner { get; set; }
 
-        public required ChannelWriter<PNetMeshControlCommands.Command> Writer { get; set; }
+        public required PNetMeshInboundDispatcher InboundDispatcher { get; set; }
 
         public required ILogger Logger { get; set; }
     }

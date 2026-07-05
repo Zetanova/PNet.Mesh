@@ -1,7 +1,7 @@
 ---
-last-entry: 2026-07-04
+last-entry: 2026-07-05
 last-refined: 2026-07-03
-last-artifact: artifacts/benchmarks/raw-ip-tun-20260704T192514Z/tun-comparison/comparison.json
+last-artifact: artifacts/benchmarks/raw-ip-inbound-dispatcher-20260705T161707Z/tun-comparison/comparison.json
 ---
 
 # Peer Comparison Log
@@ -10,6 +10,41 @@ Compact index of project-vs-peer benchmark results. Detailed setup and caveats s
 
 | Date | Scenario | Metric | Direction | Project | Peer | Ratio/Delta | Result | Evidence |
 |------|----------|--------|-----------|---------|------|-------------|--------|----------|
+| 2026-07-05 | tun-control-1k-inbound-dispatcher-20ping | IPv4 ping avg latency | lower | 1.786 ms | 0.942 ms | 1.90x higher | worse | `artifacts/benchmarks/raw-ip-inbound-dispatcher-20260705T161707Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-inbound-dispatcher-20ping | IPv6 ping avg latency | lower | 1.173 ms | 1.208 ms | 2.9% lower | better | `artifacts/benchmarks/raw-ip-inbound-dispatcher-20260705T161707Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-inbound-dispatcher-20ping | IPv4/IPv6 packet loss | lower | 0% | 0% | tied | neutral | `artifacts/benchmarks/raw-ip-inbound-dispatcher-20260705T161707Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-inbound-dispatcher-20ping | IPv4/IPv6 iperf throughput | higher | 1.023/1.023 Kbit/s | 1.023/1.023 Kbit/s | capped parity | neutral | `artifacts/benchmarks/raw-ip-inbound-dispatcher-20260705T161707Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-inbound-dispatcher-20ping | RSS | lower | 135.9 MB | 13.3 MB | 10.20x higher | worse | `artifacts/benchmarks/raw-ip-inbound-dispatcher-20260705T161707Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-inbound-dispatcher-20ping | Threads | lower | 35 | 26 | 1.35x higher | worse | `artifacts/benchmarks/raw-ip-inbound-dispatcher-20260705T161707Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-inbound-dispatcher-20ping | CPU ticks | lower | 406 | 23 | 17.65x higher | worse | `artifacts/benchmarks/raw-ip-inbound-dispatcher-20260705T161707Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-readiness-preflight-20ping | IPv4 ping avg latency | lower | 1.752 ms | 1.021 ms | 1.72x higher | worse | `artifacts/benchmarks/raw-ip-readiness-preflight-20260705T145907Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-readiness-preflight-20ping | IPv6 ping avg latency | lower | 1.431 ms | 0.913 ms | 1.57x higher | worse | `artifacts/benchmarks/raw-ip-readiness-preflight-20260705T145907Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-readiness-preflight-20ping | IPv4/IPv6 packet loss | lower | 0% | 0% | tied | neutral | `artifacts/benchmarks/raw-ip-readiness-preflight-20260705T145907Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-readiness-preflight-20ping | IPv4/IPv6 iperf throughput | higher | 1.023/1.023 Kbit/s | 1.023/1.023 Kbit/s | capped parity | neutral | `artifacts/benchmarks/raw-ip-readiness-preflight-20260705T145907Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-readiness-preflight-20ping | RSS | lower | 138.3 MB | 13.3 MB | 10.37x higher | worse | `artifacts/benchmarks/raw-ip-readiness-preflight-20260705T145907Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-readiness-preflight-20ping | Threads | lower | 35 | 26 | 1.35x higher | worse | `artifacts/benchmarks/raw-ip-readiness-preflight-20260705T145907Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-readiness-preflight-20ping | CPU ticks | lower | 339 | 27 | 12.56x higher | worse | `artifacts/benchmarks/raw-ip-readiness-preflight-20260705T145907Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-raw-ip-session-dispatcher-20ping | IPv4 ping avg latency | lower | 1.643 ms | 1.003 ms | 1.64x higher | worse | `artifacts/benchmarks/raw-ip-session-dispatcher-repeat-20260705T143822Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-raw-ip-session-dispatcher-20ping | IPv6 ping avg latency | lower | 1.462 ms | 1.039 ms | 1.41x higher | worse | `artifacts/benchmarks/raw-ip-session-dispatcher-repeat-20260705T143822Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-raw-ip-session-dispatcher-20ping | IPv4/IPv6 packet loss | lower | 0% | 0% | tied | neutral | `artifacts/benchmarks/raw-ip-session-dispatcher-repeat-20260705T143822Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-raw-ip-session-dispatcher-20ping | IPv4/IPv6 iperf throughput | higher | 1.023/1.023 Kbit/s | 1.023/1.023 Kbit/s | capped parity | neutral | `artifacts/benchmarks/raw-ip-session-dispatcher-repeat-20260705T143822Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-raw-ip-session-dispatcher-20ping | RSS | lower | 138.5 MB | 12.7 MB | 10.95x higher | worse | `artifacts/benchmarks/raw-ip-session-dispatcher-repeat-20260705T143822Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-raw-ip-session-dispatcher-20ping | Threads | lower | 33 | 27 | 1.22x higher | worse | `artifacts/benchmarks/raw-ip-session-dispatcher-repeat-20260705T143822Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-raw-ip-session-dispatcher-20ping | CPU ticks | lower | 380 | 22 | 17.27x higher | worse | `artifacts/benchmarks/raw-ip-session-dispatcher-repeat-20260705T143822Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-raw-ip-send-fastpath-20ping | IPv4 ping avg latency | lower | 1.787 ms | 0.879 ms | 2.03x higher | worse | `artifacts/benchmarks/raw-ip-send-fastpath-repeat-20260705T130308Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-raw-ip-send-fastpath-20ping | IPv6 ping avg latency | lower | 1.204 ms | 0.936 ms | 1.29x higher | worse | `artifacts/benchmarks/raw-ip-send-fastpath-repeat-20260705T130308Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-raw-ip-send-fastpath-20ping | IPv4/IPv6 packet loss | lower | 0% | 0% | tied | neutral | `artifacts/benchmarks/raw-ip-send-fastpath-repeat-20260705T130308Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-raw-ip-send-fastpath-20ping | IPv4/IPv6 iperf throughput | higher | 1.023/1.022 Kbit/s | 1.023/1.024 Kbit/s | capped parity | neutral | `artifacts/benchmarks/raw-ip-send-fastpath-repeat-20260705T130308Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-raw-ip-send-fastpath-20ping | RSS | lower | 137.8 MB | 12.9 MB | 10.68x higher | worse | `artifacts/benchmarks/raw-ip-send-fastpath-repeat-20260705T130308Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-raw-ip-send-fastpath-20ping | Threads | lower | 34 | 27 | 1.26x higher | worse | `artifacts/benchmarks/raw-ip-send-fastpath-repeat-20260705T130308Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-raw-ip-send-fastpath-20ping | CPU ticks | lower | 364 | 21 | 17.33x higher | worse | `artifacts/benchmarks/raw-ip-send-fastpath-repeat-20260705T130308Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-raw-ip-sink-20ping | IPv4 ping avg latency | lower | 1.775 ms | 1.066 ms | 1.67x higher | worse | `artifacts/benchmarks/raw-ip-sink-20260705T104934Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-raw-ip-sink-20ping | IPv6 ping avg latency | lower | 1.396 ms | 0.959 ms | 1.46x higher | worse | `artifacts/benchmarks/raw-ip-sink-20260705T104934Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-raw-ip-sink-20ping | IPv4/IPv6 packet loss | lower | 0% | 0% | tied | neutral | `artifacts/benchmarks/raw-ip-sink-20260705T104934Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-raw-ip-sink-20ping | IPv4/IPv6 iperf throughput | higher | 1.023/1.023 Kbit/s | 1.024/1.024 Kbit/s | capped parity | neutral | `artifacts/benchmarks/raw-ip-sink-20260705T104934Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-raw-ip-sink-20ping | RSS | lower | 138.5 MB | 12.7 MB | 10.89x higher | worse | `artifacts/benchmarks/raw-ip-sink-20260705T104934Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-raw-ip-sink-20ping | Threads | lower | 34 | 27 | 1.26x higher | worse | `artifacts/benchmarks/raw-ip-sink-20260705T104934Z/tun-comparison/comparison.json` |
+| 2026-07-05 | tun-control-1k-raw-ip-sink-20ping | CPU ticks | lower | 358 | 23 | 15.57x higher | worse | `artifacts/benchmarks/raw-ip-sink-20260705T104934Z/tun-comparison/comparison.json` |
 | 2026-07-04 | tun-control-1k-raw-ip-20ping | IPv4 ping avg latency | lower | 1.977 ms | 0.986 ms | 2.01x higher | worse | `artifacts/benchmarks/raw-ip-tun-20260704T192514Z/tun-comparison/comparison.json` |
 | 2026-07-04 | tun-control-1k-raw-ip-20ping | IPv6 ping avg latency | lower | 2.125 ms | 0.900 ms | 2.36x higher | worse | `artifacts/benchmarks/raw-ip-tun-20260704T192514Z/tun-comparison/comparison.json` |
 | 2026-07-04 | tun-control-1k-raw-ip-20ping | IPv4/IPv6 packet loss | lower | 0% | 0% | tied | neutral | `artifacts/benchmarks/raw-ip-tun-20260704T192514Z/tun-comparison/comparison.json` |

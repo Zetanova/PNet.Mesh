@@ -299,6 +299,127 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
         }
 
         [Fact]
+        public async Task tun_reader_directly_writes_raw_ip_when_peer_channel_is_established()
+        {
+            using var key1 = KeyPair.Generate();
+            using var key2 = KeyPair.Generate();
+
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            var bind1 = $"127.0.0.1:{NextPort()}";
+            var bind2 = $"127.0.0.1:{NextPort()}";
+
+            var settings1 = CreateSettings(key1.PublicKey, key1.PrivateKey, psk, bind1, key2.PublicKey, bind2);
+            var settings2 = CreateSettings(key2.PublicKey, key2.PrivateKey, psk, bind2, key1.PublicKey, bind1);
+
+            using var server1 = new PNetMeshServer(settings1);
+            using var server2 = new PNetMeshServer(settings2);
+            await using var tun1 = new FakeTunDevice("pnet-test1");
+            await using var tun2 = new FakeTunDevice("pnet-test2");
+
+            server1.Start();
+            server2.Start();
+
+            var bridge1 = new PNetMeshTunBridge(server1, tun1, new[]
+            {
+                CreateRoute("node2", key2.PublicKey, bind2, "10.80.0.2/32")
+            });
+            var bridge2 = new PNetMeshTunBridge(server2, tun2, new[]
+            {
+                CreateRoute("node1", key1.PublicKey, bind1, "10.80.0.1/32")
+            });
+
+            using var runCancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+            var bridge2Task = bridge2.RunAsync(runCancellation.Token);
+
+            try
+            {
+                var peerState = GetPeerState(bridge1, "node2");
+                var channel = await InvokeGetChannelAsync(peerState, server1, TestContext.Current.CancellationToken);
+                await WaitForConditionAsync(() => channel.IsOpen, "sender channel waiting to open", TestContext.Current.CancellationToken);
+
+                var bridge1ReaderTask = bridge1.RunTunReaderAsync(runCancellation.Token);
+                var packet = PNetMeshIpPacket.CreateIPv4(
+                    IPAddress.Parse("10.80.0.1"),
+                    IPAddress.Parse("10.80.0.2"),
+                    new byte[] { 9, 8, 7, 6 },
+                    protocol: 17);
+
+                tun1.QueueRead(packet);
+                var received = await tun2.ReadWrittenAsync("node2 waiting for direct reader packet", TestContext.Current.CancellationToken);
+
+                Assert.Equal(packet, received);
+
+                runCancellation.Cancel();
+                await IgnoreCancellationAsync(bridge1ReaderTask);
+            }
+            finally
+            {
+                runCancellation.Cancel();
+                await IgnoreCancellationAsync(bridge2Task);
+                await Task.WhenAll(
+                    server1.ShutdownAsync(TestContext.Current.CancellationToken),
+                    server2.ShutdownAsync(TestContext.Current.CancellationToken));
+            }
+        }
+
+        [Fact]
+        public async Task tun_reader_queues_raw_ip_when_peer_channel_is_not_established()
+        {
+            using var key1 = KeyPair.Generate();
+            using var key2 = KeyPair.Generate();
+
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+
+            var bind1 = $"127.0.0.1:{NextPort()}";
+            var bind2 = $"127.0.0.1:{NextPort()}";
+            var settings1 = CreateSettings(key1.PublicKey, key1.PrivateKey, psk, bind1, key2.PublicKey, bind2);
+
+            using var server1 = new PNetMeshServer(settings1);
+            await using var tun = new FakeTunDevice("pnet-test");
+            server1.Start();
+            var bridge = new PNetMeshTunBridge(server1, tun, new[]
+            {
+                CreateRoute("node2", key2.PublicKey, bind2, "10.80.0.2/32")
+            });
+            var peerState = GetPeerState(bridge, "node2");
+            var channel = await InvokeGetChannelAsync(peerState, server1, TestContext.Current.CancellationToken);
+
+            using var runCancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+            var readerTask = bridge.RunTunReaderAsync(runCancellation.Token);
+
+            try
+            {
+                var packet = PNetMeshIpPacket.CreateIPv4(
+                    IPAddress.Parse("10.80.0.1"),
+                    IPAddress.Parse("10.80.0.2"),
+                    new byte[] { 5, 4, 3, 2 },
+                    protocol: 17);
+
+                tun.QueueRead(packet);
+
+                object? queuedItem = null;
+                await WaitForConditionAsync(
+                    () => TryReadSessionDispatchItem(channel, out queuedItem),
+                    "channel session pending queue waiting for packet",
+                    TestContext.Current.CancellationToken);
+
+                Assert.NotNull(queuedItem);
+                Assert.Equal("RawIPv4", GetDispatchKindName(queuedItem));
+                Assert.Equal(packet, GetDispatchPayload(queuedItem).ToArray());
+                GetDispatchMemoryOwner(queuedItem).Dispose();
+            }
+            finally
+            {
+                runCancellation.Cancel();
+                await IgnoreCancellationAsync(readerTask);
+                await server1.ShutdownAsync(TestContext.Current.CancellationToken);
+            }
+        }
+
+        [Fact]
         public void ip_prefix_matches_ipv4_and_ipv6_cidr_boundaries()
         {
             Assert.True(IpPrefix.Parse("10.80.0.0/24").Contains(IPAddress.Parse("10.80.0.42")));
@@ -432,49 +553,6 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             }
         }
 
-        [Fact]
-        public void peer_state_queues_packet_owner_without_copy()
-        {
-            using var key2 = KeyPair.Generate();
-
-            var peerState = CreatePeerState(key2, "node2");
-            var owner = new TrackingMemoryOwner(16);
-            var expected = new byte[] { 1, 2, 3, 4 };
-            expected.CopyTo(owner.Memory.Span.Slice(3));
-
-            Assert.True(InvokeTryQueuePacket(peerState, owner.Memory.Slice(3, expected.Length), owner));
-            Assert.True(InvokeTryTakePacket(peerState, out var queuedPacket));
-
-            var payload = GetQueuedPayload(queuedPacket);
-            var memoryOwner = GetQueuedMemoryOwner(queuedPacket);
-
-            Assert.Same(owner, memoryOwner);
-            Assert.Equal(expected, payload.ToArray());
-
-            owner.Dispose();
-        }
-
-        [Fact]
-        public void peer_state_disposes_queued_packet_owners_when_drained()
-        {
-            using var key2 = KeyPair.Generate();
-
-            var peerState = CreatePeerState(key2, "node2");
-            var owner = new TrackingMemoryOwner(16);
-            new byte[] { 1, 2, 3, 4 }.CopyTo(owner.Memory.Span);
-
-            Assert.True(InvokeTryQueuePacket(peerState, owner.Memory.Slice(0, 4), owner));
-            InvokeDisposeQueuedPackets(peerState);
-
-            Assert.Equal(1, owner.DisposeCount);
-            Assert.True(owner.IsCleared);
-            Assert.False(InvokeTryTakePacket(peerState, out _));
-
-            var lateOwner = new TrackingMemoryOwner(16);
-            Assert.False(InvokeTryQueuePacket(peerState, lateOwner.Memory.Slice(0, 4), lateOwner));
-            lateOwner.Dispose();
-        }
-
         static PNetMeshServerSettings CreateSettings(
             byte[] publicKey,
             byte[] privateKey,
@@ -575,6 +653,22 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             return valueTask.AsTask();
         }
 
+        static async Task WaitForConditionAsync(Func<bool> condition, string operation, CancellationToken cancellationToken)
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(5));
+
+            try
+            {
+                while (!condition())
+                    await Task.Delay(TimeSpan.FromMilliseconds(10), timeout.Token);
+            }
+            catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new TimeoutException($"{operation}: timed out", ex);
+            }
+        }
+
         static PNetMeshTunPeerRoute GetRoute(object peerState)
         {
             var routeProperty = peerState.GetType().GetProperty("Route", BindingFlags.Instance | BindingFlags.Public);
@@ -582,46 +676,43 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             return Assert.IsType<PNetMeshTunPeerRoute>(routeProperty.GetValue(peerState));
         }
 
-        static bool InvokeTryQueuePacket(
-            object peerState,
-            ReadOnlyMemory<byte> packet,
-            IMemoryOwner<byte> memoryOwner)
+        static bool TryReadSessionDispatchItem(PNetMeshChannel channel, out object item)
         {
-            var tryQueuePacket = peerState.GetType().GetMethod("TryQueuePacket", BindingFlags.Instance | BindingFlags.Public);
-            Assert.NotNull(tryQueuePacket);
-            return Assert.IsType<bool>(tryQueuePacket.Invoke(peerState, new object[] { packet, memoryOwner }));
-        }
-
-        static bool InvokeTryTakePacket(object peerState, out object queuedPacket)
-        {
-            var tryTakePacket = peerState.GetType().GetMethod("TryTakePacket", BindingFlags.Instance | BindingFlags.Public);
-            Assert.NotNull(tryTakePacket);
+            var dispatcher = GetRequiredField(typeof(PNetMeshChannel), "_sessionDispatcher").GetValue(channel)
+                ?? throw new InvalidOperationException("Session dispatcher was null.");
+            var pending = GetRequiredField(dispatcher.GetType(), "_pending").GetValue(dispatcher)
+                ?? throw new InvalidOperationException("Session pending channel was null.");
+            var reader = pending.GetType().GetProperty("Reader")?.GetValue(pending)
+                ?? throw new InvalidOperationException("Session pending channel reader was null.");
+            var tryRead = reader.GetType().GetMethod("TryRead");
+            Assert.NotNull(tryRead);
 
             var args = new object?[] { null };
-            var result = Assert.IsType<bool>(tryTakePacket.Invoke(peerState, args));
-            queuedPacket = args[0] ?? throw new InvalidOperationException("TryTakePacket did not populate the queued packet.");
+            var result = Assert.IsType<bool>(tryRead.Invoke(reader, args));
+            item = args[0] ?? new object();
             return result;
         }
 
-        static void InvokeDisposeQueuedPackets(object peerState)
+        static string GetDispatchKindName(object dispatchItem)
         {
-            var disposeQueuedPackets = peerState.GetType().GetMethod("CompleteSendQueueAndDisposeQueuedPackets", BindingFlags.Instance | BindingFlags.Public);
-            Assert.NotNull(disposeQueuedPackets);
-            disposeQueuedPackets.Invoke(peerState, Array.Empty<object>());
+            var kindProperty = dispatchItem.GetType().GetProperty("Kind", BindingFlags.Instance | BindingFlags.Public);
+            Assert.NotNull(kindProperty);
+            return kindProperty.GetValue(dispatchItem)?.ToString()
+                ?? throw new InvalidOperationException("Dispatch item kind was null.");
         }
 
-        static ReadOnlyMemory<byte> GetQueuedPayload(object queuedPacket)
+        static ReadOnlyMemory<byte> GetDispatchPayload(object dispatchItem)
         {
-            var payloadProperty = queuedPacket.GetType().GetProperty("Payload", BindingFlags.Instance | BindingFlags.Public);
+            var payloadProperty = dispatchItem.GetType().GetProperty("Payload", BindingFlags.Instance | BindingFlags.Public);
             Assert.NotNull(payloadProperty);
-            return Assert.IsType<ReadOnlyMemory<byte>>(payloadProperty.GetValue(queuedPacket));
+            return Assert.IsType<ReadOnlyMemory<byte>>(payloadProperty.GetValue(dispatchItem));
         }
 
-        static IMemoryOwner<byte> GetQueuedMemoryOwner(object queuedPacket)
+        static IMemoryOwner<byte> GetDispatchMemoryOwner(object dispatchItem)
         {
-            var memoryOwnerProperty = queuedPacket.GetType().GetProperty("MemoryOwner", BindingFlags.Instance | BindingFlags.Public);
+            var memoryOwnerProperty = dispatchItem.GetType().GetProperty("MemoryOwner", BindingFlags.Instance | BindingFlags.Public);
             Assert.NotNull(memoryOwnerProperty);
-            return Assert.IsAssignableFrom<IMemoryOwner<byte>>(memoryOwnerProperty.GetValue(queuedPacket));
+            return Assert.IsAssignableFrom<IMemoryOwner<byte>>(memoryOwnerProperty.GetValue(dispatchItem));
         }
 
         static FieldInfo GetRequiredField(Type type, string name)

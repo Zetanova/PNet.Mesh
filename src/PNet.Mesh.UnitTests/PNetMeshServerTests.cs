@@ -260,13 +260,19 @@ namespace PNet.Actor.UnitTests.Mesh
             RandomNumberGenerator.Fill(psk);
             var protocol = new PNetMeshProtocol(key.PrivateKey, key.PublicKey, psk);
             var control = Channel.CreateUnbounded<PNetMeshControlCommands.Command>();
+            var inboundDispatcher = new PNetMeshInboundDispatcher(
+                protocol,
+                new PNetMeshSessionTable(),
+                new PNetMeshEndpointUpdater(new PNetMeshRouter(), NullLogger.Instance),
+                control.Writer,
+                NullLogger.Instance);
             using var socket = new Socket(SocketType.Dgram, ProtocolType.Udp);
             var memoryOwner = new TrackingMemoryOwner(256);
             var item = new PNetMeshSocketReceiveWorkItem
             {
                 Protocol = protocol,
                 MemoryOwner = memoryOwner,
-                Writer = control.Writer,
+                InboundDispatcher = inboundDispatcher,
                 Logger = NullLogger.Instance
             };
             socket.Dispose();

@@ -7,7 +7,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Threading;
-using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace PNet.Mesh.Tun
@@ -18,11 +17,6 @@ namespace PNet.Mesh.Tun
         readonly ITunDevice _tunDevice;
         readonly PeerState[] _peers;
         readonly ILogger _logger;
-        static readonly Action<ILogger, int, string, string, IPAddress, IPAddress, Exception?> QueuedTunPacket =
-            LoggerMessage.Define<int, string, string, IPAddress, IPAddress>(
-                LogLevel.Debug,
-                new EventId(1000, nameof(LogQueuedTunPacket)),
-                "queued {packetLength} byte packet from TUN {interfaceName} to peer {peerName}: {sourceAddress} -> {destinationAddress}");
         static readonly Action<ILogger, int, string, string, IPAddress, IPAddress, Exception?> ForwardedPeerPacket =
             LoggerMessage.Define<int, string, string, IPAddress, IPAddress>(
                 LogLevel.Debug,
@@ -45,21 +39,19 @@ namespace PNet.Mesh.Tun
 
         public async Task RunAsync(CancellationToken cancellationToken = default)
         {
-            var workers = new List<Task>(_peers.Length * 2 + 1)
+            await Task.WhenAll(_peers.Select(peer => peer.GetChannelAsync(_server, cancellationToken).AsTask()));
+
+            var workers = new List<Task>(_peers.Length + 1)
             {
                 RunTunReaderAsync(cancellationToken)
             };
-
             foreach (var peer in _peers)
-            {
-                workers.Add(RunPeerWriterAsync(peer, cancellationToken));
                 workers.Add(RunPeerReaderAsync(peer, cancellationToken));
-            }
 
             await Task.WhenAll(workers);
         }
 
-        async Task RunTunReaderAsync(CancellationToken cancellationToken)
+        internal async Task RunTunReaderAsync(CancellationToken cancellationToken)
         {
             while (true)
             {
@@ -74,77 +66,31 @@ namespace PNet.Mesh.Tun
 
                     if (!PNetMeshIpPacket.TryRead(buffer.Span[..bytesRead], out var packet))
                     {
-                        _logger.LogWarning("dropping invalid packet read from TUN device {interfaceName}", _tunDevice.Name);
+                        _logger.LogDebug("dropping invalid packet read from TUN device {interfaceName}", _tunDevice.Name);
                         continue;
                     }
 
                     var peer = FindPeerByDestination(packet.DestinationAddress);
                     if (peer == null)
                     {
-                        _logger.LogWarning("dropping unroutable packet from {sourceAddress} to {destinationAddress}", packet.SourceAddress, packet.DestinationAddress);
+                        _logger.LogDebug("dropping unroutable packet from {sourceAddress} to {destinationAddress}", packet.SourceAddress, packet.DestinationAddress);
                         continue;
                     }
 
                     var packetBytes = buffer.Slice(0, packet.TotalLength);
-                    if (!peer.TryQueuePacket(packetBytes, packetOwner))
+                    var channel = await peer.GetChannelAsync(_server, cancellationToken);
+                    if (!PeerState.TryWriteUnreliableIpPacket(channel, packetBytes, packet.Version, packetOwner))
                     {
-                        _logger.LogWarning("dropping packet to {peerName} because the peer send queue is full", peer.Route.Name);
+                        _logger.LogDebug("dropping packet to {peerName} because the peer session pending queue is full", peer.Route.Name);
                         continue;
                     }
 
                     packetOwner = null;
-
-                    if (_logger.IsEnabled(LogLevel.Debug))
-                        LogQueuedTunPacket(peer, packet);
                 }
                 finally
                 {
                     ClearAndDispose(packetOwner);
                 }
-            }
-        }
-
-        async Task RunPeerWriterAsync(PeerState peer, CancellationToken cancellationToken)
-        {
-            try
-            {
-                while (await peer.WaitToSendAsync(cancellationToken))
-                {
-                    while (peer.TryTakePacket(out var queuedPacket))
-                    {
-                        IMemoryOwner<byte>? memoryOwner = queuedPacket.MemoryOwner;
-                        try
-                        {
-                            var channel = await peer.GetChannelAsync(_server, cancellationToken);
-                            if (channel.TryWriteUnreliableIpPacket(queuedPacket.Payload, memoryOwner!))
-                            {
-                                memoryOwner = null;
-                            }
-                            else
-                            {
-                                var transferOwner = memoryOwner!;
-                                memoryOwner = null;
-                                await channel.EnqueueUnreliableIpPacketAsync(queuedPacket.Payload, transferOwner, cancellationToken);
-                            }
-                        }
-                        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                        {
-                            throw;
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "dropping packet to {peerName} because the mesh channel did not accept it", peer.Route.Name);
-                        }
-                        finally
-                        {
-                            ClearAndDispose(memoryOwner);
-                        }
-                    }
-                }
-            }
-            finally
-            {
-                peer.CompleteSendQueueAndDisposeQueuedPackets();
             }
         }
 
@@ -167,7 +113,7 @@ namespace PNet.Mesh.Tun
 
                         if (!peer.AllowsSource(packet.SourceAddress))
                         {
-                            _logger.LogWarning(
+                            _logger.LogDebug(
                                 "dropping spoofed packet from peer {peerName}: source {sourceAddress} is outside AllowedIPs",
                                 peer.Route.Name,
                                 packet.SourceAddress);
@@ -199,7 +145,7 @@ namespace PNet.Mesh.Tun
 
             if (!peer.AllowsSource(parsed.SourceAddress))
             {
-                _logger.LogWarning(
+                _logger.LogDebug(
                     "dropping spoofed packet from peer {peerName}: source {sourceAddress} is outside AllowedIPs",
                     peer.Route.Name,
                     parsed.SourceAddress);
@@ -266,20 +212,6 @@ namespace PNet.Mesh.Tun
             return routes;
         }
 
-        void LogQueuedTunPacket(
-            PeerState peer,
-            PNetMeshIpPacket packet)
-        {
-            QueuedTunPacket(
-                _logger,
-                packet.TotalLength,
-                _tunDevice.Name,
-                peer.Route.Name,
-                packet.SourceAddress,
-                packet.DestinationAddress,
-                null);
-        }
-
         void LogForwardedPeerPacket(
             PeerState peer,
             PNetMeshIpPacket packet)
@@ -297,13 +229,6 @@ namespace PNet.Mesh.Tun
         sealed class PeerState : IPNetMeshRawIpFrameSink
         {
             // multi-threading: the TUN reader and peer reader startup loops can both open the same peer channel; memoize one connect task and cache one channel.
-            readonly Channel<QueuedPacket> _sendQueue = Channel.CreateBounded<QueuedPacket>(new BoundedChannelOptions(256)
-            {
-                AllowSynchronousContinuations = true,
-                SingleReader = true,
-                SingleWriter = false,
-                FullMode = BoundedChannelFullMode.Wait
-            });
             readonly PNetMeshTunBridge? _bridge;
             Task<PNetMeshChannel>? _connectTask;
             PNetMeshChannel? _channel;
@@ -344,26 +269,18 @@ namespace PNet.Mesh.Tun
 
             PNetMeshTunBridge Bridge => _bridge ?? throw new InvalidOperationException("Peer state is not attached to a TUN bridge.");
 
-            public bool TryQueuePacket(ReadOnlyMemory<byte> packet, IMemoryOwner<byte> memoryOwner)
+            public static bool TryWriteUnreliableIpPacket(
+                PNetMeshChannel channel,
+                ReadOnlyMemory<byte> packet,
+                PNetMeshIpPacketVersion version,
+                IMemoryOwner<byte> memoryOwner)
             {
-                return _sendQueue.Writer.TryWrite(new QueuedPacket(packet, memoryOwner));
-            }
-
-            public ValueTask<bool> WaitToSendAsync(CancellationToken cancellationToken)
-            {
-                return _sendQueue.Reader.WaitToReadAsync(cancellationToken);
-            }
-
-            public bool TryTakePacket(out QueuedPacket packet)
-            {
-                return _sendQueue.Reader.TryRead(out packet);
-            }
-
-            public void CompleteSendQueueAndDisposeQueuedPackets()
-            {
-                _sendQueue.Writer.TryComplete();
-                while (_sendQueue.Reader.TryRead(out var packet))
-                    ClearAndDispose(packet.MemoryOwner);
+                return version switch
+                {
+                    PNetMeshIpPacketVersion.IPv4 => channel.TryWriteUnreliableIPv4Packet(packet, memoryOwner),
+                    PNetMeshIpPacketVersion.IPv6 => channel.TryWriteUnreliableIPv6Packet(packet, memoryOwner),
+                    _ => false
+                };
             }
 
             public async ValueTask<PNetMeshChannel> GetChannelAsync(PNetMeshServer server, CancellationToken cancellationToken)
@@ -413,20 +330,6 @@ namespace PNet.Mesh.Tun
                 }
             }
         }
-
-        readonly struct QueuedPacket
-        {
-            public QueuedPacket(ReadOnlyMemory<byte> payload, IMemoryOwner<byte> memoryOwner)
-            {
-                Payload = payload;
-                MemoryOwner = memoryOwner;
-            }
-
-            public ReadOnlyMemory<byte> Payload { get; }
-
-            public IMemoryOwner<byte> MemoryOwner { get; }
-        }
-
         static void ClearAndDispose(IMemoryOwner<byte>? memoryOwner)
         {
             if (memoryOwner == null)

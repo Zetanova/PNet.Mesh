@@ -121,7 +121,7 @@ namespace PNet.Mesh.TestNode
                     || _registry is null
                     || !_registry.TryRoute(datagram.Buffer, datagram.RemoteEndPoint, DateTimeOffset.UtcNow, out _, out _))
                 {
-                    _logger.LogWarning("WireGuardRelay[{nodeName}] dropped unroutable client packet", _name);
+                    _logger.LogDebug("WireGuardRelay[{nodeName}] dropped unroutable client packet", _name);
                     return;
                 }
 
@@ -134,14 +134,14 @@ namespace PNet.Mesh.TestNode
 
             if (!SameEndpoint(datagram.RemoteEndPoint, _clientEndpoint))
             {
-                _logger.LogWarning("WireGuardRelay[{nodeName}] ignored packet from unexpected client endpoint", _name);
+                _logger.LogDebug("WireGuardRelay[{nodeName}] ignored packet from unexpected client endpoint", _name);
                 return;
             }
 
             if (!PNetMeshPacketFraming.TryReadMessageType(datagram.Buffer, out var packetDataType)
                 || packetDataType != PNetMeshMessageType.PacketData)
             {
-                _logger.LogWarning("WireGuardRelay[{nodeName}] dropped unroutable client packet", _name);
+                _logger.LogDebug("WireGuardRelay[{nodeName}] dropped unroutable client packet", _name);
                 return;
             }
 
@@ -154,13 +154,13 @@ namespace PNet.Mesh.TestNode
         {
             if (_clientEndpoint is null)
             {
-                _logger.LogWarning("WireGuardRelay[{nodeName}] dropped target packet before client mapping", _name);
+                _logger.LogDebug("WireGuardRelay[{nodeName}] dropped target packet before client mapping", _name);
                 return;
             }
 
             if (!PNetMeshPacketFraming.TryReadMessageType(datagram.Buffer, out var messageType))
             {
-                _logger.LogWarning("WireGuardRelay[{nodeName}] dropped malformed target packet", _name);
+                _logger.LogDebug("WireGuardRelay[{nodeName}] dropped malformed target packet", _name);
                 return;
             }
 
