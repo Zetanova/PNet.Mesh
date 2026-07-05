@@ -30,13 +30,13 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
                 1.5,
                 1000,
                 2000,
-                1000,
-                2000,
+                null,
+                null,
                 3,
                 10,
                 5,
-                3000,
-                4000,
+                1000,
+                2000,
                 4,
                 20,
                 15,
@@ -56,13 +56,13 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
                 0,
                 900,
                 1900,
-                5000,
-                6000,
+                null,
+                null,
                 5,
                 30,
                 20,
-                7000,
-                8000,
+                5000,
+                6000,
                 6,
                 40,
                 25,
@@ -103,10 +103,10 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             Assert.Equal(70, process.GetProperty("userCpuTicks").GetProperty("wireguard").GetInt64());
             Assert.Equal(50, process.GetProperty("totalCpuTicks").GetProperty("pnet").GetInt64());
             Assert.Equal(115, process.GetProperty("totalCpuTicks").GetProperty("wireguard").GetInt64());
-            Assert.Equal(4000, process.GetProperty("residentSetBytes").GetProperty("pnet").GetInt64());
-            Assert.Equal(12000, process.GetProperty("residentSetBytes").GetProperty("wireguard").GetInt64());
-            Assert.Equal(6000, process.GetProperty("residentSetHighWatermarkBytes").GetProperty("pnet").GetInt64());
-            Assert.Equal(14000, process.GetProperty("residentSetHighWatermarkBytes").GetProperty("wireguard").GetInt64());
+            Assert.Equal(1000, process.GetProperty("residentSetBytes").GetProperty("pnet").GetInt64());
+            Assert.Equal(5000, process.GetProperty("residentSetBytes").GetProperty("wireguard").GetInt64());
+            Assert.Equal(2000, process.GetProperty("residentSetHighWatermarkBytes").GetProperty("pnet").GetInt64());
+            Assert.Equal(6000, process.GetProperty("residentSetHighWatermarkBytes").GetProperty("wireguard").GetInt64());
             Assert.Equal(7, process.GetProperty("threads").GetProperty("pnet").GetInt32());
             Assert.Equal(11, process.GetProperty("threads").GetProperty("wireguard").GetInt32());
 
@@ -141,6 +141,43 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             Assert.Equal("pnet-mesh-tun ipv4 ping raw", rawPnet.GetProperty("traffic")[0].GetProperty("stdout").GetString());
             Assert.Equal("pnet-mesh-tun command stdout", rawPnet.GetProperty("commands")[0].GetProperty("stdout").GetString());
             Assert.Equal("wireguard-go ipv6 iperf raw", root.GetProperty("raw").GetProperty("wireguard").GetProperty("traffic")[3].GetProperty("stdout").GetString());
+        }
+
+        [Fact]
+        public void udp_socket_probe_entrypoint_runs_single_loopback_mode()
+        {
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            var exitCode = BenchmarkCli.Run(
+                new[]
+                {
+                    "--udp-socket-probe",
+                    "--mode",
+                    "blocking-from",
+                    "--iterations",
+                    "1",
+                    "--warmup",
+                    "0",
+                    "--payload",
+                    "16",
+                    "--timeout",
+                    "2s"
+                },
+                output,
+                error);
+
+            Assert.Equal(0, exitCode);
+            Assert.Equal(string.Empty, error.ToString());
+
+            using var document = JsonDocument.Parse(output.ToString());
+            var root = document.RootElement;
+            Assert.Equal("udp-socket-probe", root.GetProperty("Kind").GetString());
+            Assert.Equal(1, root.GetProperty("Options").GetProperty("Iterations").GetInt32());
+            Assert.Equal("blocking-from", root.GetProperty("Options").GetProperty("Mode").GetString());
+            var run = root.GetProperty("Runs")[0];
+            Assert.Equal("blocking-from", run.GetProperty("Mode").GetString());
+            Assert.Equal(1, run.GetProperty("Count").GetInt32());
         }
 
         [Fact]
@@ -205,13 +242,13 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             double ipv6PacketLoss,
             double ipv4Bandwidth,
             double ipv6Bandwidth,
-            long leftRss,
-            long leftHighWatermark,
+            long? leftRss,
+            long? leftHighWatermark,
             int leftThreads,
             long leftUserTicks,
             long leftSystemTicks,
-            long rightRss,
-            long rightHighWatermark,
+            long? rightRss,
+            long? rightHighWatermark,
             int rightThreads,
             long rightUserTicks,
             long rightSystemTicks,
@@ -342,8 +379,8 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
 
         static TunBenchmarkProcessMetrics CreateProcess(
             string node,
-            long rss,
-            long highWatermark,
+            long? rss,
+            long? highWatermark,
             int threads,
             long userTicks,
             long systemTicks)

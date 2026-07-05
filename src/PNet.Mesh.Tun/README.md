@@ -45,6 +45,8 @@ dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Rel
 scripts/bench-tun-comparison.sh --output-dir artifacts/benchmarks/tun-comparison/latest
 ```
 
+Packet trace capture requires the TUN image to be built with `--build-arg PNET_MESH_DEFINE_CONSTANTS=PNET_MESH_PACKET_TRACE`, then `--tun-benchmark pnet-mesh-tun --trace-output-dir <dir>` copies CSV traces into that directory.
+
 All actions emit JSON. `preflight` is non-mutating and reports `pass`, `skip`, or `fail` for Linux, `/dev/net/tun`, Docker, the `localhost/pnet-mesh-tun:dev` image, and a privileged container probe. `create` starts two labeled Docker containers that sleep in isolated namespaces; `teardown` removes only containers and networks carrying the `pnet.mesh.benchmark.topology` label.
 
 Default topology:

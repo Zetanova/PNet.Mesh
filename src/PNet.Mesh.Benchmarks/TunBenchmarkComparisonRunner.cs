@@ -282,11 +282,22 @@ internal static class TunBenchmarkComparisonRunner
         var available = report.Processes.Where(process => process.Available).ToArray();
         return new TunBenchmarkProcessAggregate(
             available.Length,
-            SumNullable(available.Select(process => process.ResidentSetBytes)),
-            SumNullable(available.Select(process => process.ResidentSetHighWatermarkBytes)),
+            FirstNullable(available.Select(process => process.ResidentSetBytes)),
+            FirstNullable(available.Select(process => process.ResidentSetHighWatermarkBytes)),
             SumNullable(available.Select(process => process.Threads)),
             SumNullable(available.Select(process => process.UserCpuTicks)),
             SumNullable(available.Select(process => process.SystemCpuTicks)));
+    }
+
+    static long? FirstNullable(IEnumerable<long?> values)
+    {
+        foreach (var value in values)
+        {
+            if (value.HasValue)
+                return value.Value;
+        }
+
+        return null;
     }
 
     static long? SumNullable(IEnumerable<long?> values)

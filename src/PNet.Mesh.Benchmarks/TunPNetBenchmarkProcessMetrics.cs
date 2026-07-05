@@ -94,6 +94,42 @@ internal static partial class TunPNetBenchmarkRunner
             $"tail -n 120 {logPath} 2>/dev/null || true"
         }, options.CommandTimeout));
     }
+
+    static void CapturePacketTrace(
+        ITunTopologyCommandRunner commandRunner,
+        TunPNetBenchmarkOptions options,
+        TunTopologyNode node,
+        List<TunTopologyCommandRecord> commands)
+    {
+        if (string.IsNullOrWhiteSpace(options.PacketTraceOutputDirectory))
+            return;
+        if (options.Scenario != PNetMeshTunScenario)
+            return;
+
+        Directory.CreateDirectory(options.PacketTraceOutputDirectory);
+        var processPattern = CreateProcessPattern(options, node);
+        var flush = RunCommand(commandRunner, "docker", new[]
+        {
+            "exec",
+            node.ContainerName,
+            "sh",
+            "-c",
+            $"pid=$(pgrep -f {ShellQuote(processPattern)} | head -n1); test -n \"$pid\" || exit 1; kill -HUP \"$pid\"; for i in 1 2 3 4 5 6 7 8 9 10; do test -s /tmp/pnet-packet-trace.csv && exit 0; sleep 0.1; done; test -s /tmp/pnet-packet-trace.csv"
+        }, options.CommandTimeout);
+        commands.Add(flush);
+        if (flush.ExitCode != 0)
+            return;
+
+        var destination = Path.Combine(
+            options.PacketTraceOutputDirectory,
+            $"{options.Name}-{options.Scenario}-{node.Role}-packet-trace.csv");
+        commands.Add(RunCommand(commandRunner, "docker", new[]
+        {
+            "cp",
+            $"{node.ContainerName}:/tmp/pnet-packet-trace.csv",
+            destination
+        }, options.CommandTimeout));
+    }
 }
 
 internal sealed record TunBenchmarkProcessMetrics(

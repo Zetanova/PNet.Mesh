@@ -6,6 +6,7 @@ RUN apt-get update \
 WORKDIR /app
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+ARG PNET_MESH_DEFINE_CONSTANTS=
 WORKDIR /src
 COPY ["src/PNet.Mesh.Tun.Cli/PNet.Mesh.Tun.Cli.csproj", "src/PNet.Mesh.Tun.Cli/"]
 COPY ["src/PNet.Mesh.Tun/PNet.Mesh.Tun.csproj", "src/PNet.Mesh.Tun/"]
@@ -13,7 +14,11 @@ COPY ["src/PNet.Mesh/PNet.Mesh.csproj", "src/PNet.Mesh/"]
 RUN dotnet restore "src/PNet.Mesh.Tun.Cli/PNet.Mesh.Tun.Cli.csproj"
 COPY . .
 WORKDIR "/src/src/PNet.Mesh.Tun.Cli"
-RUN dotnet publish "PNet.Mesh.Tun.Cli.csproj" -c Release -o /app/publish
+RUN if [ -n "$PNET_MESH_DEFINE_CONSTANTS" ]; then \
+        dotnet publish "PNet.Mesh.Tun.Cli.csproj" -c Release -o /app/publish /p:DefineConstants="$PNET_MESH_DEFINE_CONSTANTS"; \
+    else \
+        dotnet publish "PNet.Mesh.Tun.Cli.csproj" -c Release -o /app/publish; \
+    fi
 
 FROM base AS final
 WORKDIR /app

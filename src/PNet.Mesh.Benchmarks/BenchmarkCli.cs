@@ -14,6 +14,8 @@ internal static class BenchmarkCli
             return TunPNetBenchmarkRunner.Run(args[1..], output, error);
         if (args.Length > 0 && args[0] == "--tun-compare")
             return TunBenchmarkComparisonRunner.Run(args[1..], output, error);
+        if (args.Length > 0 && args[0] == "--udp-socket-probe")
+            return UdpSocketProbeRunner.Run(args[1..], output, error);
 
         BenchmarkSwitcher.FromAssembly(typeof(BenchmarkCli).Assembly).Run(args);
         return 0;

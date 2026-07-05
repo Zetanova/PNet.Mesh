@@ -104,6 +104,7 @@ internal static partial class TunPNetBenchmarkRunner
                     else
                     {
                         traffic.Add(RunPing(commandRunner, options, left, right, "ipv4", "10.80.0.2", false, commands));
+                        CapturePacketTrace(commandRunner, options, left, commands);
                         DumpTunOnlyIcmpEchoMetrics(commandRunner, options, left, commands);
                         CaptureProcessLog(commandRunner, options, left, commands);
                         processes.Add(ReadProcessMetrics(commandRunner, options, left, commands));
@@ -118,9 +119,10 @@ internal static partial class TunPNetBenchmarkRunner
                     else
                     {
                         traffic.Add(RunPing(commandRunner, options, left, right, "ipv4", "10.80.0.2", false, commands));
+                        CapturePacketTrace(commandRunner, options, left, commands);
+                        CapturePacketTrace(commandRunner, options, right, commands);
                         CaptureProcessLog(commandRunner, options, left, commands);
                         CaptureProcessLog(commandRunner, options, right, commands);
-                        processes.Add(ReadProcessMetrics(commandRunner, options, left, commands));
                         processes.Add(ReadProcessMetrics(commandRunner, options, right, commands));
                     }
                 }
@@ -137,10 +139,11 @@ internal static partial class TunPNetBenchmarkRunner
                         traffic.Add(RunPing(commandRunner, options, left, right, "ipv6", "fd80::2", true, commands));
                         traffic.Add(RunIperf(commandRunner, options, left, right, "ipv4", "10.80.0.2", false, commands));
                         traffic.Add(RunIperf(commandRunner, options, left, right, "ipv6", "fd80::2", true, commands));
+                        CapturePacketTrace(commandRunner, options, left, commands);
+                        CapturePacketTrace(commandRunner, options, right, commands);
                         CaptureProcessLog(commandRunner, options, left, commands);
                         CaptureProcessLog(commandRunner, options, right, commands);
                         processes.Add(ReadProcessMetrics(commandRunner, options, left, commands));
-                        processes.Add(ReadProcessMetrics(commandRunner, options, right, commands));
                     }
                 }
 
@@ -259,6 +262,8 @@ internal static partial class TunPNetBenchmarkRunner
             return false;
 
         var shellCommand = "rm -f /tmp/pnet-tun.log; "
+                           + CreatePacketTraceEnvironment(node)
+                           + CreatePNetUdpProbeEnvironment(options)
                            + string.Join(" ", tunArguments.Select(ShellQuote))
                            + " > /tmp/pnet-tun.log 2>&1";
 
@@ -340,6 +345,25 @@ internal static partial class TunPNetBenchmarkRunner
 
         commands.Add(RunCommand(commandRunner, "docker", dockerArguments, options.CommandTimeout, reportedArguments));
         return true;
+    }
+
+    static string CreatePacketTraceEnvironment(TunTopologyNode node)
+    {
+        return "PNET_MESH_PACKET_TRACE_ROLE="
+               + ShellQuote(node.Role)
+               + " PNET_MESH_PACKET_TRACE_FILE=/tmp/pnet-packet-trace.csv PNET_MESH_PACKET_TRACE_CAPACITY=131072 ";
+    }
+
+    static string CreatePNetUdpProbeEnvironment(TunPNetBenchmarkOptions options)
+    {
+        var variables = new List<string>();
+        if (!string.IsNullOrWhiteSpace(options.PNetUdpReceiveMode))
+            variables.Add("PNET_MESH_UDP_RECEIVE_MODE=" + ShellQuote(options.PNetUdpReceiveMode));
+
+        if (options.PNetUdpSocketBufferBytes is { } socketBufferBytes)
+            variables.Add("PNET_MESH_UDP_SOCKET_BUFFER_BYTES=" + socketBufferBytes.ToString(CultureInfo.InvariantCulture));
+
+        return variables.Count == 0 ? string.Empty : string.Join(" ", variables) + " ";
     }
 
     static bool StartTunIcmpEchoProcess(

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run PNet.Mesh.Tun versus wireguard-go benchmark comparison artifacts.
 # opt-status: optimized
-# opt-date: 2026-07-02
+# opt-date: 2026-07-05
 # forks: help=0, dry-run=0, run=build:1 preflight:1 target:1-each compare:1 baseline-report:1 summary:1 failure-teardown:1
 
 set -euo pipefail
@@ -224,8 +224,8 @@ write_regression_report() {
           metric("wireguard.ipv4.iperf.bits_per_second"; "bps"; "higher"; $c.metrics.traffic.ipv4IperfBitsPerSecond.wireguard; $b.metrics.traffic.ipv4IperfBitsPerSecond.wireguard),
           metric("pnet.ipv6.iperf.bits_per_second"; "bps"; "higher"; $c.metrics.traffic.ipv6IperfBitsPerSecond.pnet; $b.metrics.traffic.ipv6IperfBitsPerSecond.pnet),
           metric("wireguard.ipv6.iperf.bits_per_second"; "bps"; "higher"; $c.metrics.traffic.ipv6IperfBitsPerSecond.wireguard; $b.metrics.traffic.ipv6IperfBitsPerSecond.wireguard),
-          metric("pnet.process.rss_bytes"; "bytes"; "lower"; $c.metrics.process.residentSetBytes.pnet; $b.metrics.process.residentSetBytes.pnet),
-          metric("wireguard.process.rss_bytes"; "bytes"; "lower"; $c.metrics.process.residentSetBytes.wireguard; $b.metrics.process.residentSetBytes.wireguard),
+          metric("pnet.process.single_rss_bytes"; "bytes"; "lower"; $c.metrics.process.residentSetBytes.pnet; $b.metrics.process.residentSetBytes.pnet),
+          metric("wireguard.process.single_rss_bytes"; "bytes"; "lower"; $c.metrics.process.residentSetBytes.wireguard; $b.metrics.process.residentSetBytes.wireguard),
           metric("pnet.process.total_cpu_ticks"; "ticks"; "lower"; $c.metrics.process.totalCpuTicks.pnet; $b.metrics.process.totalCpuTicks.pnet),
           metric("wireguard.process.total_cpu_ticks"; "ticks"; "lower"; $c.metrics.process.totalCpuTicks.wireguard; $b.metrics.process.totalCpuTicks.wireguard),
           metric("pnet.managed.allocation_bytes"; "bytes"; "lower"; $c.metrics.managedRuntime.pnet.allocationBytes; $b.metrics.managedRuntime.pnet.allocationBytes),

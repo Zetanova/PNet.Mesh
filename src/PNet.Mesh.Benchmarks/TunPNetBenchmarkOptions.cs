@@ -7,7 +7,7 @@ internal static partial class TunPNetBenchmarkRunner
     static void WriteUsage(TextWriter output)
     {
         output.WriteLine("Usage:");
-        output.WriteLine("  --tun-benchmark pnet-mesh-tun|wireguard-go|wireguard-go-pnet-icmp-echo|tun-icmp-echo-direct|tun-icmp-echo-bridge-queue [--name <name>] [--image <image>] [--ping-count <count>] [--warmup <duration>] [--iperf-duration <duration>] [--mtu <bytes>] [--payload-mode control|mtu] [--timeout <duration>]");
+        output.WriteLine("  --tun-benchmark pnet-mesh-tun|wireguard-go|wireguard-go-pnet-icmp-echo|tun-icmp-echo-direct|tun-icmp-echo-bridge-queue [--name <name>] [--image <image>] [--ping-count <count>] [--warmup <duration>] [--iperf-duration <duration>] [--mtu <bytes>] [--payload-mode control|mtu] [--timeout <duration>] [--trace-output-dir <dir>] [--pnet-udp-receive-mode async|blocking] [--pnet-udp-socket-buffer-bytes <bytes>]");
         output.WriteLine();
         output.WriteLine("Runs a manual privileged TUN traffic benchmark on the #060 topology and emits JSON.");
     }
@@ -35,6 +35,12 @@ internal static partial class TunPNetBenchmarkRunner
         public int Mtu { get; private init; } = 1280;
 
         public string PayloadMode { get; private init; } = "control";
+
+        public string? PacketTraceOutputDirectory { get; private init; }
+
+        public string? PNetUdpReceiveMode { get; private init; }
+
+        public int? PNetUdpSocketBufferBytes { get; private init; }
 
         public string IperfBandwidth { get; private init; } = "1K";
 
@@ -68,6 +74,9 @@ internal static partial class TunPNetBenchmarkRunner
             var pingCount = 1;
             var mtu = 1280;
             var payloadMode = "control";
+            string? packetTraceOutputDirectory = null;
+            string? pnetUdpReceiveMode = null;
+            int? pnetUdpSocketBufferBytes = null;
 
             for (var i = 1; i < args.Length; i++)
             {
@@ -129,6 +138,31 @@ internal static partial class TunPNetBenchmarkRunner
                             return false;
                         }
                         break;
+                    case "--trace-output-dir":
+                        if (!TryReadValue(args, ref i, out var traceOutputDirectory))
+                        {
+                            error.WriteLine("--trace-output-dir requires a value.");
+                            return false;
+                        }
+
+                        packetTraceOutputDirectory = traceOutputDirectory;
+                        break;
+                    case "--pnet-udp-receive-mode":
+                        if (!TryReadValue(args, ref i, out pnetUdpReceiveMode) || !IsSupportedPNetUdpReceiveMode(pnetUdpReceiveMode))
+                        {
+                            error.WriteLine("--pnet-udp-receive-mode requires one of: async, blocking.");
+                            return false;
+                        }
+                        break;
+                    case "--pnet-udp-socket-buffer-bytes":
+                        if (!TryReadIntValue(args, ref i, out var socketBufferBytes) || socketBufferBytes <= 0)
+                        {
+                            error.WriteLine("--pnet-udp-socket-buffer-bytes requires a positive integer.");
+                            return false;
+                        }
+
+                        pnetUdpSocketBufferBytes = socketBufferBytes;
+                        break;
                     case "--help":
                     case "-h":
                         options = new TunPNetBenchmarkOptions { ShowHelp = true };
@@ -150,6 +184,9 @@ internal static partial class TunPNetBenchmarkRunner
                 PingCount = pingCount,
                 Mtu = mtu,
                 PayloadMode = payloadMode,
+                PacketTraceOutputDirectory = packetTraceOutputDirectory,
+                PNetUdpReceiveMode = pnetUdpReceiveMode,
+                PNetUdpSocketBufferBytes = pnetUdpSocketBufferBytes,
                 IperfBandwidth = GetIperfBandwidth(payloadMode),
                 IperfDatagramBytes = GetIperfDatagramBytes(payloadMode, mtu),
                 CommandLine = CreateCommandLine(args)
@@ -219,6 +256,12 @@ internal static partial class TunPNetBenchmarkRunner
         {
             return string.Equals(value, "control", StringComparison.Ordinal)
                    || string.Equals(value, "mtu", StringComparison.Ordinal);
+        }
+
+        static bool IsSupportedPNetUdpReceiveMode(string value)
+        {
+            return string.Equals(value, "async", StringComparison.Ordinal)
+                   || string.Equals(value, "blocking", StringComparison.Ordinal);
         }
 
         static string GetIperfBandwidth(string payloadMode)
