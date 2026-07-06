@@ -40,7 +40,11 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
                 4,
                 20,
                 15,
-                true));
+                true,
+                iperfBytes: 104_857_600,
+                iperfWindow: "8M",
+                pnetUdpReceiveMode: "blocking",
+                pnetUdpSocketBufferBytes: 2_097_152));
             File.WriteAllText(wireGuardPath, CreateSavedReportJson(
                 "wireguard-go",
                 "wireguard-topology",
@@ -66,7 +70,9 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
                 6,
                 40,
                 25,
-                false));
+                false,
+                iperfBytes: 52_428_800,
+                iperfWindow: "4M"));
             var output = new StringWriter();
             var error = new StringWriter();
 
@@ -115,7 +121,18 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             Assert.Equal(3, settings.GetProperty("iperfDurationSeconds").GetProperty("wireguard").GetDouble());
             Assert.Equal("control", settings.GetProperty("payloadMode").GetProperty("pnet").GetString());
             Assert.Equal("1K", settings.GetProperty("iperfBandwidth").GetProperty("wireguard").GetString());
+            Assert.Equal("8M", settings.GetProperty("iperfWindow").GetProperty("pnet").GetString());
+            Assert.Equal("4M", settings.GetProperty("iperfWindow").GetProperty("wireguard").GetString());
             Assert.Equal(64, settings.GetProperty("iperfDatagramBytes").GetProperty("pnet").GetInt32());
+            Assert.Equal(104_857_600, settings.GetProperty("iperfBytes").GetProperty("pnet").GetInt64());
+            Assert.Equal(52_428_800, settings.GetProperty("iperfBytes").GetProperty("wireguard").GetInt64());
+            Assert.Equal(16 * 1024 * 1024, settings.GetProperty("managedHeapGrowthLimitBytes").GetProperty("pnet").GetInt64());
+            var udpReceiveMode = settings.GetProperty("pNetUdpReceiveMode");
+            Assert.Equal("blocking", udpReceiveMode.GetProperty("pnet").GetString());
+            Assert.False(udpReceiveMode.TryGetProperty("wireguard", out _));
+            var udpSocketBufferBytes = settings.GetProperty("pNetUdpSocketBufferBytes");
+            Assert.Equal(2_097_152, udpSocketBufferBytes.GetProperty("pnet").GetInt32());
+            Assert.False(udpSocketBufferBytes.TryGetProperty("wireguard", out _));
 
             var traceability = root.GetProperty("metrics").GetProperty("traceability");
             Assert.Equal("pnet-topology", traceability.GetProperty("topologyId").GetProperty("pnet").GetString());
@@ -252,7 +269,11 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             int rightThreads,
             long rightUserTicks,
             long rightSystemTicks,
-            bool managedCountersAvailable)
+            bool managedCountersAvailable,
+            long? iperfBytes = null,
+            string iperfWindow = "4M",
+            string? pnetUdpReceiveMode = null,
+            int? pnetUdpSocketBufferBytes = null)
         {
             var isPNet = string.Equals(scenario, "pnet-mesh-tun", StringComparison.Ordinal);
             var managedCounterUnavailableReason = managedCountersAvailable
@@ -287,7 +308,12 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
                     1280,
                     "control",
                     "1K",
-                    64),
+                    64,
+                    iperfBytes,
+                    16 * 1024 * 1024,
+                    pnetUdpReceiveMode,
+                    pnetUdpSocketBufferBytes,
+                    iperfWindow),
                 new[]
                 {
                     CreatePingTraffic("ipv4", ipv4PingLatency, ipv4PacketLoss, $"{scenario} ipv4 ping raw"),
@@ -295,6 +321,7 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
                     CreateIperfTraffic("ipv4", ipv4Bandwidth, $"{scenario} ipv4 iperf raw"),
                     CreateIperfTraffic("ipv6", ipv6Bandwidth, $"{scenario} ipv6 iperf raw")
                 },
+                Array.Empty<TunBenchmarkUdpCounterDelta>(),
                 new[]
                 {
                     CreateProcess("left", leftRss, leftHighWatermark, leftThreads, leftUserTicks, leftSystemTicks),

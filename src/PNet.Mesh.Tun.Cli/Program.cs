@@ -92,7 +92,8 @@ namespace PNet.Mesh.Tun.Cli
                     PrivateKey = Convert.FromBase64String(RequiredValue(options.PrivateKey, nameof(options.PrivateKey))),
                     Psk = Convert.FromBase64String(RequiredValue(options.Psk, nameof(options.Psk))),
                     BindTo = options.BindTo.ToArray(),
-                    Peers = peerRoutes.Select(route => route.Peer).ToArray()
+                    Peers = peerRoutes.Select(route => route.Peer).ToArray(),
+                    UdpSocketBufferBytes = GetTunUdpSocketBufferBytes(options)
                 };
 
                 using var server = new PNetMeshServer(settings, serviceProvider, loggerFactory.CreateLogger<PNetMeshServer>());
@@ -104,7 +105,9 @@ namespace PNet.Mesh.Tun.Cli
                     peerRoutes,
                     loggerFactory.CreateLogger<PNetMeshTunBridge>());
 
-                Console.WriteLine($"PNet.Mesh.Tun bridge running on {tunDevice.Name}; press Ctrl+C to stop.");
+                using var gcMetricsSignal = RegisterGcMetricsSignal(Console.Out, "/tmp/pnet-gc-metrics.log");
+
+                Console.WriteLine($"PNet.Mesh.Tun bridge running on {tunDevice.Name}; send SIGQUIT to dump GC metrics; press Ctrl+C to stop.");
                 await bridge.RunAsync(shutdown.Token);
                 return 0;
             }
@@ -117,6 +120,39 @@ namespace PNet.Mesh.Tun.Cli
                 Console.Error.WriteLine(ex.Message);
                 return 1;
             }
+        }
+
+        static PosixSignalRegistration? RegisterGcMetricsSignal(TextWriter writer, string metricsPath)
+        {
+            if (OperatingSystem.IsWindows())
+                return null;
+
+            return PosixSignalRegistration.Create(PosixSignal.SIGQUIT, context =>
+            {
+                context.Cancel = true;
+                var line = CreateGcMetricsLine();
+                writer.WriteLine(line);
+                writer.Flush();
+                File.AppendAllText(metricsPath, line + Environment.NewLine);
+            });
+        }
+
+        static string CreateGcMetricsLine()
+        {
+            var info = GC.GetGCMemoryInfo();
+            return string.Create(
+                CultureInfo.InvariantCulture,
+                $"pnet_gc_metrics allocated_bytes={GC.GetTotalAllocatedBytes(precise: true)} managed_heap_bytes={info.HeapSizeBytes} fragmented_bytes={info.FragmentedBytes} memory_load_bytes={info.MemoryLoadBytes} total_available_memory_bytes={info.TotalAvailableMemoryBytes} high_memory_load_threshold_bytes={info.HighMemoryLoadThresholdBytes} gen0_collections={GC.CollectionCount(0)} gen1_collections={GC.CollectionCount(1)} gen2_collections={GC.CollectionCount(2)}");
+        }
+
+        static int? GetTunUdpSocketBufferBytes(TunCliOptions options)
+        {
+            if (options.UdpSocketBufferBytes is { } bufferBytes)
+                return bufferBytes;
+
+            return string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("PNET_MESH_UDP_SOCKET_BUFFER_BYTES"))
+                ? PNetMeshServerSettings.WireGuardSocketBufferBytes
+                : null;
         }
 
         static void PrintUsage()
@@ -134,6 +170,7 @@ namespace PNet.Mesh.Tun.Cli
             Console.Error.WriteLine("  --address <prefix>          Local address prefix to add to the interface. Repeatable.");
             Console.Error.WriteLine("  --route <prefix>            Kernel route to add via the interface. Repeatable.");
             Console.Error.WriteLine("  --bind <ip:port>            UDP bind endpoint. Repeatable.");
+            Console.Error.WriteLine("  --udp-socket-buffer-bytes <bytes> UDP send/receive socket buffer size, default 7340032.");
             Console.Error.WriteLine("  --public-key <base64>       Local WireGuard public key.");
             Console.Error.WriteLine("  --public-key-file <path>    Read the local WireGuard public key from a file.");
             Console.Error.WriteLine("  --private-key <base64>      Local WireGuard private key.");
@@ -492,6 +529,8 @@ namespace PNet.Mesh.Tun.Cli
 
             public List<string> BindTo { get; } = new List<string>();
 
+            public int? UdpSocketBufferBytes { get; private set; }
+
             public string? PublicKey { get; private set; }
 
             public string? PrivateKey { get; private set; }
@@ -560,6 +599,14 @@ namespace PNet.Mesh.Tun.Cli
                             break;
                         case "--bind":
                             options.BindTo.Add(NextValue(args, ref index, option, ref error));
+                            break;
+                        case "--udp-socket-buffer-bytes":
+                            if (!int.TryParse(NextValue(args, ref index, option, ref error), NumberStyles.None, CultureInfo.InvariantCulture, out var udpSocketBufferBytes) || udpSocketBufferBytes <= 0)
+                            {
+                                error = "Invalid --udp-socket-buffer-bytes value.";
+                                return false;
+                            }
+                            options.UdpSocketBufferBytes = udpSocketBufferBytes;
                             break;
                         case "--public-key":
                             options.PublicKey = NextValue(args, ref index, option, ref error);

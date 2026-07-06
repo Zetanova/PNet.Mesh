@@ -25,6 +25,45 @@ namespace PNet.Actor.UnitTests.Mesh
         }
 
         [Fact]
+        public void udp_socket_buffer_setting_defaults_to_unset_without_environment()
+        {
+            var settings = CreateMinimalSettings();
+
+            Assert.Null(settings.UdpSocketBufferBytes);
+            Assert.Null(PNetMeshServer.GetUdpSocketBufferBytes(settings, null));
+        }
+
+        [Fact]
+        public void udp_socket_buffer_setting_accepts_override_and_environment_fallback()
+        {
+            Assert.Equal(2_097_152, PNetMeshServer.GetUdpSocketBufferBytes(CreateMinimalSettings(2_097_152), "4194304"));
+            Assert.Equal(4_194_304, PNetMeshServer.GetUdpSocketBufferBytes(CreateMinimalSettings(), "4194304"));
+            Assert.Equal(4_194_304, PNetMeshServer.GetUdpSocketBufferBytes(CreateMinimalSettings(null), "4194304"));
+            Assert.Equal(4_194_304, PNetMeshServer.GetUdpSocketBufferBytesFromEnvironment("4194304"));
+            Assert.Null(PNetMeshServer.GetUdpSocketBufferBytesFromEnvironment(null));
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(-1)]
+        public void udp_socket_buffer_setting_rejects_non_positive_values(int udpSocketBufferBytes)
+        {
+            var settings = CreateMinimalSettings(udpSocketBufferBytes);
+
+            var error = Assert.Throws<InvalidOperationException>(() => PNetMeshServer.GetUdpSocketBufferBytes(settings));
+
+            Assert.Contains(nameof(PNetMeshServerSettings.UdpSocketBufferBytes), error.Message, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void udp_socket_buffer_environment_fallback_rejects_invalid_values()
+        {
+            var error = Assert.Throws<InvalidOperationException>(() => PNetMeshServer.GetUdpSocketBufferBytesFromEnvironment("0"));
+
+            Assert.Contains("PNET_MESH_UDP_SOCKET_BUFFER_BYTES", error.Message, StringComparison.Ordinal);
+        }
+
+        [Fact]
         public async Task bind_three_server_to_localhost_and_relay_exchange()
         {
             using var key1 = KeyPair.Generate();
@@ -264,6 +303,27 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.False(accepted);
             Assert.Null(localEndPoint);
             Assert.True(memoryOwner.Disposed);
+        }
+
+        static PNetMeshServerSettings CreateMinimalSettings()
+        {
+            return new PNetMeshServerSettings
+            {
+                PublicKey = new byte[32],
+                PrivateKey = new byte[32],
+                BindTo = Array.Empty<string>()
+            };
+        }
+
+        static PNetMeshServerSettings CreateMinimalSettings(int? udpSocketBufferBytes)
+        {
+            return new PNetMeshServerSettings
+            {
+                PublicKey = new byte[32],
+                PrivateKey = new byte[32],
+                BindTo = Array.Empty<string>(),
+                UdpSocketBufferBytes = udpSocketBufferBytes
+            };
         }
 
         static async Task<ReadOnlyMemory<byte>> ReadPayloadAsync(PNetMeshChannel channel, string operation)

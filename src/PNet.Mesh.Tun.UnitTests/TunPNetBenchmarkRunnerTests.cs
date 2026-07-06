@@ -47,7 +47,8 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
                     "sum_received": {
                       "seconds": 3.0001,
                       "bytes": 123456,
-                      "bits_per_second": 329205.69
+                      "bits_per_second": 329205.69,
+                      "lost_percent": 0
                     }
                   }
                 }
@@ -62,6 +63,84 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             Assert.Equal(3.0001, result.Seconds);
             Assert.Equal(123456, result.Bytes);
             Assert.Equal(329205.69, result.BitsPerSecond);
+            Assert.Equal(0, result.PacketLossPercent);
+        }
+
+        [Fact]
+        public void parse_udp_counter_monitor_result_extracts_global_and_socket_drop_deltas()
+        {
+            var result = TunPNetBenchmarkRunner.ParseUdpCounterMonitorResult(
+                "right",
+                """
+                sample index=0 unix_ms=1000
+                snmp protocol=udp name=InErrors value=10
+                snmp protocol=udp name=RcvbufErrors value=2
+                snmp protocol=udp6 name=InErrors value=20
+                snmp protocol=udp6 name=RcvbufErrors value=3
+                socket family=udp local=00000000:3072 remote=00000000:0000 state=07 queues=00000000:00000000 inode=100 drops=4
+                socket family=udp local=0200500A:1451 remote=00000000:0000 state=07 queues=00000000:00000000 inode=200 drops=5
+                end_sample
+                sample index=1 unix_ms=1050
+                snmp protocol=udp name=InErrors value=17
+                snmp protocol=udp name=RcvbufErrors value=9
+                snmp protocol=udp6 name=InErrors value=20
+                snmp protocol=udp6 name=RcvbufErrors value=3
+                socket family=udp local=00000000:3072 remote=00000000:0000 state=07 queues=00000000:00000000 inode=100 drops=11
+                socket family=udp local=0200500A:1451 remote=00000000:0000 state=07 queues=00000000:00000000 inode=200 drops=5
+                end_sample
+                """,
+                5201);
+
+            Assert.Equal("right", result.Node);
+            Assert.Equal(7, result.GlobalDelta.UdpInErrors);
+            Assert.Equal(7, result.GlobalDelta.UdpRcvbufErrors);
+            Assert.Equal(0, result.GlobalDelta.Udp6InErrors);
+            Assert.Equal(0, result.GlobalDelta.Udp6RcvbufErrors);
+
+            var pnet = Assert.Single(result.Sockets, socket => socket.Role == "pnet");
+            Assert.Equal(12402, pnet.LocalPort);
+            Assert.Equal(7, pnet.DropsDelta);
+            Assert.True(pnet.PresentInFirstSample);
+            Assert.True(pnet.PresentInLastSample);
+
+            var iperf = Assert.Single(result.Sockets, socket => socket.Role == "iperf3");
+            Assert.Equal(5201, iperf.LocalPort);
+            Assert.Equal(0, iperf.DropsDelta);
+        }
+
+        [Fact]
+        public void parse_managed_runtime_snapshot_extracts_gc_metrics()
+        {
+            var parsed = TunPNetBenchmarkRunner.TryParseManagedRuntimeSnapshot(
+                "pnet_gc_metrics allocated_bytes=123456 managed_heap_bytes=65536 fragmented_bytes=1024 memory_load_bytes=4096 total_available_memory_bytes=1073741824 high_memory_load_threshold_bytes=966367641 gen0_collections=3 gen1_collections=2 gen2_collections=1",
+                out var snapshot);
+
+            Assert.True(parsed);
+            Assert.Equal(123456, snapshot.AllocationBytes);
+            Assert.Equal(65536, snapshot.ManagedHeapBytes);
+            Assert.Equal(1024, snapshot.FragmentedBytes);
+            Assert.Equal(3, snapshot.Gen0Collections);
+        }
+
+        [Fact]
+        public void run_benchmark_fails_when_iperf_reports_loss_or_short_fixed_transfer()
+        {
+            Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
+                new[] { "pnet-mesh-tun", "--warmup", "0ms", "--iperf-duration", "1ms", "--iperf-bytes", "104857600", "--timeout", "1s" },
+                TextWriter.Null,
+                out var options));
+
+            var lossReport = TunPNetBenchmarkRunner.RunBenchmark(
+                options,
+                new FakeCommandRunner { IperfPacketLossPercent = 0.5 });
+            var shortTransferReport = TunPNetBenchmarkRunner.RunBenchmark(
+                options,
+                new FakeCommandRunner { IperfBytesDelta = -1 });
+
+            Assert.Equal("fail", lossReport.Status);
+            Assert.Equal("fail", shortTransferReport.Status);
+            Assert.Contains(lossReport.Traffic, traffic => traffic.Tool == "iperf3" && traffic.PacketLossPercent == 0.5);
+            Assert.Contains(shortTransferReport.Traffic, traffic => traffic.Tool == "iperf3" && traffic.Bytes == 104857599);
         }
 
         [Fact]
@@ -72,12 +151,15 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
                 TextWriter.Null,
                 out var pnetOptions));
             Assert.Equal("pnet-mesh-tun", pnetOptions.Scenario);
+            Assert.Null(pnetOptions.PNetUdpSocketBufferBytes);
+            Assert.Equal("4M", pnetOptions.IperfWindow);
 
             Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
                 new[] { "wireguard-go" },
                 TextWriter.Null,
                 out var wireGuardOptions));
             Assert.Equal("wireguard-go", wireGuardOptions.Scenario);
+            Assert.Null(wireGuardOptions.PNetUdpSocketBufferBytes);
 
             Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
                 new[] { "wireguard-go-pnet-icmp-echo" },
@@ -105,12 +187,35 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             Assert.Equal("mtu", mtuOptions.PayloadMode);
             Assert.Equal("64K", mtuOptions.IperfBandwidth);
             Assert.Equal(1340, mtuOptions.IperfDatagramBytes);
+
+            Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
+                new[] { "pnet-mesh-tun", "--iperf-bytes", "104857600", "--iperf-bandwidth", "1G", "--managed-heap-growth-limit-bytes", "8388608" },
+                TextWriter.Null,
+                out var loadOptions));
+            Assert.Equal(104857600, loadOptions.IperfBytes);
+            Assert.Equal("1G", loadOptions.IperfBandwidth);
+            Assert.Equal(8388608, loadOptions.ManagedHeapGrowthLimitBytes);
+
+            Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
+                new[] { "pnet-mesh-tun", "--iperf-window", "2M" },
+                TextWriter.Null,
+                out var iperfWindowOptions));
+            Assert.Equal("2M", iperfWindowOptions.IperfWindow);
+
+            Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
+                new[] { "pnet-mesh-tun", "--pnet-udp-socket-buffer-bytes", "4194304" },
+                TextWriter.Null,
+                out var socketBufferOptions));
+            Assert.Equal(4_194_304, socketBufferOptions.PNetUdpSocketBufferBytes);
         }
 
         [Theory]
         [InlineData("--mtu", "0", "--mtu requires a positive integer.")]
         [InlineData("--mtu", "not-a-number", "--mtu requires a positive integer.")]
         [InlineData("--payload-mode", "bulk", "--payload-mode requires one of: control, mtu.")]
+        [InlineData("--iperf-bytes", "0", "--iperf-bytes requires a positive integer.")]
+        [InlineData("--managed-heap-growth-limit-bytes", "-1", "--managed-heap-growth-limit-bytes requires a non-negative integer.")]
+        [InlineData("--pnet-udp-socket-buffer-bytes", "0", "--pnet-udp-socket-buffer-bytes requires a positive integer.")]
         public void options_reject_invalid_tun_benchmark_payload_options(string option, string value, string expectedError)
         {
             var error = new StringWriter();
@@ -137,6 +242,11 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             var report = TunPNetBenchmarkRunner.RunBenchmark(options, runner);
 
             Assert.Equal("pass", report.Status);
+            Assert.True(report.ManagedCountersAvailable);
+            Assert.NotNull(report.ManagedRuntime);
+            Assert.True(report.ManagedRuntime.Available);
+            Assert.True(report.ManagedRuntime.ManagedHeapWithinLimit);
+            Assert.Equal(2, report.ManagedRuntime.Nodes?.Count);
             var actualShellCommands = runner.Calls
                 .Where(call => call.FileName == "docker"
                                && call.Arguments.Count >= 6
@@ -152,6 +262,7 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
                 Assert.Contains("'--public-key-file'", shellCommand);
                 Assert.Contains("'--private-key-file'", shellCommand);
                 Assert.Contains("'--psk-file'", shellCommand);
+                Assert.DoesNotContain("PNET_MESH_UDP_SOCKET_BUFFER_BYTES=7340032", shellCommand);
                 Assert.DoesNotContain("'--public-key'", shellCommand);
                 Assert.DoesNotContain("'--private-key'", shellCommand);
                 Assert.DoesNotContain("'--psk'", shellCommand);
@@ -216,10 +327,190 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
         }
 
         [Fact]
+        public void run_benchmark_uses_fixed_iperf_bytes_and_records_managed_heap_delta()
+        {
+            Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
+                new[] { "pnet-mesh-tun", "--warmup", "0ms", "--iperf-duration", "1ms", "--iperf-bytes", "104857600", "--iperf-bandwidth", "1G", "--managed-heap-growth-limit-bytes", "8388608", "--timeout", "1s" },
+                TextWriter.Null,
+                out var options));
+
+            var runner = new FakeCommandRunner { ManagedHeapGrowthBytes = 4096 };
+
+            var report = TunPNetBenchmarkRunner.RunBenchmark(options, runner);
+
+            Assert.Equal("pass", report.Status);
+            Assert.Equal(104857600, report.Settings.IperfBytes);
+            Assert.Equal("1G", report.Settings.IperfBandwidth);
+            Assert.Equal("4M", report.Settings.IperfWindow);
+            Assert.Equal(8388608, report.Settings.ManagedHeapGrowthLimitBytes);
+            Assert.All(runner.Calls.Where(IsDockerIperfClient), call =>
+            {
+                Assert.Equal("104857600", ReadOption(call.Arguments, "-n"));
+                Assert.DoesNotContain("-t", call.Arguments);
+                Assert.Equal("1G", ReadOption(call.Arguments, "-b"));
+                Assert.Equal("4M", ReadOption(call.Arguments, "-w"));
+            });
+
+            var managedRuntime = Assert.IsType<TunBenchmarkManagedRuntimeMetrics>(report.ManagedRuntime);
+            Assert.True(managedRuntime.Available);
+            Assert.True(managedRuntime.ManagedHeapWithinLimit);
+            Assert.Equal(8192, managedRuntime.ManagedHeapDeltaBytes);
+            Assert.Equal(2, managedRuntime.Nodes?.Count);
+            Assert.All(managedRuntime.Nodes!, node =>
+            {
+                Assert.Equal(4096, node.ManagedHeapDeltaBytes);
+                Assert.True(node.ManagedHeapWithinLimit);
+            });
+
+            Assert.Equal(2, report.UdpCounters.Count);
+            Assert.All(report.UdpCounters, counter =>
+            {
+                Assert.Equal(2, counter.Nodes.Count);
+                Assert.All(counter.Nodes, node =>
+                {
+                    Assert.Contains(node.Sockets, socket => socket.Role == "pnet");
+                    Assert.Contains(node.Sockets, socket => socket.Role == "iperf3");
+                });
+            });
+
+            var ipv4Right = Assert.Single(report.UdpCounters, counter => counter.Protocol == "ipv4")
+                .Nodes.Single(node => node.Node == "right");
+            Assert.Equal(4, ipv4Right.GlobalDelta.UdpRcvbufErrors);
+            Assert.Equal(4, ipv4Right.GlobalDelta.UdpInErrors);
+            Assert.Equal(4, Assert.Single(ipv4Right.Sockets, socket => socket.Role == "pnet").DropsDelta);
+            Assert.Equal(0, Assert.Single(ipv4Right.Sockets, socket => socket.Role == "iperf3").DropsDelta);
+        }
+
+        [Fact]
+        public void run_bandwidth_series_uses_requested_caps_fixed_size_and_records_managed_heap_delta()
+        {
+            using var outputDirectory = new TemporaryDirectory();
+            Assert.True(TunPNetBandwidthSeriesRunner.TunPNetBandwidthSeriesOptions.TryParse(
+                new[] { "--warmup", "0ms", "--timeout", "1s", "--managed-heap-growth-limit-bytes", "8388608", "--output-dir", outputDirectory.Path },
+                TextWriter.Null,
+                out var options));
+
+            var runner = new FakeCommandRunner { ManagedHeapGrowthBytes = 4096 };
+
+            var report = TunPNetBandwidthSeriesRunner.RunSeries(options, runner);
+
+            var expectedCaps = new[] { "10M", "25M", "50M", "100M", "250M", "500M", "1G", "2.5G" };
+            Assert.True(
+                report.Status == "pass",
+                string.Join("; ", report.Runs.Select(run => $"{run.BandwidthCap}:{run.Status}:{run.Message}")));
+            Assert.Equal(expectedCaps, report.Settings.BandwidthCaps);
+            Assert.Equal("pnet-mesh-tun", report.Settings.Scenario);
+            Assert.Equal(104857600, report.Settings.IperfBytes);
+            Assert.Equal(8388608, report.Settings.ManagedHeapGrowthLimitBytes);
+            Assert.Equal(expectedCaps, report.Runs.Select(run => run.BandwidthCap));
+            Assert.All(report.Runs, run =>
+            {
+                Assert.Equal("pass", run.Status);
+                Assert.Equal(104857600, run.IperfBytes);
+                Assert.True(run.ManagedHeapWithinLimit);
+                Assert.Equal(8192, run.ManagedHeapDeltaBytes);
+                Assert.Equal(2, run.Traffic.Count);
+                Assert.Equal(2, run.ManagedRuntimeNodes.Count);
+                Assert.NotNull(run.ReportPath);
+                Assert.True(File.Exists(run.ReportPath));
+            });
+            Assert.Contains(Path.Combine(outputDirectory.Path, "10m.json"), report.Runs.Select(run => run.ReportPath));
+            Assert.Contains(Path.Combine(outputDirectory.Path, "2_5g.json"), report.Runs.Select(run => run.ReportPath));
+
+            var iperfCalls = runner.Calls.Where(IsDockerIperfClient).ToArray();
+            Assert.Equal(expectedCaps.Length * 2, iperfCalls.Length);
+            foreach (var cap in expectedCaps)
+            {
+                var callsForCap = iperfCalls.Where(call => ReadOption(call.Arguments, "-b") == cap).ToArray();
+                Assert.Equal(2, callsForCap.Length);
+                Assert.All(callsForCap, call =>
+                {
+                    Assert.Equal("104857600", ReadOption(call.Arguments, "-n"));
+                    Assert.DoesNotContain("-t", call.Arguments);
+                    Assert.Equal("4M", ReadOption(call.Arguments, "-w"));
+                });
+            }
+        }
+
+        [Fact]
+        public void run_bandwidth_series_accepts_wireguard_go_scenario()
+        {
+            Assert.True(TunPNetBandwidthSeriesRunner.TunPNetBandwidthSeriesOptions.TryParse(
+                new[] { "--scenario", "wireguard-go", "--warmup", "0ms", "--timeout", "1s" },
+                TextWriter.Null,
+                out var options));
+
+            var runner = new FakeCommandRunner();
+
+            var report = TunPNetBandwidthSeriesRunner.RunSeries(options, runner);
+
+            var expectedCaps = new[] { "10M", "25M", "50M", "100M", "250M", "500M", "1G", "2.5G" };
+            Assert.Equal("wireguard-go", report.Settings.Scenario);
+            Assert.Equal("wireguard-go-bandwidth-series", report.Settings.Name);
+            Assert.Equal(expectedCaps, report.Runs.Select(run => run.BandwidthCap));
+            Assert.All(report.Runs, run =>
+            {
+                Assert.Equal("pass", run.Status);
+                Assert.Null(run.ManagedHeapWithinLimit);
+                Assert.Empty(run.ManagedRuntimeNodes);
+                Assert.Equal(2, run.Traffic.Count);
+            });
+
+            var startCommands = runner.Calls
+                .Where(call => call.FileName == "docker"
+                               && call.Arguments.Count >= 6
+                               && call.Arguments[0] == "exec"
+                               && call.Arguments[1] == "-d"
+                               && call.Arguments[^2] == "-c"
+                               && call.Arguments[^1].Contains("wireguard-go", StringComparison.Ordinal))
+                .ToArray();
+            Assert.Equal(expectedCaps.Length * 2, startCommands.Length);
+            Assert.All(startCommands, call =>
+                Assert.Contains("WG_PROCESS_FOREGROUND=1 exec wireguard-go", call.Arguments[^1], StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void run_bandwidth_series_preserves_skip_status()
+        {
+            Assert.True(TunPNetBandwidthSeriesRunner.TunPNetBandwidthSeriesOptions.TryParse(
+                new[] { "--warmup", "0ms", "--timeout", "1s" },
+                TextWriter.Null,
+                out var options));
+
+            var runner = new FakeCommandRunner { TunDeviceAvailable = false };
+
+            var report = TunPNetBandwidthSeriesRunner.RunSeries(options, runner);
+
+            Assert.Equal("skip", report.Status);
+            var run = Assert.Single(report.Runs);
+            Assert.Equal("10M", run.BandwidthCap);
+            Assert.Equal("skip", run.Status);
+            Assert.Empty(runner.Calls);
+        }
+
+        [Fact]
+        public void run_benchmark_fails_when_managed_heap_growth_exceeds_limit()
+        {
+            Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
+                new[] { "pnet-mesh-tun", "--warmup", "0ms", "--iperf-duration", "1ms", "--managed-heap-growth-limit-bytes", "1024", "--timeout", "1s" },
+                TextWriter.Null,
+                out var options));
+
+            var runner = new FakeCommandRunner { ManagedHeapGrowthBytes = 2048 };
+
+            var report = TunPNetBenchmarkRunner.RunBenchmark(options, runner);
+
+            Assert.Equal("fail", report.Status);
+            Assert.Contains("managed heap grew beyond", report.Message, StringComparison.Ordinal);
+            Assert.NotNull(report.ManagedRuntime);
+            Assert.False(report.ManagedRuntime.ManagedHeapWithinLimit);
+        }
+
+        [Fact]
         public void run_benchmark_fails_setup_when_readiness_ping_times_out()
         {
             Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
-                new[] { "pnet-mesh-tun", "--warmup", "0ms", "--iperf-duration", "1ms", "--timeout", "1s" },
+                new[] { "pnet-mesh-tun", "--warmup", "0ms", "--iperf-duration", "1ms", "--managed-heap-growth-limit-bytes", "8388608", "--timeout", "1s" },
                 TextWriter.Null,
                 out var options));
 
@@ -232,6 +523,8 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             Assert.Contains("readiness ping", report.Message, StringComparison.Ordinal);
             Assert.Contains("timed out after 3 seconds", report.Message, StringComparison.Ordinal);
             Assert.Empty(report.Traffic);
+            Assert.NotNull(report.ManagedRuntime);
+            Assert.Equal(8_388_608, report.ManagedRuntime.ManagedHeapGrowthLimitBytes);
             Assert.DoesNotContain(runner.Calls, IsDockerIperfClient);
 
             var pingCall = Assert.Single(runner.Calls, IsDockerPing);
@@ -317,6 +610,20 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             });
             Assert.Contains(runner.Calls, call =>
                 call.Arguments.SequenceEqual(new[] { "exec", "pnet-tun-bench-left", "pgrep", "-f", "(^|/)wireguard-go .*pnet0($| )" }));
+            Assert.Contains(runner.Calls, call =>
+                call.FileName == "docker"
+                && call.Arguments.Count >= 6
+                && call.Arguments[0] == "exec"
+                && call.Arguments[1] == "-d"
+                && call.Arguments[^2] == "-c"
+                && call.Arguments[^1].Contains("WG_PROCESS_FOREGROUND=1 exec wireguard-go", StringComparison.Ordinal));
+            Assert.DoesNotContain(runner.Calls, call =>
+                call.FileName == "docker"
+                && call.Arguments.Count >= 5
+                && call.Arguments[0] == "exec"
+                && call.Arguments[^2] == "-c"
+                && call.Arguments[^1].Contains("kill -QUIT", StringComparison.Ordinal)
+                && call.Arguments[^1].Contains("/tmp/pnet-gc-metrics.log", StringComparison.Ordinal));
             Assert.Contains(report.Commands, command =>
                 command.Arguments.SequenceEqual(new[] { "exec", "pnet-tun-bench-left", "sh", "-c", "tail -n 120 /tmp/wireguard-go.log 2>/dev/null || true" }));
             Assert.DoesNotContain(report.Commands, command =>
@@ -497,7 +804,8 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
 
         sealed class FakeCommandRunner : ITunTopologyCommandRunner
         {
-            bool _networkCreated;
+            string? _networkName;
+            readonly Dictionary<string, int> _managedRuntimeSnapshotCounts = new(StringComparer.Ordinal);
 
             public List<FakeCommandCall> Calls { get; } = new();
 
@@ -507,9 +815,17 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
 
             public bool TimeoutReadinessPing { get; init; }
 
+            public long ManagedHeapGrowthBytes { get; init; } = 4096;
+
+            public double IperfPacketLossPercent { get; init; }
+
+            public long IperfBytesDelta { get; init; }
+
+            public bool TunDeviceAvailable { get; init; } = true;
+
             public bool FileExists(string path)
             {
-                return string.Equals(path, "/dev/net/tun", StringComparison.Ordinal);
+                return TunDeviceAvailable && string.Equals(path, "/dev/net/tun", StringComparison.Ordinal);
             }
 
             public TunTopologyCommandResult Run(string fileName, IReadOnlyList<string> arguments, TimeSpan timeout)
@@ -566,21 +882,64 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
                 if (arguments.Count >= 3 && arguments[0] == "cp" && !arguments[2].EndsWith("/public.key", StringComparison.Ordinal))
                     CopiedSensitiveContents.Add(File.ReadAllText(arguments[1]));
 
+                if (arguments.Count >= 4
+                    && arguments[0] == "exec"
+                    && arguments[2] == "sh"
+                    && arguments[^1].Contains("pnet-udp-counters", StringComparison.Ordinal))
+                {
+                    var node = arguments[1].Contains("right", StringComparison.Ordinal) ? "right" : "left";
+                    var ipv6 = arguments[^1].Contains("pnet-udp-counters-ipv6-", StringComparison.Ordinal);
+                    var sampleIndex = ReadUdpCounterSampleIndex(arguments[^1]);
+                    return new TunTopologyCommandResult(
+                        fileName,
+                        arguments.ToArray(),
+                        0,
+                        CreateUdpCounterSampleOutput(node, ipv6, sampleIndex),
+                        string.Empty,
+                        false);
+                }
+
                 if (arguments.Count >= 2 && arguments[0] == "network" && arguments[1] == "inspect")
                 {
-                    var exitCode = _networkCreated ? 0 : 1;
-                    var stdout = _networkCreated ? "pnet-tun-bench\n" : string.Empty;
+                    var requestedNetwork = arguments.ElementAtOrDefault(2);
+                    var exitCode = string.Equals(_networkName, requestedNetwork, StringComparison.Ordinal) ? 0 : 1;
+                    var stdout = exitCode == 0 ? _networkName + "\n" : string.Empty;
                     return new TunTopologyCommandResult(fileName, arguments.ToArray(), exitCode, stdout, string.Empty, false);
                 }
 
                 if (arguments.Count >= 2 && arguments[0] == "network" && arguments[1] == "create")
-                    _networkCreated = true;
+                    _networkName = arguments[^1];
 
                 if (arguments.Count >= 2 && arguments[0] == "network" && arguments[1] == "rm")
-                    _networkCreated = false;
+                    _networkName = null;
 
                 if (arguments.Count >= 3 && arguments[0] == "exec" && arguments[2] == "sh" && arguments[^1].Contains("/proc/$pid/status", StringComparison.Ordinal))
                     return new TunTopologyCommandResult(fileName, arguments.ToArray(), 0, "pid=42\nVmRSS:\t1024 kB\nVmHWM:\t2048 kB\nThreads:\t8\nutime_ticks=10\nstime_ticks=5\n", string.Empty, false);
+
+                if (arguments.Count >= 4
+                    && arguments[0] == "exec"
+                    && arguments[2] == "sh"
+                    && arguments[^1].Contains("kill -QUIT", StringComparison.Ordinal)
+                    && arguments[^1].Contains("/tmp/pnet-gc-metrics.log", StringComparison.Ordinal))
+                {
+                    var node = arguments[1].Contains("right", StringComparison.Ordinal) ? "right" : "left";
+                    _managedRuntimeSnapshotCounts.TryGetValue(node, out var count);
+                    _managedRuntimeSnapshotCounts[node] = count + 1;
+                    var before = count % 2 == 0;
+                    var baseHeap = node == "left" ? 65_536L : 70_000L;
+                    var heap = before ? baseHeap : baseHeap + ManagedHeapGrowthBytes;
+                    var allocation = before ? 123_456L : 123_456L + 1_000_000L;
+                    var gen0 = before ? 3 : 5;
+                    var gen1 = before ? 2 : 4;
+                    var gen2 = before ? 1 : 3;
+                    return new TunTopologyCommandResult(
+                        fileName,
+                        arguments.ToArray(),
+                        0,
+                        $"pnet_gc_metrics allocated_bytes={allocation} managed_heap_bytes={heap} fragmented_bytes=1024 memory_load_bytes=4096 total_available_memory_bytes=1073741824 high_memory_load_threshold_bytes=966367641 gen0_collections={gen0} gen1_collections={gen1} gen2_collections={gen2}\n",
+                        string.Empty,
+                        false);
+                }
 
                 if (arguments.Count >= 4 && arguments[0] == "exec" && arguments[2] == "sh" && arguments[^1].Contains("ss ", StringComparison.Ordinal) && arguments[^1].Contains("-H -ltn", StringComparison.Ordinal))
                     return new TunTopologyCommandResult(fileName, arguments.ToArray(), 0, "LISTEN 0 4096 10.80.0.2:5201 0.0.0.0:*\n", string.Empty, false);
@@ -613,12 +972,65 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
                 }
 
                 if (arguments.Count >= 3 && arguments[0] == "exec" && arguments[2] == "iperf3")
-                    return new TunTopologyCommandResult(fileName, arguments.ToArray(), 0, "{\"end\":{\"sum_received\":{\"seconds\":1,\"bytes\":128,\"bits_per_second\":1024}}}", string.Empty, false);
+                {
+                    var requestedBytes = ReadOption(arguments, "-n");
+                    var bytes = long.TryParse(requestedBytes, out var parsedBytes) ? parsedBytes + IperfBytesDelta : 128;
+                    return new TunTopologyCommandResult(fileName, arguments.ToArray(), 0, $"{{\"end\":{{\"sum_received\":{{\"seconds\":1,\"bytes\":{bytes},\"bits_per_second\":1024,\"lost_percent\":{IperfPacketLossPercent}}}}}}}", string.Empty, false);
+                }
 
                 return new TunTopologyCommandResult(fileName, arguments.ToArray(), 0, string.Empty, string.Empty, false);
+            }
+
+            static int ReadUdpCounterSampleIndex(string script)
+            {
+                return script.Contains(" 1 \"$(date", StringComparison.Ordinal) ? 1 : 0;
+            }
+
+            static string CreateUdpCounterSampleOutput(string node, bool ipv6, int sampleIndex)
+            {
+                var pnetPort = node == "right" ? "3072" : "3071";
+                var pnetDropDelta = node == "right" ? 4 : 0;
+                var after = sampleIndex > 0;
+                var family = ipv6 ? "udp6" : "udp";
+                var localAddress = ipv6
+                    ? $"00000000000000000000000000000000:{pnetPort}"
+                    : $"00000000:{pnetPort}";
+                var iperfAddress = ipv6
+                    ? "00000000000000000000000000000000:1451"
+                    : "0200500A:1451";
+                var udpInErrors = after && !ipv6 ? 10 + pnetDropDelta : 10;
+                var udpRcvbufErrors = after && !ipv6 ? 2 + pnetDropDelta : 2;
+                var udp6InErrors = after && ipv6 ? 20 + pnetDropDelta : 20;
+                var udp6RcvbufErrors = after && ipv6 ? 3 + pnetDropDelta : 3;
+                var pnetDrops = after ? 4 + pnetDropDelta : 4;
+                return $"""
+                sample index={sampleIndex} unix_ms={1000 + (sampleIndex * 50)}
+                snmp protocol=udp name=InErrors value={udpInErrors}
+                snmp protocol=udp name=RcvbufErrors value={udpRcvbufErrors}
+                snmp protocol=udp6 name=InErrors value={udp6InErrors}
+                snmp protocol=udp6 name=RcvbufErrors value={udp6RcvbufErrors}
+                socket family={family} local={localAddress} remote=00000000:0000 state=07 queues=00000000:00000000 inode=100 drops={pnetDrops}
+                socket family={family} local={iperfAddress} remote=00000000:0000 state=07 queues=00000000:00000000 inode=200 drops=5
+                end_sample
+                """;
             }
         }
 
         sealed record FakeCommandCall(string FileName, IReadOnlyList<string> Arguments, TimeSpan Timeout);
+
+        sealed class TemporaryDirectory : IDisposable
+        {
+            public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"pnet-tun-series-{Guid.NewGuid():N}");
+
+            public TemporaryDirectory()
+            {
+                Directory.CreateDirectory(Path);
+            }
+
+            public void Dispose()
+            {
+                Directory.Delete(Path, recursive: true);
+            }
+        }
     }
 }

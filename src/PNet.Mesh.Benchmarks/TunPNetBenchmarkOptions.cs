@@ -7,7 +7,7 @@ internal static partial class TunPNetBenchmarkRunner
     static void WriteUsage(TextWriter output)
     {
         output.WriteLine("Usage:");
-        output.WriteLine("  --tun-benchmark pnet-mesh-tun|wireguard-go|wireguard-go-pnet-icmp-echo|tun-icmp-echo-direct|tun-icmp-echo-bridge-queue [--name <name>] [--image <image>] [--ping-count <count>] [--warmup <duration>] [--iperf-duration <duration>] [--mtu <bytes>] [--payload-mode control|mtu] [--timeout <duration>] [--trace-output-dir <dir>] [--pnet-udp-receive-mode async|blocking] [--pnet-udp-socket-buffer-bytes <bytes>]");
+        output.WriteLine("  --tun-benchmark pnet-mesh-tun|wireguard-go|wireguard-go-pnet-icmp-echo|tun-icmp-echo-direct|tun-icmp-echo-bridge-queue [--name <name>] [--image <image>] [--ping-count <count>] [--warmup <duration>] [--iperf-duration <duration>] [--iperf-bytes <bytes>] [--iperf-bandwidth <rate>] [--iperf-window <size>] [--mtu <bytes>] [--payload-mode control|mtu] [--managed-heap-growth-limit-bytes <bytes>] [--timeout <duration>] [--trace-output-dir <dir>] [--pnet-udp-receive-mode async|blocking] [--pnet-udp-socket-buffer-bytes <bytes>]");
         output.WriteLine();
         output.WriteLine("Runs a manual privileged TUN traffic benchmark on the #060 topology and emits JSON.");
     }
@@ -44,7 +44,13 @@ internal static partial class TunPNetBenchmarkRunner
 
         public string IperfBandwidth { get; private init; } = "1K";
 
+        public string IperfWindow { get; private init; } = "4M";
+
         public int IperfDatagramBytes { get; private init; } = 64;
+
+        public long? IperfBytes { get; private init; }
+
+        public long ManagedHeapGrowthLimitBytes { get; private init; } = 16 * 1024 * 1024;
 
         public string CommandLine { get; private init; } = "--tun-benchmark";
 
@@ -74,6 +80,10 @@ internal static partial class TunPNetBenchmarkRunner
             var pingCount = 1;
             var mtu = 1280;
             var payloadMode = "control";
+            string? iperfBandwidth = null;
+            var iperfWindow = "4M";
+            long? iperfBytes = null;
+            var managedHeapGrowthLimitBytes = 16L * 1024 * 1024;
             string? packetTraceOutputDirectory = null;
             string? pnetUdpReceiveMode = null;
             int? pnetUdpSocketBufferBytes = null;
@@ -117,6 +127,29 @@ internal static partial class TunPNetBenchmarkRunner
                             return false;
                         }
                         break;
+                    case "--iperf-bytes":
+                        if (!TryReadInt64Value(args, ref i, out var parsedIperfBytes) || parsedIperfBytes <= 0)
+                        {
+                            error.WriteLine("--iperf-bytes requires a positive integer.");
+                            return false;
+                        }
+
+                        iperfBytes = parsedIperfBytes;
+                        break;
+                    case "--iperf-bandwidth":
+                        if (!TryReadValue(args, ref i, out iperfBandwidth))
+                        {
+                            error.WriteLine("--iperf-bandwidth requires a value.");
+                            return false;
+                        }
+                        break;
+                    case "--iperf-window":
+                        if (!TryReadValue(args, ref i, out iperfWindow))
+                        {
+                            error.WriteLine("--iperf-window requires a value.");
+                            return false;
+                        }
+                        break;
                     case "--ping-count":
                         if (!TryReadIntValue(args, ref i, out pingCount) || pingCount <= 0)
                         {
@@ -135,6 +168,13 @@ internal static partial class TunPNetBenchmarkRunner
                         if (!TryReadValue(args, ref i, out payloadMode) || !IsSupportedPayloadMode(payloadMode))
                         {
                             error.WriteLine("--payload-mode requires one of: control, mtu.");
+                            return false;
+                        }
+                        break;
+                    case "--managed-heap-growth-limit-bytes":
+                        if (!TryReadInt64Value(args, ref i, out managedHeapGrowthLimitBytes) || managedHeapGrowthLimitBytes < 0)
+                        {
+                            error.WriteLine("--managed-heap-growth-limit-bytes requires a non-negative integer.");
                             return false;
                         }
                         break;
@@ -187,8 +227,11 @@ internal static partial class TunPNetBenchmarkRunner
                 PacketTraceOutputDirectory = packetTraceOutputDirectory,
                 PNetUdpReceiveMode = pnetUdpReceiveMode,
                 PNetUdpSocketBufferBytes = pnetUdpSocketBufferBytes,
-                IperfBandwidth = GetIperfBandwidth(payloadMode),
+                IperfBandwidth = string.IsNullOrWhiteSpace(iperfBandwidth) ? GetIperfBandwidth(payloadMode) : iperfBandwidth,
+                IperfWindow = iperfWindow,
                 IperfDatagramBytes = GetIperfDatagramBytes(payloadMode, mtu),
+                IperfBytes = iperfBytes,
+                ManagedHeapGrowthLimitBytes = managedHeapGrowthLimitBytes,
                 CommandLine = CreateCommandLine(args)
             };
             return true;
@@ -209,6 +252,13 @@ internal static partial class TunPNetBenchmarkRunner
             value = 0;
             return TryReadValue(args, ref index, out var text)
                    && int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
+        }
+
+        static bool TryReadInt64Value(string[] args, ref int index, out long value)
+        {
+            value = 0;
+            return TryReadValue(args, ref index, out var text)
+                   && long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
         }
 
         static bool TryReadDurationValue(string[] args, ref int index, out TimeSpan value)

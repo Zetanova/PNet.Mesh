@@ -14,8 +14,10 @@ internal static partial class TunPNetBenchmarkRunner
         IReadOnlyList<TunTopologyReport> topologyReports,
         IReadOnlyList<TunTopologyCommandRecord> commands,
         IReadOnlyList<TunBenchmarkTrafficResult> traffic,
+        IReadOnlyList<TunBenchmarkUdpCounterDelta> udpCounters,
         IReadOnlyList<TunBenchmarkProcessMetrics> processes,
-        string managedCounterUnavailableReason)
+        string managedCounterUnavailableReason,
+        TunBenchmarkManagedRuntimeMetrics? managedRuntime = null)
     {
         return new TunPNetBenchmarkReport(
             Kind,
@@ -39,12 +41,18 @@ internal static partial class TunPNetBenchmarkRunner
                 options.Mtu,
                 options.PayloadMode,
                 options.IperfBandwidth,
-                options.IperfDatagramBytes),
+                options.IperfDatagramBytes,
+                options.IperfBytes,
+                options.ManagedHeapGrowthLimitBytes,
+                options.PNetUdpReceiveMode,
+                options.PNetUdpSocketBufferBytes,
+                options.IperfWindow),
             traffic,
+            udpCounters,
             processes,
-            false,
+            managedRuntime?.Available ?? false,
             managedCounterUnavailableReason,
-            CreateManagedRuntimeMetrics(options.Scenario, available: false, managedCounterUnavailableReason),
+            managedRuntime ?? CreateManagedRuntimeMetrics(options.Scenario, available: false, managedCounterUnavailableReason, options.ManagedHeapGrowthLimitBytes),
             ReadCurrentGitCommit(),
             options.CommandLine,
             topologyReports,
@@ -55,7 +63,8 @@ internal static partial class TunPNetBenchmarkRunner
     static TunBenchmarkManagedRuntimeMetrics CreateManagedRuntimeMetrics(
         string scenario,
         bool available,
-        string unavailableReason)
+        string unavailableReason,
+        long managedHeapGrowthLimitBytes)
     {
         return scenario switch
         {
@@ -68,7 +77,8 @@ internal static partial class TunPNetBenchmarkRunner
                 null,
                 null,
                 available ? null : unavailableReason,
-                null),
+                null,
+                ManagedHeapGrowthLimitBytes: available ? null : managedHeapGrowthLimitBytes),
             WireGuardGoScenario => new TunBenchmarkManagedRuntimeMetrics(
                 false,
                 false,
@@ -88,7 +98,8 @@ internal static partial class TunPNetBenchmarkRunner
                 null,
                 null,
                 unavailableReason,
-                null),
+                null,
+                ManagedHeapGrowthLimitBytes: managedHeapGrowthLimitBytes),
             var value when IsTunOnlyIcmpEchoScenario(value) => new TunBenchmarkManagedRuntimeMetrics(
                 true,
                 false,
@@ -98,7 +109,8 @@ internal static partial class TunPNetBenchmarkRunner
                 null,
                 null,
                 unavailableReason,
-                null),
+                null,
+                ManagedHeapGrowthLimitBytes: managedHeapGrowthLimitBytes),
             _ => throw new InvalidOperationException($"Unsupported TUN benchmark scenario '{scenario}'.")
         };
     }
@@ -152,6 +164,7 @@ internal sealed record TunPNetBenchmarkReport(
     TunBenchmarkImplementationInfo Implementation,
     TunPNetBenchmarkSettings Settings,
     IReadOnlyList<TunBenchmarkTrafficResult> Traffic,
+    IReadOnlyList<TunBenchmarkUdpCounterDelta> UdpCounters,
     IReadOnlyList<TunBenchmarkProcessMetrics> Processes,
     bool ManagedCountersAvailable,
     string ManagedCounterUnavailableReason,
@@ -177,7 +190,12 @@ internal sealed record TunPNetBenchmarkSettings(
     int Mtu,
     string? PayloadMode,
     string? IperfBandwidth,
-    int? IperfDatagramBytes);
+    int? IperfDatagramBytes,
+    long? IperfBytes = null,
+    long? ManagedHeapGrowthLimitBytes = null,
+    string? PNetUdpReceiveMode = null,
+    int? PNetUdpSocketBufferBytes = null,
+    string? IperfWindow = null);
 
 internal sealed record TunBenchmarkTrafficResult(
     string Tool,
@@ -198,6 +216,42 @@ internal sealed record TunBenchmarkTrafficResult(
     string Stdout,
     string Stderr);
 
+internal sealed record TunBenchmarkUdpCounterDelta(
+    string Protocol,
+    string SourceNode,
+    string TargetNode,
+    string TargetAddress,
+    IReadOnlyList<TunBenchmarkUdpNodeCounterDelta> Nodes);
+
+internal sealed record TunBenchmarkUdpNodeCounterDelta(
+    string Node,
+    TunBenchmarkUdpGlobalCounters BeforeGlobal,
+    TunBenchmarkUdpGlobalCounters AfterGlobal,
+    TunBenchmarkUdpGlobalCounters GlobalDelta,
+    IReadOnlyList<TunBenchmarkUdpSocketCounterDelta> Sockets);
+
+internal sealed record TunBenchmarkUdpGlobalCounters(
+    long? UdpInErrors,
+    long? UdpRcvbufErrors,
+    long? Udp6InErrors,
+    long? Udp6RcvbufErrors);
+
+internal sealed record TunBenchmarkUdpSocketCounterDelta(
+    string Family,
+    string Role,
+    string LocalAddressHex,
+    int? LocalPort,
+    string RemoteAddressHex,
+    int? RemotePort,
+    string? Inode,
+    long FirstDrops,
+    long LastDrops,
+    long MaxDrops,
+    long DropsDelta,
+    int ObservedSamples,
+    bool PresentInFirstSample,
+    bool PresentInLastSample);
+
 internal sealed record TunBenchmarkManagedRuntimeMetrics(
     bool Applicable,
     bool Available,
@@ -207,4 +261,29 @@ internal sealed record TunBenchmarkManagedRuntimeMetrics(
     int? Gen1Collections,
     int? Gen2Collections,
     string? UnavailableReason,
-    string? NotApplicableReason);
+    string? NotApplicableReason,
+    IReadOnlyList<TunBenchmarkManagedRuntimeNodeMetrics>? Nodes = null,
+    long? AllocationDeltaBytes = null,
+    long? ManagedHeapDeltaBytes = null,
+    long? ManagedHeapGrowthLimitBytes = null,
+    bool? ManagedHeapWithinLimit = null);
+
+internal sealed record TunBenchmarkManagedRuntimeNodeMetrics(
+    string Node,
+    TunBenchmarkManagedRuntimeSnapshot Before,
+    TunBenchmarkManagedRuntimeSnapshot After,
+    long AllocationDeltaBytes,
+    long ManagedHeapDeltaBytes,
+    long ManagedHeapGrowthLimitBytes,
+    bool ManagedHeapWithinLimit);
+
+internal sealed record TunBenchmarkManagedRuntimeSnapshot(
+    long AllocationBytes,
+    long ManagedHeapBytes,
+    long FragmentedBytes,
+    long MemoryLoadBytes,
+    long TotalAvailableMemoryBytes,
+    long HighMemoryLoadThresholdBytes,
+    int Gen0Collections,
+    int Gen1Collections,
+    int Gen2Collections);

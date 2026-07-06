@@ -52,9 +52,14 @@ internal static partial class TunPNetBenchmarkRunner
         var topologyReports = new List<TunTopologyReport> { createReport };
         var commands = createReport.Commands.ToList();
         var traffic = new List<TunBenchmarkTrafficResult>();
+        var udpCounters = new List<TunBenchmarkUdpCounterDelta>();
         var processes = new List<TunBenchmarkProcessMetrics>();
         var implementation = CreateInitialImplementationInfo(options);
         var managedCounterReason = CreateManagedCounterUnavailableReason(options.Scenario);
+        var managedRuntimeBefore = new Dictionary<string, TunBenchmarkManagedRuntimeSnapshot>(StringComparer.Ordinal);
+        var managedRuntimeAfter = new Dictionary<string, TunBenchmarkManagedRuntimeSnapshot>(StringComparer.Ordinal);
+        var expectedManagedRuntimeNodeCount = 0;
+        TunBenchmarkManagedRuntimeMetrics? managedRuntime = null;
         var status = createReport.Status;
         var message = createReport.Status == "pass"
             ? $"{GetScenarioDisplayName(options.Scenario)} benchmark completed."
@@ -62,7 +67,7 @@ internal static partial class TunPNetBenchmarkRunner
 
         if (createReport.Status != "pass")
         {
-            return CreateReport(options, implementation, createReport.Topology, status, message, topologyReports, commands, traffic, processes, managedCounterReason);
+            return CreateReport(options, implementation, createReport.Topology, status, message, topologyReports, commands, traffic, udpCounters, processes, managedCounterReason);
         }
 
         try
@@ -78,6 +83,9 @@ internal static partial class TunPNetBenchmarkRunner
             implementation = ReadImplementationInfo(commandRunner, options, left, commands);
 
             var tunOnly = IsTunOnlyIcmpEchoScenario(options.Scenario);
+            var pnetTunNodes = new[] { left, right };
+            if (options.Scenario == PNetMeshTunScenario)
+                expectedManagedRuntimeNodeCount = pnetTunNodes.Length;
 
             if (!StartBenchmarkProcesses(commandRunner, options, left, right, leftKey, rightKey, psk, commands))
             {
@@ -135,10 +143,32 @@ internal static partial class TunPNetBenchmarkRunner
                     }
                     else
                     {
+                        if (options.Scenario == PNetMeshTunScenario)
+                        {
+                            managedRuntimeBefore = CaptureManagedRuntimeSnapshots(commandRunner, options, pnetTunNodes, commands)
+                                .ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal);
+                        }
+                        else if (options.Scenario == WireGuardGoScenario)
+                        {
+                            CaptureWireGuardGoState(commandRunner, options, left, commands);
+                            CaptureWireGuardGoState(commandRunner, options, right, commands);
+                        }
+
                         traffic.Add(RunPing(commandRunner, options, left, right, "ipv4", "10.80.0.2", false, commands));
                         traffic.Add(RunPing(commandRunner, options, left, right, "ipv6", "fd80::2", true, commands));
-                        traffic.Add(RunIperf(commandRunner, options, left, right, "ipv4", "10.80.0.2", false, commands));
-                        traffic.Add(RunIperf(commandRunner, options, left, right, "ipv6", "fd80::2", true, commands));
+                        traffic.Add(RunIperf(commandRunner, options, left, right, "ipv4", "10.80.0.2", false, commands, udpCounters));
+                        traffic.Add(RunIperf(commandRunner, options, left, right, "ipv6", "fd80::2", true, commands, udpCounters));
+                        if (options.Scenario == PNetMeshTunScenario)
+                        {
+                            managedRuntimeAfter = CaptureManagedRuntimeSnapshots(commandRunner, options, pnetTunNodes, commands)
+                                .ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal);
+                        }
+                        else if (options.Scenario == WireGuardGoScenario)
+                        {
+                            CaptureWireGuardGoState(commandRunner, options, left, commands);
+                            CaptureWireGuardGoState(commandRunner, options, right, commands);
+                        }
+
                         CapturePacketTrace(commandRunner, options, left, commands);
                         CapturePacketTrace(commandRunner, options, right, commands);
                         CaptureProcessLog(commandRunner, options, left, commands);
@@ -149,12 +179,32 @@ internal static partial class TunPNetBenchmarkRunner
 
                 if (status != "fail")
                 {
-                    status = traffic.All(IsSuccessfulTrafficResult) && processes.All(process => process.Available)
+                    managedRuntime = CreateManagedRuntimeMetrics(
+                        options,
+                        managedRuntimeBefore,
+                        managedRuntimeAfter,
+                        expectedManagedRuntimeNodeCount,
+                        managedCounterReason);
+                    var managedRuntimePassed = IsSuccessfulManagedRuntime(options, managedRuntime);
+                    status = traffic.All(result => IsSuccessfulTrafficResult(result, options))
+                             && processes.All(process => process.Available)
+                             && managedRuntimePassed
                         ? "pass"
                         : "fail";
-                    message = status == "pass"
-                        ? $"{GetScenarioDisplayName(options.Scenario)} benchmark traffic completed."
-                        : $"One or more {GetScenarioDisplayName(options.Scenario)} benchmark probes failed; see traffic and process records.";
+                    if (status == "pass")
+                    {
+                        message = $"{GetScenarioDisplayName(options.Scenario)} benchmark traffic completed.";
+                    }
+                    else if (!managedRuntimePassed)
+                    {
+                        message = managedRuntime.Available
+                            ? $"{GetScenarioDisplayName(options.Scenario)} managed heap grew beyond {options.ManagedHeapGrowthLimitBytes.ToString(CultureInfo.InvariantCulture)} bytes; see managedRuntime records."
+                            : $"{GetScenarioDisplayName(options.Scenario)} managed runtime snapshots were unavailable; see managedRuntime records.";
+                    }
+                    else
+                    {
+                        message = $"One or more {GetScenarioDisplayName(options.Scenario)} benchmark probes failed; see traffic and process records.";
+                    }
                 }
             }
         }
@@ -171,7 +221,25 @@ internal static partial class TunPNetBenchmarkRunner
             }
         }
 
-        return CreateReport(options, implementation, createReport.Topology, status, message, topologyReports, commands, traffic, processes, managedCounterReason);
+        managedRuntime ??= CreateManagedRuntimeMetrics(
+            options,
+            managedRuntimeBefore,
+            managedRuntimeAfter,
+            expectedManagedRuntimeNodeCount,
+            managedCounterReason);
+
+        var managedRuntimeUnavailableReason = managedRuntime.Available
+            ? string.Empty
+            : managedRuntime.UnavailableReason ?? managedCounterReason;
+        return CreateReport(options, implementation, createReport.Topology, status, message, topologyReports, commands, traffic, udpCounters, processes, managedRuntimeUnavailableReason, managedRuntime);
+    }
+
+    static bool IsSuccessfulManagedRuntime(
+        TunPNetBenchmarkOptions options,
+        TunBenchmarkManagedRuntimeMetrics managedRuntime)
+    {
+        return options.Scenario != PNetMeshTunScenario
+               || (managedRuntime.Available && managedRuntime.ManagedHeapWithinLimit == true);
     }
 
     static bool StartBenchmarkProcesses(
@@ -261,7 +329,7 @@ internal static partial class TunPNetBenchmarkRunner
         if (!CopySecretFiles(commandRunner, options, node, Convert.ToBase64String(nodeKey.PublicKey), Convert.ToBase64String(nodeKey.PrivateKey), Convert.ToBase64String(psk), commands))
             return false;
 
-        var shellCommand = "rm -f /tmp/pnet-tun.log; "
+        var shellCommand = "rm -f /tmp/pnet-tun.log /tmp/pnet-gc-metrics.log; "
                            + CreatePacketTraceEnvironment(node)
                            + CreatePNetUdpProbeEnvironment(options)
                            + string.Join(" ", tunArguments.Select(ShellQuote))
@@ -559,7 +627,7 @@ internal static partial class TunPNetBenchmarkRunner
             node.ContainerName,
             "sh",
             "-c",
-            $"rm -f /tmp/wireguard-go.log; exec wireguard-go {ShellQuote(node.InterfaceName)} > /tmp/wireguard-go.log 2>&1"
+            $"rm -f /tmp/wireguard-go.log; WG_PROCESS_FOREGROUND=1 exec wireguard-go {ShellQuote(node.InterfaceName)} > /tmp/wireguard-go.log 2>&1"
         }, options.CommandTimeout, new[]
         {
             "exec",
@@ -567,7 +635,7 @@ internal static partial class TunPNetBenchmarkRunner
             node.ContainerName,
             "sh",
             "-c",
-            $"rm -f /tmp/wireguard-go.log; exec wireguard-go {node.InterfaceName} > /tmp/wireguard-go.log 2>&1"
+            $"rm -f /tmp/wireguard-go.log; WG_PROCESS_FOREGROUND=1 exec wireguard-go {node.InterfaceName} > /tmp/wireguard-go.log 2>&1"
         });
         commands.Add(start);
         if (start.ExitCode != 0)

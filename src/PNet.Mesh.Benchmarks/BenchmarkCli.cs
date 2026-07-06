@@ -12,6 +12,8 @@ internal static class BenchmarkCli
             return TunBenchmarkTopologyRunner.Run(args[1..], output, error);
         if (args.Length > 0 && args[0] == "--tun-benchmark")
             return TunPNetBenchmarkRunner.Run(args[1..], output, error);
+        if (args.Length > 0 && args[0] == "--tun-bandwidth-series")
+            return TunPNetBandwidthSeriesRunner.Run(args[1..], output, error);
         if (args.Length > 0 && args[0] == "--tun-compare")
             return TunBenchmarkComparisonRunner.Run(args[1..], output, error);
         if (args.Length > 0 && args[0] == "--udp-socket-probe")

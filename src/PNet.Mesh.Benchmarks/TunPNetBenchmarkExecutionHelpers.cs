@@ -76,6 +76,7 @@ internal static partial class TunPNetBenchmarkRunner
         double? seconds = null;
         long? bytes = null;
         double? bitsPerSecond = null;
+        double? packetLossPercent = null;
 
         if (command.ExitCode == 0 && !string.IsNullOrWhiteSpace(command.Stdout))
         {
@@ -89,6 +90,7 @@ internal static partial class TunPNetBenchmarkRunner
                         seconds = TryReadJsonDouble(sum, "seconds");
                         bytes = TryReadJsonInt64(sum, "bytes");
                         bitsPerSecond = TryReadJsonDouble(sum, "bits_per_second");
+                        packetLossPercent = TryReadJsonDouble(sum, "lost_percent");
                     }
                 }
             }
@@ -106,7 +108,7 @@ internal static partial class TunPNetBenchmarkRunner
             command.ExitCode,
             null,
             null,
-            null,
+            packetLossPercent,
             null,
             null,
             null,
@@ -205,7 +207,8 @@ internal static partial class TunPNetBenchmarkRunner
         string protocol,
         string targetAddress,
         bool ipv6,
-        List<TunTopologyCommandRecord> commands)
+        List<TunTopologyCommandRecord> commands,
+        List<TunBenchmarkUdpCounterDelta> udpCounters)
     {
         var serverPath = $"/tmp/pnet-iperf-{protocol}-server.json";
         var serverErrorPath = $"/tmp/pnet-iperf-{protocol}-server.err";
@@ -244,16 +247,55 @@ internal static partial class TunPNetBenchmarkRunner
             "-u",
             "-b",
             options.IperfBandwidth,
+            "-w",
+            options.IperfWindow,
             "-l",
-            options.IperfDatagramBytes.ToString(CultureInfo.InvariantCulture),
-            "-t",
-            Math.Ceiling(options.IperfDuration.TotalSeconds).ToString(CultureInfo.InvariantCulture),
-            "--json"
+            options.IperfDatagramBytes.ToString(CultureInfo.InvariantCulture)
         });
 
-        var command = RunCommand(commandRunner, "docker", arguments, options.CommandTimeout + options.IperfDuration);
+        if (options.IperfBytes is { } iperfBytes)
+        {
+            arguments.Add("-n");
+            arguments.Add(iperfBytes.ToString(CultureInfo.InvariantCulture));
+        }
+        else
+        {
+            arguments.Add("-t");
+            arguments.Add(Math.Ceiling(options.IperfDuration.TotalSeconds).ToString(CultureInfo.InvariantCulture));
+        }
+
+        arguments.Add("--json");
+
+        var udpCounterTargets = CreateUdpCounterSampleTargets(protocol, source, target);
+        var beforeUdpCounters = CaptureUdpCounterSamples(commandRunner, options, udpCounterTargets, 0, commands);
+        TunTopologyCommandResult result;
+        try
+        {
+            result = commandRunner.Run("docker", arguments, options.IperfBytes.HasValue ? options.CommandTimeout : options.CommandTimeout + options.IperfDuration);
+        }
+        finally
+        {
+            var afterUdpCounters = CaptureUdpCounterSamples(commandRunner, options, udpCounterTargets, 1, commands);
+            udpCounters.Add(CreateUdpCounterDelta(protocol, source, target, targetAddress, options.IperfPort, beforeUdpCounters, afterUdpCounters));
+        }
+
+        var command = new TunTopologyCommandRecord(
+            result.FileName,
+            result.Arguments,
+            result.ExitCode,
+            TrimOutput(result.Stdout),
+            TrimOutput(result.Stderr),
+            result.TimedOut);
         commands.Add(command);
-        return ParseIperfResult(protocol, source.Role, target.Role, targetAddress, command);
+
+        var rawCommand = new TunTopologyCommandRecord(
+            result.FileName,
+            result.Arguments,
+            result.ExitCode,
+            result.Stdout,
+            result.Stderr,
+            result.TimedOut);
+        return ParseIperfResult(protocol, source.Role, target.Role, targetAddress, rawCommand);
     }
 
     static bool WaitForIperfServer(
@@ -298,12 +340,15 @@ internal static partial class TunPNetBenchmarkRunner
         return false;
     }
 
-    static bool IsSuccessfulTrafficResult(TunBenchmarkTrafficResult result)
+    static bool IsSuccessfulTrafficResult(TunBenchmarkTrafficResult result, TunPNetBenchmarkOptions options)
     {
         return result.Tool switch
         {
             "ping" => IsSuccessfulPing(result),
-            "iperf3" => result.ExitCode == 0 && result.BitsPerSecond > 0,
+            "iperf3" => result.ExitCode == 0
+                        && result.BitsPerSecond > 0
+                        && (!result.PacketLossPercent.HasValue || result.PacketLossPercent == 0)
+                        && (!options.IperfBytes.HasValue || result.Bytes >= options.IperfBytes),
             _ => result.ExitCode == 0
         };
     }
@@ -503,10 +548,10 @@ internal static partial class TunPNetBenchmarkRunner
     {
         return scenario switch
         {
-            PNetMeshTunScenario => "dotnet-counters is not installed in the TUN CLI image.",
+            PNetMeshTunScenario => "PNet.Mesh.Tun.Cli managed runtime snapshots were not captured.",
             WireGuardGoScenario => "wireguard-go is not a .NET process; managed .NET allocation counters do not apply.",
-            WireGuardGoPNetIcmpEchoScenario => "dotnet-counters is not installed in the TUN CLI image; wireguard-go is not a .NET process.",
-            var value when IsTunOnlyIcmpEchoScenario(value) => "dotnet-counters is not installed in the TUN CLI image.",
+            WireGuardGoPNetIcmpEchoScenario => "PNet.Mesh.Tun.Cli managed runtime snapshots were not captured; wireguard-go is not a .NET process.",
+            var value when IsTunOnlyIcmpEchoScenario(value) => "PNet.Mesh.Tun.Cli managed runtime snapshots were not captured.",
             _ => throw new InvalidOperationException($"Unsupported TUN benchmark scenario '{scenario}'.")
         };
     }

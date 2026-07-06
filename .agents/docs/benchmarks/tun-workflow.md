@@ -1,6 +1,6 @@
 ---
 title: TUN Benchmark Workflow
-assumptions-date: 2026-07-02
+assumptions-date: 2026-07-06
 status: report-only
 brief: "quick-start+artifact-layout+scheduled-runner+promotion"
 ---
@@ -16,6 +16,9 @@ Run on a Linux host or runner with Docker, `/dev/net/tun`, `CAP_NET_ADMIN`, and 
 ```bash
 docker build -f src/PNet.Mesh.Tun.Cli/Dockerfile --build-arg PNET_MESH_DEFINE_CONSTANTS=PNET_MESH_PACKET_TRACE -t localhost/pnet-mesh-tun:dev .
 timeout 900s scripts/bench-tun-comparison.sh --output-dir artifacts/benchmarks/tun-comparison/latest --baseline artifacts/benchmarks/tun-comparison/baseline/comparison.json
+dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --tun-benchmark pnet-mesh-tun --payload-mode mtu --iperf-bytes 104857600 --iperf-bandwidth 1G --iperf-window 4M --managed-heap-growth-limit-bytes 16777216 --timeout 120s
+dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --tun-bandwidth-series --output-dir artifacts/benchmarks/tun-bandwidth-series/latest
+dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --tun-bandwidth-series --scenario wireguard-go --output-dir artifacts/benchmarks/tun-bandwidth-series/latest-wireguard-go
 dotnet run --project src/PNet.Mesh.Benchmarks/PNet.Mesh.Benchmarks.csproj -c Release -- --udp-socket-probe --mode all --iterations 1000 --warmup 100
 ```
 
@@ -32,6 +35,7 @@ Omit `--baseline` for the first run. Keep the whole output directory as the arch
 | `pnet-mesh-tun.json`, `pnet-mesh-tun.err` | Raw PNet.Mesh.Tun benchmark report and stderr. |
 | `wireguard-go.json`, `wireguard-go.err` | Raw `wireguard-go` benchmark report and stderr. |
 | `comparison.json`, `comparison.err` | Normalized latency, bandwidth, CPU, single-process RSS/HWM, GC, allocation, environment, and raw-output comparison. |
+| `<output-dir>/<cap>.json` | Optional `--tun-bandwidth-series --output-dir` per-cap raw PNet.Mesh.Tun or `wireguard-go` reports, such as `10m.json` and `1g.json`. |
 | `<name>-pnet-mesh-tun-<role>-packet-trace.csv` | Optional PNet.Mesh.Tun packet trace copied when `--trace-output-dir <dir>` is set. |
 | `regression-report.json` | Optional report-only deltas versus `--baseline`. |
 | `summary.json` | Wrapper status, message, and artifact paths. |
@@ -51,6 +55,12 @@ Omit `--baseline` for the first run. Keep the whole output directory as the arch
 | Flag | Purpose |
 |---|---|
 | `--udp-socket-probe` | Runs loopback UDP receive API probes without Docker or TUN privileges. |
+| `--iperf-bytes <bytes>` | Sends a fixed `iperf3` byte count instead of a duration-bound transfer. |
+| `--iperf-bandwidth <rate>` | Sets the UDP `iperf3 -b` send cap for TUN traffic. |
+| `--iperf-window <size>` | Sets the UDP `iperf3 -w` socket window for TUN traffic. |
+| `--managed-heap-growth-limit-bytes <bytes>` | Fails PNet.Mesh.Tun runs when either bridge process retains more managed heap after measured traffic. |
+| `--tun-bandwidth-series` | Runs PNet.Mesh.Tun to PNet.Mesh.Tun at 10M through 2.5G caps with 100 MB per `iperf3` transfer and managed-heap validation after each cap. |
+| `--tun-bandwidth-series --scenario wireguard-go` | Runs the same cap series through `wireguard-go`; .NET managed counters are marked not applicable. |
 | `--trace-output-dir <dir>` | Captures PNet.Mesh.Tun packet-trace CSV files for `pnet-mesh-tun` runs. |
 | `--pnet-udp-receive-mode async|blocking` | Forces the PNet.Mesh.Tun UDP receive path for benchmark probes. |
 | `--pnet-udp-socket-buffer-bytes <bytes>` | Sets PNet.Mesh.Tun UDP receive/send socket buffer sizes for benchmark probes. |
@@ -76,7 +86,7 @@ Scheduled runs must not fail the pipeline solely because preflight returns `skip
 - IPv4 and IPv6 ping average latency.
 - IPv4 and IPv6 `iperf3` bandwidth.
 - Single representative-process RSS/HWM and process CPU ticks for both implementations.
-- PNet.Mesh.Tun managed allocation bytes, managed heap bytes, and Gen0/Gen1/Gen2 collections where counters are available.
+- PNet.Mesh.Tun before/after managed allocation bytes, managed heap bytes, managed heap delta, and Gen0/Gen1/Gen2 collections where snapshots are available.
 
 The report also preserves current and baseline managed-runtime availability, unavailable, and not-applicable reasons so null allocation or GC values remain reviewable.
 
@@ -86,7 +96,7 @@ Do not gate commits on these deltas until the promotion criteria below are met. 
 
 Move any TUN metric from report-only to blocking only after all conditions hold:
 
-- At least three successful runs exist for the same runner class, runtime, image, MTU, payload mode, ping count, and `iperf3` duration.
+- At least three successful runs exist for the same runner class, runtime, image, MTU, payload mode, ping count, `iperf3` duration or fixed byte count, and managed heap growth limit.
 - Normal host variance is smaller than the proposed threshold.
 - The job distinguishes `skip`, `fail`, and regression failure in its final status.
 - The threshold protects a hot path already backed by measured issue or production evidence.

@@ -185,7 +185,12 @@ internal static class TunBenchmarkComparisonRunner
             Pair(pnet.Settings.Mtu, wireGuard.Settings.Mtu),
             Pair(pnet.Settings.PayloadMode, wireGuard.Settings.PayloadMode),
             Pair(pnet.Settings.IperfBandwidth, wireGuard.Settings.IperfBandwidth),
-            Pair(pnet.Settings.IperfDatagramBytes, wireGuard.Settings.IperfDatagramBytes));
+            Pair(pnet.Settings.IperfWindow, wireGuard.Settings.IperfWindow),
+            Pair(pnet.Settings.IperfDatagramBytes, wireGuard.Settings.IperfDatagramBytes),
+            Pair(pnet.Settings.IperfBytes, wireGuard.Settings.IperfBytes),
+            Pair(pnet.Settings.PNetUdpReceiveMode, wireGuard.Settings.PNetUdpReceiveMode),
+            Pair(pnet.Settings.PNetUdpSocketBufferBytes, wireGuard.Settings.PNetUdpSocketBufferBytes),
+            Pair(pnet.Settings.ManagedHeapGrowthLimitBytes, wireGuard.Settings.ManagedHeapGrowthLimitBytes));
     }
 
     static TunBenchmarkTraceabilityMetrics CreateTraceabilityMetrics(
@@ -495,7 +500,12 @@ internal sealed record TunBenchmarkSettingsMetrics(
     TunBenchmarkComparisonValue Mtu,
     TunBenchmarkComparisonValue PayloadMode,
     TunBenchmarkComparisonValue IperfBandwidth,
-    TunBenchmarkComparisonValue IperfDatagramBytes);
+    TunBenchmarkComparisonValue IperfWindow,
+    TunBenchmarkComparisonValue IperfDatagramBytes,
+    TunBenchmarkComparisonValue IperfBytes,
+    TunBenchmarkComparisonValue PNetUdpReceiveMode,
+    TunBenchmarkComparisonValue PNetUdpSocketBufferBytes,
+    TunBenchmarkComparisonValue ManagedHeapGrowthLimitBytes);
 
 internal sealed record TunBenchmarkTraceabilityMetrics(
     TunBenchmarkComparisonValue TopologyId,

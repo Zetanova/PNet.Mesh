@@ -114,7 +114,7 @@ namespace PNet.Mesh
             var sockets = ImmutableArray.CreateBuilder<Socket>();
             var receiveTasks = ImmutableArray.CreateBuilder<Task>();
             var useBlockingUdpReceive = IsBlockingUdpReceiveEnabled();
-            var udpSocketBufferBytes = GetUdpSocketBufferBytes();
+            var udpSocketBufferBytes = GetUdpSocketBufferBytes(_settings);
 
             foreach (var bind in _settings.BindTo)
             {
@@ -986,9 +986,29 @@ namespace PNet.Mesh
             throw new InvalidOperationException("PNET_MESH_UDP_RECEIVE_MODE must be either 'async' or 'blocking'.");
         }
 
-        static int? GetUdpSocketBufferBytes()
+        internal static int? GetUdpSocketBufferBytes(PNetMeshServerSettings settings)
         {
-            var value = Environment.GetEnvironmentVariable("PNET_MESH_UDP_SOCKET_BUFFER_BYTES");
+            return GetUdpSocketBufferBytes(settings, Environment.GetEnvironmentVariable("PNET_MESH_UDP_SOCKET_BUFFER_BYTES"));
+        }
+
+        internal static int? GetUdpSocketBufferBytes(PNetMeshServerSettings settings, string? environmentValue)
+        {
+            if (settings == null)
+                throw new ArgumentNullException(nameof(settings));
+
+            if (settings.UdpSocketBufferBytes is { } bufferBytes)
+            {
+                if (bufferBytes <= 0)
+                    throw new InvalidOperationException($"{nameof(PNetMeshServerSettings.UdpSocketBufferBytes)} must be a positive integer.");
+
+                return bufferBytes;
+            }
+
+            return GetUdpSocketBufferBytesFromEnvironment(environmentValue);
+        }
+
+        internal static int? GetUdpSocketBufferBytesFromEnvironment(string? value)
+        {
             if (string.IsNullOrWhiteSpace(value))
                 return null;
 
