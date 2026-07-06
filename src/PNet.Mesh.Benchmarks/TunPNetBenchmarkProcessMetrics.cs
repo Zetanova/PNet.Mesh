@@ -97,7 +97,7 @@ internal static partial class TunPNetBenchmarkRunner
             node.ContainerName,
             "sh",
             "-c",
-            $"metrics=/tmp/pnet-gc-metrics.log; rm -f \"$metrics\"; pid=$(pgrep -f {ShellQuote(processPattern)} | head -n1); test -n \"$pid\" || exit 1; kill -QUIT \"$pid\"; for i in 1 2 3 4 5 6 7 8 9 10; do if [ -s \"$metrics\" ]; then cat \"$metrics\"; exit 0; fi; sleep 0.1; done; exit 1"
+            $"metrics=/tmp/pnet-gc-metrics.log; rm -f \"$metrics\"; pid=$(pgrep -f {ShellQuote(processPattern)} | head -n1); test -n \"$pid\" || exit 1; kill -HUP \"$pid\"; for i in 1 2 3 4 5 6 7 8 9 10; do if [ -s \"$metrics\" ]; then cat \"$metrics\"; exit 0; fi; sleep 0.1; done; exit 1"
         }, options.CommandTimeout);
         commands.Add(command);
 

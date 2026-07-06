@@ -152,6 +152,7 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
                 out var pnetOptions));
             Assert.Equal("pnet-mesh-tun", pnetOptions.Scenario);
             Assert.Null(pnetOptions.PNetUdpSocketBufferBytes);
+            Assert.Equal("udp", pnetOptions.IperfProtocol);
             Assert.Equal("4M", pnetOptions.IperfWindow);
 
             Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
@@ -197,9 +198,10 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             Assert.Equal(8388608, loadOptions.ManagedHeapGrowthLimitBytes);
 
             Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
-                new[] { "pnet-mesh-tun", "--iperf-window", "2M" },
+                new[] { "pnet-mesh-tun", "--iperf-protocol", "tcp", "--iperf-window", "2M" },
                 TextWriter.Null,
                 out var iperfWindowOptions));
+            Assert.Equal("tcp", iperfWindowOptions.IperfProtocol);
             Assert.Equal("2M", iperfWindowOptions.IperfWindow);
 
             Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
@@ -213,6 +215,7 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
         [InlineData("--mtu", "0", "--mtu requires a positive integer.")]
         [InlineData("--mtu", "not-a-number", "--mtu requires a positive integer.")]
         [InlineData("--payload-mode", "bulk", "--payload-mode requires one of: control, mtu.")]
+        [InlineData("--iperf-protocol", "icmp", "--iperf-protocol requires one of: tcp, udp.")]
         [InlineData("--iperf-bytes", "0", "--iperf-bytes requires a positive integer.")]
         [InlineData("--managed-heap-growth-limit-bytes", "-1", "--managed-heap-growth-limit-bytes requires a non-negative integer.")]
         [InlineData("--pnet-udp-socket-buffer-bytes", "0", "--pnet-udp-socket-buffer-bytes requires a positive integer.")]
@@ -340,6 +343,7 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
 
             Assert.Equal("pass", report.Status);
             Assert.Equal(104857600, report.Settings.IperfBytes);
+            Assert.Equal("udp", report.Settings.IperfProtocol);
             Assert.Equal("1G", report.Settings.IperfBandwidth);
             Assert.Equal("4M", report.Settings.IperfWindow);
             Assert.Equal(8388608, report.Settings.ManagedHeapGrowthLimitBytes);
@@ -347,7 +351,9 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             {
                 Assert.Equal("104857600", ReadOption(call.Arguments, "-n"));
                 Assert.DoesNotContain("-t", call.Arguments);
+                Assert.Contains("-u", call.Arguments);
                 Assert.Equal("1G", ReadOption(call.Arguments, "-b"));
+                Assert.Equal("64", ReadOption(call.Arguments, "-l"));
                 Assert.Equal("4M", ReadOption(call.Arguments, "-w"));
             });
 
@@ -379,6 +385,52 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             Assert.Equal(4, ipv4Right.GlobalDelta.UdpInErrors);
             Assert.Equal(4, Assert.Single(ipv4Right.Sockets, socket => socket.Role == "pnet").DropsDelta);
             Assert.Equal(0, Assert.Single(ipv4Right.Sockets, socket => socket.Role == "iperf3").DropsDelta);
+        }
+
+        [Fact]
+        public void run_benchmark_uses_tcp_iperf_protocol_for_fixed_transfer()
+        {
+            Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
+                new[] { "pnet-mesh-tun", "--warmup", "0ms", "--iperf-protocol", "tcp", "--iperf-bytes", "104857600", "--timeout", "1s" },
+                TextWriter.Null,
+                out var options));
+
+            var runner = new FakeCommandRunner();
+
+            var report = TunPNetBenchmarkRunner.RunBenchmark(options, runner);
+
+            Assert.Equal("pass", report.Status);
+            Assert.Equal("tcp", report.Settings.IperfProtocol);
+            Assert.Null(report.Settings.IperfBandwidth);
+            Assert.Null(report.Settings.IperfDatagramBytes);
+            Assert.All(report.Traffic.Where(traffic => traffic.Tool == "iperf3"), traffic =>
+            {
+                Assert.Equal(104857600, traffic.Bytes);
+            });
+            Assert.All(runner.Calls.Where(IsDockerIperfClient), call =>
+            {
+                Assert.Equal("104857600", ReadOption(call.Arguments, "-n"));
+                Assert.DoesNotContain("-u", call.Arguments);
+                Assert.DoesNotContain("-b", call.Arguments);
+                Assert.DoesNotContain("-l", call.Arguments);
+                Assert.Equal("4M", ReadOption(call.Arguments, "-w"));
+            });
+        }
+
+        [Fact]
+        public void run_benchmark_accepts_tcp_fixed_transfer_when_received_bytes_are_below_requested()
+        {
+            Assert.True(TunPNetBenchmarkRunner.TunPNetBenchmarkOptions.TryParse(
+                new[] { "pnet-mesh-tun", "--warmup", "0ms", "--iperf-protocol", "tcp", "--iperf-bytes", "104857600", "--timeout", "1s" },
+                TextWriter.Null,
+                out var options));
+
+            var report = TunPNetBenchmarkRunner.RunBenchmark(
+                options,
+                new FakeCommandRunner { IperfBytesDelta = -1 });
+
+            Assert.Equal("pass", report.Status);
+            Assert.Contains(report.Traffic, traffic => traffic.Tool == "iperf3" && traffic.Bytes == 104857599);
         }
 
         [Fact]
@@ -622,7 +674,7 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
                 && call.Arguments.Count >= 5
                 && call.Arguments[0] == "exec"
                 && call.Arguments[^2] == "-c"
-                && call.Arguments[^1].Contains("kill -QUIT", StringComparison.Ordinal)
+                && call.Arguments[^1].Contains("kill -HUP", StringComparison.Ordinal)
                 && call.Arguments[^1].Contains("/tmp/pnet-gc-metrics.log", StringComparison.Ordinal));
             Assert.Contains(report.Commands, command =>
                 command.Arguments.SequenceEqual(new[] { "exec", "pnet-tun-bench-left", "sh", "-c", "tail -n 120 /tmp/wireguard-go.log 2>/dev/null || true" }));
@@ -919,7 +971,7 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
                 if (arguments.Count >= 4
                     && arguments[0] == "exec"
                     && arguments[2] == "sh"
-                    && arguments[^1].Contains("kill -QUIT", StringComparison.Ordinal)
+                    && arguments[^1].Contains("kill -HUP", StringComparison.Ordinal)
                     && arguments[^1].Contains("/tmp/pnet-gc-metrics.log", StringComparison.Ordinal))
                 {
                     var node = arguments[1].Contains("right", StringComparison.Ordinal) ? "right" : "left";

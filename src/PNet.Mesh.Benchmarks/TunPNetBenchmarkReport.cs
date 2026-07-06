@@ -19,6 +19,7 @@ internal static partial class TunPNetBenchmarkRunner
         string managedCounterUnavailableReason,
         TunBenchmarkManagedRuntimeMetrics? managedRuntime = null)
     {
+        var isUdpIperf = string.Equals(options.IperfProtocol, "udp", StringComparison.Ordinal);
         return new TunPNetBenchmarkReport(
             Kind,
             options.Scenario,
@@ -40,8 +41,9 @@ internal static partial class TunPNetBenchmarkRunner
                 options.IperfPort,
                 options.Mtu,
                 options.PayloadMode,
-                options.IperfBandwidth,
-                options.IperfDatagramBytes,
+                options.IperfProtocol,
+                isUdpIperf ? options.IperfBandwidth : null,
+                isUdpIperf ? options.IperfDatagramBytes : null,
                 options.IperfBytes,
                 options.ManagedHeapGrowthLimitBytes,
                 options.PNetUdpReceiveMode,
@@ -189,6 +191,7 @@ internal sealed record TunPNetBenchmarkSettings(
     int IperfPort,
     int Mtu,
     string? PayloadMode,
+    string? IperfProtocol,
     string? IperfBandwidth,
     int? IperfDatagramBytes,
     long? IperfBytes = null,

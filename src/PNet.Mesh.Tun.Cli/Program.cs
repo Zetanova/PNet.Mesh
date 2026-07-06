@@ -107,7 +107,7 @@ namespace PNet.Mesh.Tun.Cli
 
                 using var gcMetricsSignal = RegisterGcMetricsSignal(Console.Out, "/tmp/pnet-gc-metrics.log");
 
-                Console.WriteLine($"PNet.Mesh.Tun bridge running on {tunDevice.Name}; send SIGQUIT to dump GC metrics; press Ctrl+C to stop.");
+                Console.WriteLine($"PNet.Mesh.Tun bridge running on {tunDevice.Name}; send SIGHUP to dump GC metrics; press Ctrl+C to stop.");
                 await bridge.RunAsync(shutdown.Token);
                 return 0;
             }
@@ -127,7 +127,7 @@ namespace PNet.Mesh.Tun.Cli
             if (OperatingSystem.IsWindows())
                 return null;
 
-            return PosixSignalRegistration.Create(PosixSignal.SIGQUIT, context =>
+            return PosixSignalRegistration.Create(PosixSignal.SIGHUP, context =>
             {
                 context.Cancel = true;
                 var line = CreateGcMetricsLine();

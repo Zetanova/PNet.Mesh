@@ -244,14 +244,20 @@ internal static partial class TunPNetBenchmarkRunner
             targetAddress,
             "-p",
             options.IperfPort.ToString(CultureInfo.InvariantCulture),
-            "-u",
-            "-b",
-            options.IperfBandwidth,
             "-w",
-            options.IperfWindow,
-            "-l",
-            options.IperfDatagramBytes.ToString(CultureInfo.InvariantCulture)
+            options.IperfWindow
         });
+        if (string.Equals(options.IperfProtocol, "udp", StringComparison.Ordinal))
+        {
+            arguments.AddRange(new[]
+            {
+                "-u",
+                "-b",
+                options.IperfBandwidth,
+                "-l",
+                options.IperfDatagramBytes.ToString(CultureInfo.InvariantCulture)
+            });
+        }
 
         if (options.IperfBytes is { } iperfBytes)
         {
@@ -348,7 +354,9 @@ internal static partial class TunPNetBenchmarkRunner
             "iperf3" => result.ExitCode == 0
                         && result.BitsPerSecond > 0
                         && (!result.PacketLossPercent.HasValue || result.PacketLossPercent == 0)
-                        && (!options.IperfBytes.HasValue || result.Bytes >= options.IperfBytes),
+                        && (!options.IperfBytes.HasValue
+                            || string.Equals(options.IperfProtocol, "tcp", StringComparison.Ordinal)
+                            || result.Bytes >= options.IperfBytes),
             _ => result.ExitCode == 0
         };
     }

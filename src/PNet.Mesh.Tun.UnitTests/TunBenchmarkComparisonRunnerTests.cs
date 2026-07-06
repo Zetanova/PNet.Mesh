@@ -120,6 +120,7 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
             Assert.Equal(1280, settings.GetProperty("mtu").GetProperty("pnet").GetInt32());
             Assert.Equal(3, settings.GetProperty("iperfDurationSeconds").GetProperty("wireguard").GetDouble());
             Assert.Equal("control", settings.GetProperty("payloadMode").GetProperty("pnet").GetString());
+            Assert.Equal("udp", settings.GetProperty("iperfProtocol").GetProperty("pnet").GetString());
             Assert.Equal("1K", settings.GetProperty("iperfBandwidth").GetProperty("wireguard").GetString());
             Assert.Equal("8M", settings.GetProperty("iperfWindow").GetProperty("pnet").GetString());
             Assert.Equal("4M", settings.GetProperty("iperfWindow").GetProperty("wireguard").GetString());
@@ -307,6 +308,7 @@ namespace PNet.Actor.UnitTests.Mesh.Tun
                     5201,
                     1280,
                     "control",
+                    "udp",
                     "1K",
                     64,
                     iperfBytes,
