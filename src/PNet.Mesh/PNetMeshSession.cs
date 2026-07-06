@@ -457,16 +457,18 @@ namespace PNet.Mesh
 
         public void WriteInitialize(uint senderIndex, byte[] remotePublicKey)
         {
+            var remoteAddress = new byte[10];
+            PNetMeshUtils.GetAddressFromPublicKey(remotePublicKey, remoteAddress);
+
+            var localAddress = new byte[10]; //todo set local address external
+            PNetMeshUtils.GetAddressFromPublicKey(_protocol.LocalStaticPublicKey, localAddress);
+
             lock (_sessionOwnerLock)
             {
-                var remoteAddress = new byte[10];
-                PNetMeshUtils.GetAddressFromPublicKey(remotePublicKey, remoteAddress);
                 RemoteAddress = remoteAddress;
 
                 _handshake = _protocol.CreateInitiator(senderIndex, remotePublicKey);
 
-                var localAddress = new byte[10]; //todo set local address external
-                PNetMeshUtils.GetAddressFromPublicKey(LocalPublicKey, localAddress);
                 LocalAddress = localAddress;
 
                 var buffer = MemoryPool<byte>.Shared.Rent(_protocol.HandshakeInitiationMessageSize);
@@ -505,12 +507,13 @@ namespace PNet.Mesh
 
         public bool TryReadInitialize(uint senderIndex, ReadOnlySpan<byte> payload)
         {
+            var localAddress = new byte[10]; //todo set local address external
+            PNetMeshUtils.GetAddressFromPublicKey(_protocol.LocalStaticPublicKey, localAddress);
+
             lock (_sessionOwnerLock)
             {
                 _handshake = _protocol.CreateResponder(senderIndex);
 
-                var localAddress = new byte[10]; //todo set local address external
-                PNetMeshUtils.GetAddressFromPublicKey(LocalPublicKey, localAddress);
                 LocalAddress = localAddress;
 
                 if (!_handshake.TryReadInitiationMessage(payload))
@@ -631,6 +634,10 @@ namespace PNet.Mesh
 
         internal bool TryWritePayload(ReadOnlySpan<byte> payload, TaskCompletionSource? result, bool unreliablePayloadDelivery)
         {
+            var item = new Protos.Payload
+            {
+                Raw = ByteString.CopyFrom(payload)
+            };
             TaskCompletionSource?[]? results = null;
             Exception? resultException = null;
             try
@@ -639,9 +646,6 @@ namespace PNet.Mesh
                 {
                     if (_disposing || _status != PNetMeshSessionStatus.Open)
                         return false;
-
-                    var item = new Protos.Payload();
-                    item.Raw = ByteString.CopyFrom(payload);
 
                     var itemIndex = _openPacket.Payload.Count;
                     var resultIndex = _openPacketResults.Count;
@@ -833,6 +837,7 @@ namespace PNet.Mesh
 
         public void WriteRelay(PNetMeshRelayPacket packet, TaskCompletionSource? result)
         {
+            var item = CreateRelayMessage(packet);
             TaskCompletionSource?[]? results = null;
             Exception? resultException = null;
             try
@@ -840,66 +845,6 @@ namespace PNet.Mesh
                 lock (_sessionOwnerLock)
                 {
                     ThrowIfDisposing();
-
-                    //maybe use shared proto3 message instead of PNetMeshRelayPacket
-                    var item = new Protos.Relay
-                    {
-                        Address = new Protos.MeshEndPoint
-                        {
-                            Hash = ByteString.CopyFrom(packet.Address)
-                        },
-                        SeqNumber = packet.SeqNumber,
-                        HopCount = packet.HopCount
-                    };
-
-                    if (packet.CandidateExchange is not null)
-                    {
-                        var exg = packet.CandidateExchange;
-
-                        var m = new Protos.CandidateExchange
-                        {
-                            Lite = exg.Lite,
-                            CheckPacing = exg.CheckPacing
-                        };
-
-                        if (!string.IsNullOrEmpty(exg.UserPass))
-                            m.UserPass = exg.UserPass;
-
-                        foreach (var c in exg.Candidates)
-                        {
-                            var address = PNetMeshUtils.MapToProtos(c.Address);
-                            if (address is null)
-                                continue;
-
-                            var candidate = new Protos.Candidate
-                            {
-                                Address = address,
-                                ComponentId = c.ComponentId,
-                                Foundation = c.Foundation ?? string.Empty,
-                                Priority = c.Priority,
-                                Protocol = (Protos.Candidate.Types.Protocol)c.Protocol,
-                                Type = (Protos.Candidate.Types.Type)c.Type
-                            };
-
-                            var relatedAddress = PNetMeshUtils.MapToProtos(c.Base);
-                            if (relatedAddress is not null)
-                                candidate.RelatedAddress = relatedAddress;
-
-                            m.Candidates.Add(candidate);
-                        }
-
-                        item.CandidateExchange = m;
-                    }
-
-                    foreach (var r in packet.Route)
-                    {
-                        item.Route.Add(new Protos.MeshEndPoint
-                        {
-                            Hash = ByteString.CopyFrom(r)
-                        });
-                    }
-
-                    item.Packet = ByteString.CopyFrom(packet.Payload.Span);
 
                     var itemIndex = _openPacket.Relay.Count;
                     var resultIndex = _openPacketResults.Count;
@@ -1591,9 +1536,9 @@ namespace PNet.Mesh
                 _cumAck_max = syn.MaxCumAck;
                 _outOfOrder_max = syn.MaxOutOfSeq;
                 if (syn.MaxOutstandingSeq > 0)
-                    Volatile.Write(ref _outstanding_max, syn.MaxOutstandingSeq);
+                    _outstanding_max = syn.MaxOutstandingSeq;
                 if (syn.MaxPacketSize > 0)
-                    Volatile.Write(ref _packetSize_max, syn.MaxPacketSize);
+                    _packetSize_max = syn.MaxPacketSize;
 
                 if (syn.RetransmissionTimeout > 0)
                     _retrans_timeout = Math.Max(syn.RetransmissionTimeout, 100);
@@ -1945,7 +1890,7 @@ namespace PNet.Mesh
 
         bool HasSendWindow()
         {
-            return _retransBuffer.Count < Volatile.Read(ref _outstanding_max);
+            return _retransBuffer.Count < _outstanding_max;
         }
 
         bool HasOpenPacket()
@@ -1975,10 +1920,74 @@ namespace PNet.Mesh
 
         void EnsurePacketSize(int packetSize, string paramName)
         {
-            if (packetSize <= Volatile.Read(ref _packetSize_max))
+            if (packetSize <= _packetSize_max)
                 return;
 
             throw new ArgumentOutOfRangeException(paramName, "Packet exceeds negotiated max packet size.");
+        }
+
+        static Protos.Relay CreateRelayMessage(PNetMeshRelayPacket packet)
+        {
+            //maybe use shared proto3 message instead of PNetMeshRelayPacket
+            var item = new Protos.Relay
+            {
+                Address = new Protos.MeshEndPoint
+                {
+                    Hash = ByteString.CopyFrom(packet.Address)
+                },
+                SeqNumber = packet.SeqNumber,
+                HopCount = packet.HopCount
+            };
+
+            if (packet.CandidateExchange is not null)
+            {
+                var exg = packet.CandidateExchange;
+
+                var m = new Protos.CandidateExchange
+                {
+                    Lite = exg.Lite,
+                    CheckPacing = exg.CheckPacing
+                };
+
+                if (!string.IsNullOrEmpty(exg.UserPass))
+                    m.UserPass = exg.UserPass;
+
+                foreach (var c in exg.Candidates)
+                {
+                    var address = PNetMeshUtils.MapToProtos(c.Address);
+                    if (address is null)
+                        continue;
+
+                    var candidate = new Protos.Candidate
+                    {
+                        Address = address,
+                        ComponentId = c.ComponentId,
+                        Foundation = c.Foundation ?? string.Empty,
+                        Priority = c.Priority,
+                        Protocol = (Protos.Candidate.Types.Protocol)c.Protocol,
+                        Type = (Protos.Candidate.Types.Type)c.Type
+                    };
+
+                    var relatedAddress = PNetMeshUtils.MapToProtos(c.Base);
+                    if (relatedAddress is not null)
+                        candidate.RelatedAddress = relatedAddress;
+
+                    m.Candidates.Add(candidate);
+                }
+
+                item.CandidateExchange = m;
+            }
+
+            foreach (var r in packet.Route)
+            {
+                item.Route.Add(new Protos.MeshEndPoint
+                {
+                    Hash = ByteString.CopyFrom(r)
+                });
+            }
+
+            item.Packet = ByteString.CopyFrom(packet.Payload.Span);
+            return item;
         }
 
         static int CalculatePNetFrameSize(Protos.Packet packet)

@@ -278,7 +278,7 @@ namespace PNet.Mesh
                 if (TryCompleteCanceledRelay(cmd))
                     continue;
 
-                if (Volatile.Read(ref _disposed))
+                if (IsDisposed())
                 {
                     cmd.Result?.TrySetException(new ObjectDisposedException(nameof(PNetMeshChannel)));
                     DisposeRelayCommand(cmd);
@@ -385,13 +385,13 @@ namespace PNet.Mesh
         {
             if (sink == null)
                 throw new ArgumentNullException(nameof(sink));
-            if (Volatile.Read(ref _disposed))
-                throw new ObjectDisposedException(nameof(PNetMeshChannel));
+            ThrowIfDisposed();
 
             lock (_rawIpFrameSinkLock)
             {
                 _rawIpFrameSink = sink;
-                foreach (var session in Volatile.Read(ref _sessions))
+                var sessions = Volatile.Read(ref _sessions);
+                foreach (var session in sessions)
                     session.AttachRawIpFrameSink(sink);
             }
         }
@@ -407,15 +407,15 @@ namespace PNet.Mesh
                     return;
 
                 _rawIpFrameSink = null;
-                foreach (var session in Volatile.Read(ref _sessions))
+                var sessions = Volatile.Read(ref _sessions);
+                foreach (var session in sessions)
                     session.DetachRawIpFrameSink(sink);
             }
         }
 
         public bool TryWrite(ReadOnlyMemory<byte> payload, IMemoryOwner<byte>? memoryOwner = default)
         {
-            if (Volatile.Read(ref _disposed))
-                throw new ObjectDisposedException(nameof(PNetMeshChannel));
+            ThrowIfDisposed();
 
             return _sessionDispatcher.TryDispatchPayload(
                 payload,
@@ -565,8 +565,7 @@ namespace PNet.Mesh
         {
             if (memoryOwner == null)
                 throw new ArgumentNullException(nameof(memoryOwner));
-            if (Volatile.Read(ref _disposed))
-                throw new ObjectDisposedException(nameof(PNetMeshChannel));
+            ThrowIfDisposed();
 
             var packetLength = GetIpPacketLength(packet.Span, nameof(packet), expectedKind);
             var kind = expectedKind.HasValue
@@ -656,17 +655,26 @@ namespace PNet.Mesh
 
         void SignalRelayStateChanged()
         {
-            var signal = Interlocked.Exchange(ref _relayStateChanged, CreateRelayStateChanged());
+            var signal = RotateRelayStateChangedSignal();
             signal.TrySetResult();
+        }
+
+        TaskCompletionSource RotateRelayStateChangedSignal()
+        {
+            return Interlocked.Exchange(ref _relayStateChanged, CreateRelayStateChanged());
         }
 
         bool TryGetRelaySession([NotNullWhen(true)] out PNetMeshSession? session)
         {
-            session = Volatile.Read(ref _currentSession);
-            if (session is not null && IsRelaySession(session))
+            var currentSession = Volatile.Read(ref _currentSession);
+            if (IsRelaySession(currentSession))
+            {
+                session = currentSession;
                 return true;
+            }
 
-            foreach (var candidate in Volatile.Read(ref _sessions))
+            var sessions = Volatile.Read(ref _sessions);
+            foreach (var candidate in sessions)
             {
                 if (IsRelaySession(candidate))
                 {
@@ -681,10 +689,12 @@ namespace PNet.Mesh
 
         bool HasRelaySessionCandidate()
         {
-            if (IsRelaySessionCandidate(Volatile.Read(ref _currentSession)))
+            var currentSession = Volatile.Read(ref _currentSession);
+            if (IsRelaySessionCandidate(currentSession))
                 return true;
 
-            foreach (var candidate in Volatile.Read(ref _sessions))
+            var sessions = Volatile.Read(ref _sessions);
+            foreach (var candidate in sessions)
             {
                 if (IsRelaySessionCandidate(candidate))
                     return true;
@@ -693,16 +703,27 @@ namespace PNet.Mesh
             return false;
         }
 
-        static bool IsRelaySession(PNetMeshSession? session)
+        static bool IsRelaySession([NotNullWhen(true)] PNetMeshSession? session)
         {
             return session?.Status == PNetMeshSessionStatus.Open && session.RemoteEndPoint is not null;
         }
 
-        static bool IsRelaySessionCandidate(PNetMeshSession? session)
+        static bool IsRelaySessionCandidate([NotNullWhen(true)] PNetMeshSession? session)
         {
             return session?.RemoteEndPoint is not null
                    && (session.Status == PNetMeshSessionStatus.Open
                        || session.Status == PNetMeshSessionStatus.Opening);
+        }
+
+        bool IsDisposed()
+        {
+            return Volatile.Read(ref _disposed);
+        }
+
+        void ThrowIfDisposed()
+        {
+            if (IsDisposed())
+                throw new ObjectDisposedException(nameof(PNetMeshChannel));
         }
 
         static int GetIpPacketLength(

@@ -29,9 +29,9 @@ namespace PNet.Mesh
             if (session == null)
                 throw new ArgumentNullException(nameof(session));
 
-            var count = Volatile.Read(ref _count);
-            var receiverIndexes = Volatile.Read(ref _receiverIndexes);
-            var sessions = Volatile.Read(ref _sessions);
+            var count = _count;
+            var receiverIndexes = _receiverIndexes;
+            var sessions = _sessions;
 
             if (count > 0 && receiverIndex <= receiverIndexes[count - 1])
                 throw new InvalidOperationException("Receiver indexes must be added in strictly increasing order.");
@@ -96,8 +96,8 @@ namespace PNet.Mesh
         public int DisposeClosedSessions()
         {
             var removed = 0;
-            var count = Volatile.Read(ref _count);
-            var sessions = Volatile.Read(ref _sessions);
+            var count = _count;
+            var sessions = _sessions;
 
             for (var i = 0; i < count; i++)
             {
