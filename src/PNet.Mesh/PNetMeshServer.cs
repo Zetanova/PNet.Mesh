@@ -6,7 +6,6 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Linq;
 using System.Net;
@@ -453,7 +452,7 @@ namespace PNet.Mesh
                                             .Select(n => PNetMeshUtils.ParseEndPoint(n));
                                     }
 
-                                    endpoints = ResolveRemoteEndPoints(endpoints);
+                                    endpoints = PNetMeshRouter.ResolveRemoteEndPoints(endpoints);
 
                                     //todo check multi session support
                                     foreach (var ep in endpoints)
@@ -482,7 +481,7 @@ namespace PNet.Mesh
                             break;
                         case PNetMeshControlCommands.RelayPacket { Packet: var packet } cmd:
                             {
-                                if (!TryAcceptRelayPacket(_router, packet))
+                                if (!_router.TryAcceptRelayPacket(packet))
                                 {
                                     //ignore duplicate
                                     break;
@@ -490,148 +489,149 @@ namespace PNet.Mesh
 
                                 //maybe push ice candidates into router entry
 
-                                var packetAddress = packet.Address;
-                                if (packetAddress is not null && localAddresses.Contains(packetAddress))
+                                var routeDecision = _router.SelectRelayRoute(packet, localAddresses, channels);
+
+                                switch (routeDecision.Kind)
                                 {
-                                    //var localEndPoint = default(EndPoint);
-                                    var remoteAddress = packet.Route[0];
-                                    var remoteEndPoint = default(EndPoint);
-
-                                    if (!channels.TryGetValue(remoteAddress, out var channel))
-                                    {
-                                        channel = _channelFactory();
-
-                                        channels.Add(remoteAddress, channel);
-                                    }
-
-                                    remoteEndPoint = SelectRelayRemoteEndPoint(
-                                        _router,
-                                        remoteAddress,
-                                        packet.CandidateExchange?.Candidates ?? ImmutableArray<PNetMeshCandidate>.Empty,
-                                        packet.Route.Length);
-
-                                    //deliver local
-                                    var receive = new PNetMeshControlCommands.Receive
-                                    {
-                                        MemoryOwner = cmd.MemoryOwner,
-                                        LocalEndPoint = null,
-                                        RemoteEndPoint = null,
-                                        RelayCandidateEndPoint = remoteEndPoint,
-                                        MemoryBuffer = packet.Payload
-                                    };
-
-                                    if (!inboundDispatcher.TryHandleDirect(receive)
-                                        && !controlChannel.Writer.TryWrite(receive))
-                                    {
-                                        cmd.MemoryOwner?.Dispose();
-                                        //todo better error message
-                                        cmd.Result?.SetException(new Exception("control channel write error"));
-                                    }
-                                    else
-                                    {
-                                        try
+                                    case PNetMeshRelayRouteKind.Local:
                                         {
-                                            channel.TryWriteRoutePath(PNetMeshRoutePath.FromRelayPacket(packet, remoteEndPoint));
-                                            _logger.LogDebug(
-                                                "event=relay_packet_delivered destination_id={destinationId} source_id={sourceId} route_length={routeLength} candidate_endpoint_id={candidateEndpointId}",
-                                                PNetMeshDiagnosticRedactor.AddressId(packet.Address),
-                                                PNetMeshDiagnosticRedactor.AddressId(remoteAddress),
-                                                packet.Route.Length,
-                                                PNetMeshDiagnosticRedactor.EndpointId(remoteEndPoint));
-                                        }
-                                        catch (Exception ex)
-                                        {
-                                            _logger.LogDebug(ex, "route path diagnostic write failed");
-                                        }
+                                            //var localEndPoint = default(EndPoint);
+                                            var remoteAddress = routeDecision.LocalRemoteAddress
+                                                ?? throw new InvalidOperationException("Local relay route did not include a remote address.");
+                                            var remoteEndPoint = routeDecision.RelayCandidateEndPoint;
 
-                                        cmd.Result?.SetResult();
-                                    }
-                                }
-                                else if (packetAddress is not null && channels.TryGetValue(packetAddress, out var channel) && channel.CanRelayDirect)
-                                {
-                                    //relay to known peer
-                                    if (cmd.Result != null)
-                                    {
-                                        _logger.LogDebug(
-                                            "event=relay_packet_forward_queued destination_id={destinationId} route_length={routeLength} mode=direct",
-                                            PNetMeshDiagnosticRedactor.AddressId(packet.Address),
-                                            packet.Route.Length);
-                                        _ = channel.RelayAsync(packet, cmd.MemoryOwner)
-                                            .ContinueWith(_ => cmd.Result.SetResult());
-                                    }
-                                    else
-                                    {
-                                        if (!channel.TryRelay(packet, cmd.MemoryOwner))
-                                        {
-                                            _logger.LogDebug(
-                                                "event=relay_packet_forward_rejected destination_id={destinationId} route_length={routeLength} mode=direct",
-                                                PNetMeshDiagnosticRedactor.AddressId(packet.Address),
-                                                packet.Route.Length);
-                                        }
-                                    }
-                                }
-                                else if (packet.HopCount > 0)
-                                {
-                                    //relay to unknown address
-
-                                    var rset = CreateRelayRouteSet(packet.Route);
-                                    var tasks = new List<Task>(channels.Count);
-                                    foreach (var (k, c) in channels)
-                                    {
-                                        //do not relay to peers in route
-                                        if (c.HasRoutableSession && ShouldRelayToPeer(k, rset))
-                                        {
-                                            tasks.Add(c.RelayAsync(packet));
-                                        }
-                                    }
-
-                                    if (tasks.Count > 0)
-                                    {
-                                        _logger.LogDebug(
-                                            "event=relay_packet_fanout_queued destination_id={destinationId} source_id={sourceId} route_length={routeLength} fanout_count={fanoutCount}",
-                                            PNetMeshDiagnosticRedactor.AddressId(packet.Address),
-                                            PNetMeshDiagnosticRedactor.AddressId(packet.Route[0]),
-                                            packet.Route.Length,
-                                            tasks.Count);
-                                        _ = Task.WhenAll(tasks).ContinueWith(t =>
-                                        {
-                                            cmd.MemoryOwner?.Dispose();
-
-                                            if (t.IsFaulted)
+                                            if (!channels.TryGetValue(remoteAddress, out var channel))
                                             {
-                                                //maybe only log error
-                                                if (cmd.Result != null)
-                                                    cmd.Result?.SetException(t.Exception);
-                                                else
-                                                    _logger.LogError(t.Exception, "relay error");
+                                                channel = _channelFactory();
+
+                                                channels.Add(remoteAddress, channel);
+                                            }
+
+                                            //deliver local
+                                            var receive = new PNetMeshControlCommands.Receive
+                                            {
+                                                MemoryOwner = cmd.MemoryOwner,
+                                                LocalEndPoint = null,
+                                                RemoteEndPoint = null,
+                                                RelayCandidateEndPoint = remoteEndPoint,
+                                                MemoryBuffer = packet.Payload
+                                            };
+
+                                            if (!inboundDispatcher.TryHandleDirect(receive)
+                                                && !controlChannel.Writer.TryWrite(receive))
+                                            {
+                                                cmd.MemoryOwner?.Dispose();
+                                                //todo better error message
+                                                cmd.Result?.SetException(new Exception("control channel write error"));
                                             }
                                             else
-                                                cmd.Result?.SetResult();
-                                        });
-                                    }
-                                    else
-                                    {
-                                        _logger.LogDebug(
-                                            "event=relay_packet_route_missed destination_id={destinationId} source_id={sourceId} route_length={routeLength}",
-                                            PNetMeshDiagnosticRedactor.AddressId(packet.Address),
-                                            PNetMeshDiagnosticRedactor.AddressId(packet.Route[0]),
-                                            packet.Route.Length);
-                                        cmd.MemoryOwner?.Dispose();
-                                        //todo better error message
-                                        cmd.Result?.SetException(new InvalidOperationException("route not found"));
-                                    }
-                                }
-                                else
-                                {
-                                    //ignore unknown peer
+                                            {
+                                                try
+                                                {
+                                                    channel.TryWriteRoutePath(PNetMeshRoutePath.FromRelayPacket(packet, remoteEndPoint));
+                                                    _logger.LogDebug(
+                                                        "event=relay_packet_delivered destination_id={destinationId} source_id={sourceId} route_length={routeLength} candidate_endpoint_id={candidateEndpointId}",
+                                                        PNetMeshDiagnosticRedactor.AddressId(packet.Address),
+                                                        PNetMeshDiagnosticRedactor.AddressId(remoteAddress),
+                                                        packet.Route.Length,
+                                                        PNetMeshDiagnosticRedactor.EndpointId(remoteEndPoint));
+                                                }
+                                                catch (Exception ex)
+                                                {
+                                                    _logger.LogDebug(ex, "route path diagnostic write failed");
+                                                }
 
-                                    _logger.LogDebug(
-                                        "event=relay_packet_dropped destination_id={destinationId} route_length={routeLength} reason=hop_limit",
-                                        PNetMeshDiagnosticRedactor.AddressId(packet.Address),
-                                        packet.Route.Length);
-                                    cmd.MemoryOwner?.Dispose();
-                                    //todo better error message
-                                    cmd.Result?.SetException(new InvalidOperationException("route not found"));
+                                                cmd.Result?.SetResult();
+                                            }
+
+                                            break;
+                                        }
+                                    case PNetMeshRelayRouteKind.Direct:
+                                        {
+                                            var channel = routeDecision.DirectChannel
+                                                ?? throw new InvalidOperationException("Direct relay route did not include a channel.");
+
+                                            //relay to known peer
+                                            if (cmd.Result != null)
+                                            {
+                                                _logger.LogDebug(
+                                                    "event=relay_packet_forward_queued destination_id={destinationId} route_length={routeLength} mode=direct",
+                                                    PNetMeshDiagnosticRedactor.AddressId(packet.Address),
+                                                    packet.Route.Length);
+                                                _ = channel.RelayAsync(packet, cmd.MemoryOwner)
+                                                    .ContinueWith(_ => cmd.Result.SetResult());
+                                            }
+                                            else
+                                            {
+                                                if (!channel.TryRelay(packet, cmd.MemoryOwner))
+                                                {
+                                                    _logger.LogDebug(
+                                                        "event=relay_packet_forward_rejected destination_id={destinationId} route_length={routeLength} mode=direct",
+                                                        PNetMeshDiagnosticRedactor.AddressId(packet.Address),
+                                                        packet.Route.Length);
+                                                }
+                                            }
+
+                                            break;
+                                        }
+                                    case PNetMeshRelayRouteKind.Fanout:
+                                        {
+                                            //relay to unknown address
+                                            var tasks = new List<Task>(routeDecision.FanoutChannels.Count);
+                                            foreach (var channel in routeDecision.FanoutChannels)
+                                                tasks.Add(channel.RelayAsync(packet));
+
+                                            _logger.LogDebug(
+                                                "event=relay_packet_fanout_queued destination_id={destinationId} source_id={sourceId} route_length={routeLength} fanout_count={fanoutCount}",
+                                                PNetMeshDiagnosticRedactor.AddressId(packet.Address),
+                                                PNetMeshDiagnosticRedactor.AddressId(packet.Route[0]),
+                                                packet.Route.Length,
+                                                tasks.Count);
+                                            _ = Task.WhenAll(tasks).ContinueWith(t =>
+                                            {
+                                                cmd.MemoryOwner?.Dispose();
+
+                                                if (t.IsFaulted)
+                                                {
+                                                    //maybe only log error
+                                                    if (cmd.Result != null)
+                                                        cmd.Result?.SetException(t.Exception);
+                                                    else
+                                                        _logger.LogError(t.Exception, "relay error");
+                                                }
+                                                else
+                                                    cmd.Result?.SetResult();
+                                            });
+
+                                            break;
+                                        }
+                                    case PNetMeshRelayRouteKind.RouteMissed:
+                                        {
+                                            _logger.LogDebug(
+                                                "event=relay_packet_route_missed destination_id={destinationId} source_id={sourceId} route_length={routeLength}",
+                                                PNetMeshDiagnosticRedactor.AddressId(packet.Address),
+                                                PNetMeshDiagnosticRedactor.AddressId(packet.Route[0]),
+                                                packet.Route.Length);
+                                            cmd.MemoryOwner?.Dispose();
+                                            //todo better error message
+                                            cmd.Result?.SetException(new InvalidOperationException("route not found"));
+                                            break;
+                                        }
+                                    case PNetMeshRelayRouteKind.HopLimitExceeded:
+                                        {
+                                            //ignore unknown peer
+
+                                            _logger.LogDebug(
+                                                "event=relay_packet_dropped destination_id={destinationId} route_length={routeLength} reason=hop_limit",
+                                                PNetMeshDiagnosticRedactor.AddressId(packet.Address),
+                                                packet.Route.Length);
+                                            cmd.MemoryOwner?.Dispose();
+                                            //todo better error message
+                                            cmd.Result?.SetException(new InvalidOperationException("route not found"));
+                                            break;
+                                        }
+                                    default:
+                                        throw new InvalidOperationException("Unknown relay route decision.");
                                 }
                             }
                             break;
@@ -816,128 +816,6 @@ namespace PNet.Mesh
             _endpointUpdater.ApplyLegacyEndpointUpdate(session, cmd);
         }
 
-        internal static bool TryAcceptRelayPacket(PNetMeshRouter router, PNetMeshRelayPacket packet)
-        {
-            if (packet.Route.Length <= 1)
-                return true;
-
-            //deduplicate packet with remoteAddress+seqNumber
-            var remoteAddress = packet.Route[0];
-
-            var entry = router.GetOrCreateEntry(remoteAddress);
-            entry.Tracker ??= new PNetMeshPacketTracker(200);
-
-            return entry.Tracker.TryAdd(packet.SeqNumber);
-        }
-
-        internal static HashSet<byte[]> CreateRelayRouteSet(ImmutableArray<byte[]> route)
-        {
-            return new HashSet<byte[]>(route, PNetMeshByteArrayComparer.Default);
-        }
-
-        internal static bool ShouldRelayToPeer(byte[] peerAddress, HashSet<byte[]> routeSet)
-        {
-            return !routeSet.Contains(peerAddress);
-        }
-
-        internal static EndPoint? SelectRelayRemoteEndPoint(
-            PNetMeshRouter router,
-            byte[] remoteAddress,
-            ImmutableArray<PNetMeshCandidate> candidates)
-        {
-            if (TrySelectKnownRoute(router, remoteAddress, candidates, out var knownRoute))
-            {
-                return knownRoute;
-            }
-
-            return SelectCandidateRemoteEndPoint(candidates);
-        }
-
-        internal static EndPoint? SelectRelayRemoteEndPoint(
-            PNetMeshRouter router,
-            byte[] remoteAddress,
-            ImmutableArray<PNetMeshCandidate> candidates,
-            int routeLength)
-        {
-            if (TrySelectKnownRoute(router, remoteAddress, candidates, out var knownRoute))
-                return knownRoute;
-
-            // Routes include source and target addresses; two or more intermediate relays need a relay-backed response
-            // until ICE checks prove a direct candidate pair.
-            if (routeLength > 3)
-                return null;
-
-            return SelectCandidateRemoteEndPoint(candidates);
-        }
-
-        static bool TrySelectKnownRoute(
-            PNetMeshRouter router,
-            byte[] remoteAddress,
-            ImmutableArray<PNetMeshCandidate> candidates,
-            [NotNullWhen(true)] out EndPoint? remoteEndPoint)
-        {
-            if (router.TryGetEntry(remoteAddress, out var entry)
-                && entry.EndPoint != null
-                && candidates.Any(n => entry.EndPoint.Equals(n.Address)))
-            {
-                remoteEndPoint = entry.EndPoint;
-                return true;
-            }
-
-            remoteEndPoint = null;
-            return false;
-        }
-
-        static EndPoint? SelectCandidateRemoteEndPoint(ImmutableArray<PNetMeshCandidate> candidates)
-        {
-            // Until ICE checks rank candidate pairs, prefer the observed reflexive address over advertised host endpoints.
-            return candidates.FirstOrDefault(n =>
-                    n.Type == PNetMeshCandidateType.ServerReflexive
-                    && IsUsableRemoteEndPoint(n.Address))?.Address
-                ?? candidates.FirstOrDefault(n => IsUsableRemoteEndPoint(n.Address))?.Address
-                ?? candidates.FirstOrDefault(n => n.Address != null)?.Address;
-        }
-
-        static bool IsUsableRemoteEndPoint(EndPoint? endPoint)
-        {
-            return endPoint switch
-            {
-                IPEndPoint ip => !IPAddress.Any.Equals(ip.Address) && !IPAddress.IPv6Any.Equals(ip.Address),
-                DnsEndPoint dns => !string.IsNullOrWhiteSpace(dns.Host),
-                null => false,
-                _ => true
-            };
-        }
-
-        internal static IEnumerable<EndPoint> ResolveRemoteEndPoints(IEnumerable<EndPoint?> endpoints)
-        {
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var endpoint in endpoints)
-            {
-                var resolved = endpoint switch
-                {
-                    DnsEndPoint dns => Dns.GetHostAddresses(dns.Host).Select(address => (EndPoint)new IPEndPoint(address, dns.Port)),
-                    null => Array.Empty<EndPoint>(),
-                    _ => new[] { endpoint }
-                };
-
-                foreach (var candidate in resolved.Select(NormalizeRemoteEndPoint))
-                {
-                    if (candidate is null)
-                        continue;
-
-                    if (seen.Add(GetEndPointKey(candidate)))
-                        yield return candidate;
-                }
-            }
-        }
-
-        internal static EndPoint? NormalizeRemoteEndPoint(EndPoint? endpoint)
-        {
-            return PNetMeshEndpointUpdater.NormalizeRemoteEndPoint(endpoint);
-        }
-
         internal static PNetMeshControlCommands.Receive CreateReceiveCommand(
             IMemoryOwner<byte>? memoryOwner,
             EndPoint? localEndPoint,
@@ -948,19 +826,8 @@ namespace PNet.Mesh
             {
                 MemoryOwner = memoryOwner,
                 LocalEndPoint = localEndPoint,
-                RemoteEndPoint = NormalizeRemoteEndPoint(remoteEndPoint),
+                RemoteEndPoint = PNetMeshEndpointUpdater.NormalizeRemoteEndPoint(remoteEndPoint),
                 MemoryBuffer = memoryBuffer
-            };
-        }
-
-        static string GetEndPointKey(EndPoint? endpoint)
-        {
-            return endpoint switch
-            {
-                IPEndPoint ip => $"ip:{ip.AddressFamily}:{ip.Address}:{ip.Port}",
-                DnsEndPoint dns => $"dns:{dns.Host}:{dns.Port}",
-                null => "null",
-                _ => endpoint.ToString() ?? "unknown"
             };
         }
 

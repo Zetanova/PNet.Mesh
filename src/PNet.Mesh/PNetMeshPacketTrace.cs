@@ -303,7 +303,8 @@ namespace PNet.Mesh
             readonly PNetMeshPacketTraceEvent[] _events;
             readonly int _mask;
             readonly string _path;
-            readonly object _gate = new();
+            // multi-threading: packet record callers can run while process-exit or POSIX signal callbacks flush the sink.
+            readonly System.Threading.Lock _gate = new();
             PosixSignalRegistration? _dumpSignal;
             PosixSignalRegistration? _terminateSignal;
             long _next = -1;

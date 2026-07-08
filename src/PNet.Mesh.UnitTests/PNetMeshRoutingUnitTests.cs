@@ -135,23 +135,23 @@ namespace PNet.Actor.UnitTests.Mesh
         }
 
         [Fact]
-        public void server_endpoint_resolution_normalizes_ipv4_mapped_addresses_and_removes_duplicates()
+        public void router_endpoint_resolution_normalizes_ipv4_mapped_addresses_and_removes_duplicates()
         {
             var mapped = new IPEndPoint(IPAddress.Parse("::ffff:172.18.0.3"), 12402);
             var ipv4 = new IPEndPoint(IPAddress.Parse("172.18.0.3"), 12402);
             var other = new IPEndPoint(IPAddress.Parse("172.18.0.4"), 12402);
 
-            var endpoints = PNetMeshServer.ResolveRemoteEndPoints(new EndPoint[] { mapped, ipv4, other }).ToArray();
+            var endpoints = PNetMeshRouter.ResolveRemoteEndPoints(new EndPoint[] { mapped, ipv4, other }).ToArray();
 
             Assert.Equal(new EndPoint[] { ipv4, other }, endpoints);
         }
 
         [Fact]
-        public void server_endpoint_normalization_maps_ipv4_mapped_endpoint_to_ipv4()
+        public void router_endpoint_normalization_maps_ipv4_mapped_endpoint_to_ipv4()
         {
             var mapped = new IPEndPoint(IPAddress.Parse("::ffff:172.18.0.3"), 12402);
 
-            var endpoint = Assert.IsType<IPEndPoint>(PNetMeshServer.NormalizeRemoteEndPoint(mapped));
+            var endpoint = Assert.IsType<IPEndPoint>(PNetMeshRouter.NormalizeRemoteEndPoint(mapped));
 
             Assert.Equal(AddressFamily.InterNetwork, endpoint.AddressFamily);
             Assert.Equal(IPAddress.Parse("172.18.0.3"), endpoint.Address);
@@ -196,7 +196,7 @@ namespace PNet.Actor.UnitTests.Mesh
         }
 
         [Fact]
-        public void server_relay_packet_tracking_suppresses_duplicate_route_sequence()
+        public void router_relay_packet_tracking_suppresses_duplicate_route_sequence()
         {
             var router = new PNetMeshRouter();
             var senderAddress = Address(10);
@@ -209,8 +209,8 @@ namespace PNet.Actor.UnitTests.Mesh
                 Payload = Encoding.UTF8.GetBytes("relay")
             };
 
-            Assert.True(PNetMeshServer.TryAcceptRelayPacket(router, packet));
-            Assert.False(PNetMeshServer.TryAcceptRelayPacket(router, packet));
+            Assert.True(router.TryAcceptRelayPacket(packet));
+            Assert.False(router.TryAcceptRelayPacket(packet));
 
             Assert.True(router.TryGetEntry(senderAddress, out var entry));
             Assert.NotNull(entry.Tracker);
@@ -224,23 +224,23 @@ namespace PNet.Actor.UnitTests.Mesh
                 Payload = Encoding.UTF8.GetBytes("direct")
             };
 
-            Assert.True(PNetMeshServer.TryAcceptRelayPacket(router, directPacket));
+            Assert.True(router.TryAcceptRelayPacket(directPacket));
         }
 
         [Fact]
-        public void server_relay_target_filter_skips_peers_already_in_route()
+        public void router_relay_target_filter_skips_peers_already_in_route()
         {
             var firstHop = Address(30);
             var secondHop = Address(31);
-            var routeSet = PNetMeshServer.CreateRelayRouteSet(ImmutableArray.Create(firstHop, secondHop));
+            var routeSet = PNetMeshRouter.CreateRelayRouteSet(ImmutableArray.Create(firstHop, secondHop));
 
-            Assert.False(PNetMeshServer.ShouldRelayToPeer(Address(30), routeSet));
-            Assert.False(PNetMeshServer.ShouldRelayToPeer(secondHop, routeSet));
-            Assert.True(PNetMeshServer.ShouldRelayToPeer(Address(32), routeSet));
+            Assert.False(PNetMeshRouter.ShouldRelayToPeer(Address(30), routeSet));
+            Assert.False(PNetMeshRouter.ShouldRelayToPeer(secondHop, routeSet));
+            Assert.True(PNetMeshRouter.ShouldRelayToPeer(Address(32), routeSet));
         }
 
         [Fact]
-        public void server_relay_candidate_selection_prefers_known_route_then_reflexive_endpoint()
+        public void router_relay_candidate_selection_prefers_known_route_then_reflexive_endpoint()
         {
             var router = new PNetMeshRouter();
             var remoteAddress = Address(35);
@@ -261,7 +261,7 @@ namespace PNet.Actor.UnitTests.Mesh
                     Type = PNetMeshCandidateType.ServerReflexive
                 });
 
-            Assert.Equal(reflexive, PNetMeshServer.SelectRelayRemoteEndPoint(router, remoteAddress, candidates));
+            Assert.Equal(reflexive, router.SelectRelayRemoteEndPoint(remoteAddress, candidates));
 
             candidates = candidates.Insert(0, new PNetMeshCandidate
             {
@@ -270,9 +270,9 @@ namespace PNet.Actor.UnitTests.Mesh
                 Type = PNetMeshCandidateType.Host
             });
 
-            Assert.Equal(reflexive, PNetMeshServer.SelectRelayRemoteEndPoint(router, remoteAddress, candidates));
-            Assert.Equal(reflexive, PNetMeshServer.SelectRelayRemoteEndPoint(router, remoteAddress, candidates, routeLength: 3));
-            Assert.Null(PNetMeshServer.SelectRelayRemoteEndPoint(router, remoteAddress, candidates, routeLength: 4));
+            Assert.Equal(reflexive, router.SelectRelayRemoteEndPoint(remoteAddress, candidates));
+            Assert.Equal(reflexive, router.SelectRelayRemoteEndPoint(remoteAddress, candidates, routeLength: 3));
+            Assert.Null(router.SelectRelayRemoteEndPoint(remoteAddress, candidates, routeLength: 4));
 
             var knownRoute = new IPEndPoint(IPAddress.Loopback, 12402);
             router.SetEntry(remoteAddress, knownRoute);
@@ -283,9 +283,113 @@ namespace PNet.Actor.UnitTests.Mesh
                 Type = PNetMeshCandidateType.Host
             });
 
-            Assert.Equal(knownRoute, PNetMeshServer.SelectRelayRemoteEndPoint(router, remoteAddress, candidates));
-            Assert.Equal(knownRoute, PNetMeshServer.SelectRelayRemoteEndPoint(router, remoteAddress, candidates, routeLength: 3));
-            Assert.Equal(knownRoute, PNetMeshServer.SelectRelayRemoteEndPoint(router, remoteAddress, candidates, routeLength: 4));
+            Assert.Equal(knownRoute, router.SelectRelayRemoteEndPoint(remoteAddress, candidates));
+            Assert.Equal(knownRoute, router.SelectRelayRemoteEndPoint(remoteAddress, candidates, routeLength: 3));
+            Assert.Equal(knownRoute, router.SelectRelayRemoteEndPoint(remoteAddress, candidates, routeLength: 4));
+        }
+
+        [Fact]
+        public void router_relay_route_decision_classifies_local_direct_fanout_and_unroutable_packets()
+        {
+            var router = new PNetMeshRouter();
+            var localAddress = Address(90);
+            var remoteAddress = Address(91);
+            var directAddress = Address(92);
+            var fanoutAddress = Address(93);
+            var routeMemberAddress = Address(94);
+            var localAddresses = new HashSet<byte[]>(PNetMeshByteArrayComparer.Default) { localAddress };
+            var disposables = new List<IDisposable>();
+
+            try
+            {
+                var directChannel = CreateOpenRelayChannel(1, disposables);
+                var fanoutChannel = CreateOpeningRelayChannel(2, disposables);
+                var routeMemberChannel = CreateOpeningRelayChannel(3, disposables);
+                var channels = new Dictionary<byte[], PNetMeshChannel>(PNetMeshByteArrayComparer.Default)
+                {
+                    [directAddress] = directChannel,
+                    [fanoutAddress] = fanoutChannel,
+                    [routeMemberAddress] = routeMemberChannel
+                };
+                var candidateEndpoint = new IPEndPoint(IPAddress.Loopback, 12406);
+                var localPacket = new PNetMeshRelayPacket
+                {
+                    Address = localAddress,
+                    SeqNumber = 45,
+                    HopCount = 2,
+                    Route = ImmutableArray.Create(remoteAddress, localAddress),
+                    Payload = Encoding.UTF8.GetBytes("local"),
+                    CandidateExchange = new PNetMeshCandidateExchange
+                    {
+                        Candidates = ImmutableArray.Create(new PNetMeshCandidate
+                        {
+                            Address = candidateEndpoint,
+                            Protocol = PNetMeshProtocolType.UDP,
+                            Type = PNetMeshCandidateType.ServerReflexive
+                        })
+                    }
+                };
+
+                var localDecision = router.SelectRelayRoute(localPacket, localAddresses, channels);
+
+                Assert.Equal(PNetMeshRelayRouteKind.Local, localDecision.Kind);
+                Assert.Equal(remoteAddress, localDecision.LocalRemoteAddress);
+                Assert.Equal(candidateEndpoint, localDecision.RelayCandidateEndPoint);
+
+                var directDecision = router.SelectRelayRoute(new PNetMeshRelayPacket
+                {
+                    Address = directAddress,
+                    SeqNumber = 46,
+                    HopCount = 1,
+                    Route = ImmutableArray.Create<byte[]>(remoteAddress),
+                    Payload = Encoding.UTF8.GetBytes("direct")
+                }, localAddresses, channels);
+
+                Assert.Equal(PNetMeshRelayRouteKind.Direct, directDecision.Kind);
+                Assert.Same(directChannel, directDecision.DirectChannel);
+
+                var fanoutDecision = router.SelectRelayRoute(new PNetMeshRelayPacket
+                {
+                    Address = Address(95),
+                    SeqNumber = 47,
+                    HopCount = 1,
+                    Route = ImmutableArray.Create(routeMemberAddress, remoteAddress),
+                    Payload = Encoding.UTF8.GetBytes("fanout")
+                }, localAddresses, channels);
+
+                Assert.Equal(PNetMeshRelayRouteKind.Fanout, fanoutDecision.Kind);
+                Assert.Equal(2, fanoutDecision.FanoutChannels.Count);
+                Assert.Contains(directChannel, fanoutDecision.FanoutChannels);
+                Assert.Contains(fanoutChannel, fanoutDecision.FanoutChannels);
+                Assert.DoesNotContain(routeMemberChannel, fanoutDecision.FanoutChannels);
+
+                var missedDecision = router.SelectRelayRoute(new PNetMeshRelayPacket
+                {
+                    Address = Address(96),
+                    SeqNumber = 48,
+                    HopCount = 1,
+                    Route = ImmutableArray.Create(directAddress, fanoutAddress, routeMemberAddress),
+                    Payload = Encoding.UTF8.GetBytes("miss")
+                }, localAddresses, channels);
+
+                Assert.Equal(PNetMeshRelayRouteKind.RouteMissed, missedDecision.Kind);
+
+                var droppedDecision = router.SelectRelayRoute(new PNetMeshRelayPacket
+                {
+                    Address = Address(97),
+                    SeqNumber = 49,
+                    HopCount = 0,
+                    Route = ImmutableArray.Create<byte[]>(remoteAddress),
+                    Payload = Encoding.UTF8.GetBytes("drop")
+                }, localAddresses, channels);
+
+                Assert.Equal(PNetMeshRelayRouteKind.HopLimitExceeded, droppedDecision.Kind);
+            }
+            finally
+            {
+                foreach (var disposable in disposables.AsEnumerable().Reverse())
+                    disposable.Dispose();
+            }
         }
 
         [Fact]
@@ -4227,6 +4331,66 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.Equal(
                 receiver.RemoteEndPoint is null ? PNetMeshSessionStatus.Opening : PNetMeshSessionStatus.Open,
                 receiver.Status);
+        }
+
+        static PNetMeshChannel CreateOpenRelayChannel(byte id, List<IDisposable> disposables)
+        {
+            var senderKey = KeyPair.Generate();
+            var receiverKey = KeyPair.Generate();
+            disposables.Add(senderKey);
+            disposables.Add(receiverKey);
+
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+            var senderProtocol = new PNetMeshProtocol(senderKey.PrivateKey, senderKey.PublicKey, psk);
+            var receiverProtocol = new PNetMeshProtocol(receiverKey.PrivateKey, receiverKey.PublicKey, psk);
+            var senderOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+            var receiverOutbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+            var sender = new PNetMeshSession(senderProtocol, senderOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 24000 + id),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 24100 + id)
+            };
+            var receiver = new PNetMeshSession(receiverProtocol, receiverOutbound.Writer)
+            {
+                LocalEndPoint = new IPEndPoint(IPAddress.Loopback, 24100 + id),
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 24000 + id)
+            };
+            disposables.Add(sender);
+            disposables.Add(receiver);
+
+            OpenSessionPair(sender, receiver, senderOutbound, receiverOutbound, receiverKey.PublicKey);
+
+            var channel = new PNetMeshChannel();
+            disposables.Add(channel);
+            channel.AddSession(sender);
+            Assert.True(channel.CanRelayDirect);
+            return channel;
+        }
+
+        static PNetMeshChannel CreateOpeningRelayChannel(byte id, List<IDisposable> disposables)
+        {
+            var localKey = KeyPair.Generate();
+            var remoteKey = KeyPair.Generate();
+            disposables.Add(localKey);
+            disposables.Add(remoteKey);
+
+            var psk = new byte[32];
+            RandomNumberGenerator.Fill(psk);
+            var protocol = new PNetMeshProtocol(localKey.PrivateKey, localKey.PublicKey, psk);
+            var outbound = Channel.CreateUnbounded<PNetMeshOutboundMessages.Message>();
+            var session = new PNetMeshSession(protocol, outbound.Writer)
+            {
+                RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, 24200 + id)
+            };
+            disposables.Add(session);
+            session.WriteInitialize(id, remoteKey.PublicKey);
+
+            var channel = new PNetMeshChannel();
+            disposables.Add(channel);
+            channel.AddSession(session);
+            Assert.True(channel.HasRoutableSession);
+            return channel;
         }
 
         readonly struct AttachedSession

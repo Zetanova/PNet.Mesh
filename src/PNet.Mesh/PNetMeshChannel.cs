@@ -30,7 +30,7 @@ namespace PNet.Mesh
 
         // multi-threading: public send/relay APIs, session callbacks, control/relay loops,
         // sink attach/detach, cancellation callbacks, and Dispose publish or observe channel/session state concurrently.
-        readonly object _rawIpFrameSinkLock = new object();
+        readonly System.Threading.Lock _rawIpFrameSinkLock = new();
         ImmutableList<PNetMeshSession> _sessions = ImmutableList<PNetMeshSession>.Empty;
         PNetMeshSession? _currentSession;
         IPNetMeshRawIpFrameSink? _rawIpFrameSink;
