@@ -6,7 +6,7 @@ priority: medium
 status: completed
 research-date: 2026-06-30
 research-status: complete
-assumptions-date: 2026-06-30
+assumptions-date: 2026-07-08
 completion-date: 2026-06-30
 terminal-state: completed
 commits: [073dee5]
@@ -45,18 +45,19 @@ Implement and test the README compression feature claim, or narrow the README if
 
 ### Current State
 
-The proto defines compressed payload forms and compression metadata. `PNetMeshSession` iterates `packet.Compression` without implemented behavior, `WritePayload` emits raw payload data, and compressed incoming payload variants are unsupported. README now narrows compression to reserved protocol fields and states runtime compression negotiation and compressed payload handling are not implemented.
+The schema now carries body metadata through `ReliableEnvelope.Body.metadata` using `pnet.type.ProtoMetadata`, including uncompressed/compressed size and dictionary references. `PNetMeshSession.WritePayload` emits raw body tail bytes with metadata, and inbound bodies with unsupported dictionary references are ignored. README narrows compression to reserved protocol fields and states runtime compression negotiation and compressed payload handling are not implemented.
 
 ## Assumptions
 
 | # | Cat | Assumption | Status | Method | Detail |
 |---|-----|------------|--------|--------|--------|
 | 1 | F | README lists compression as a feature. | verified | source | README Features includes compression. |
-| 2 | F | Compression protocol fields exist. | verified | source | `MeshProtocol.proto` defines `Payload` compressed forms and `Compression`. |
-| 3 | F | Runtime compression behavior needs implementation or README narrowing. | verified | source | `PNetMeshSession` iterates compression metadata without implementing payload compression handling. |
+| 2 | F | Compression metadata fields exist. | verified | source | `.schemas/pnet/type/proto_metadata.proto` defines payload size, compressed size, and dictionary references; `.schemas/pnet/mesh/v1/mesh_protocol.proto` attaches it to `ReliableEnvelope.Body.metadata`. |
+| 3 | F | Runtime compression behavior needs implementation or README narrowing. | verified | source | `PNetMeshSession` writes raw body tail bytes with metadata and treats unsupported dictionary references as unreadable payload data. |
 
 ## Enrichment History
 
+- 2026-07-08: Updated source evidence after the design-time schema refactor moved payload metadata to `ReliableEnvelope.Body.metadata` backed by `pnet.type.ProtoMetadata`.
 - 2026-06-30: Marked ready after confirming compression fields exist but runtime handling is still absent from the session path. Evidence: `MeshProtocol.proto`, `PNetMeshSession.cs`.
 
 ## Completion Report
@@ -70,4 +71,4 @@ Completed on 2026-06-30 in `073dee5`.
 Verification:
 
 - `timeout 10s git diff --check`
-- Source evidence: `MeshProtocol.proto` defines compression metadata and compressed payload fields; `PNetMeshSession.WritePayload` emits `Raw`; inbound compressed variants fall through to the unsupported default branch.
+- Source evidence updated on 2026-07-08: `ReliableEnvelope.Body.metadata` uses `pnet.type.ProtoMetadata`; `PNetMeshSession.WritePayload` emits raw body tail bytes with metadata; unsupported dictionary references are treated as unreadable payload data.

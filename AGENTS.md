@@ -9,6 +9,7 @@ Project guidance for Codex agents working in this repository.
 # Project Best Practices
 
 **Type:** .NET SDK solution + optional Linux TUN component/CLI + xUnit unit/e2e tests + Testcontainers-based e2e + BenchmarkDotNet benchmarks + protobuf schema.
+**Partner project:** `PNet` checkout lives at `/srv/projects/PNet/`; treat it as an external partner worktree unless explicitly asked to edit it.
 **Runtime:** project targets `net10.0`; keep runtime, package, and container image changes coordinated through `.agents/docs/discovered-issues.md`.
 **Docs:** follow `~/.agents/docs/projects/dotnet.md`, `docker.md`, and `protobuf-grpc.md`; available dep docs include `xunit`, `coverlet`, `testcontainers-dotnet`, and `visual-studio-container-tools`; remaining PNet.Mesh NuGet doc gaps are tracked in user issue #380.
 **SDK:** use installed .NET 10 SDK for tooling; add `global.json` only as part of the runtime migration decision.
@@ -20,8 +21,8 @@ Project guidance for Codex agents working in this repository.
 **Formatting:** LF is canonical via `.gitattributes` + `.editorconfig`; verify scoped whitespace with `dotnet format whitespace PNet.Mesh.sln --include <paths> --no-restore --verify-no-changes --verbosity minimal`.
 **NuGet:** use `scripts/packages.sh` for PackageReference maintenance; run vulnerable/outdated/deprecated package checks after restore works.
 **Containers:** use Testcontainers for supported mesh e2e; use the named Testcontainers methods for mesh topology coverage.
-**Protobuf:** schema source is `src/PNet.Mesh/Protos/MeshProtocol.proto`; prefer schema/descriptor validators over raw source-string assertions.
-**Generated code:** treat `src/PNet.Mesh/Protos/MeshProtocol.cs` as generated from the proto; avoid hand edits unless the generator path is unavailable and documented.
+**Protobuf:** schema source is `.schemas/pnet/mesh/v1/mesh_protocol.proto`; prefer schema/descriptor validators over raw source-string assertions.
+**Generated code:** treat `src/PNet.Mesh/Protos/MeshProtocol.cs`, `ProtoMetadata.cs`, and `Resource.cs` as generated from `.schemas`; avoid hand edits unless the generator path is unavailable and documented.
 
 Guide: `~/.agents/docs/projects/dotnet.md`, `~/.agents/docs/projects/docker.md`, `~/.agents/docs/projects/protobuf-grpc.md`
 

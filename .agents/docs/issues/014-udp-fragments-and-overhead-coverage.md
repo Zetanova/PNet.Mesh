@@ -48,7 +48,7 @@ Implement or verify the README claims for communication over UDP data fragments 
 ### Code References
 
 - `src/PNet.Mesh/PNetMeshSession.cs`
-- `src/PNet.Mesh/Protos/MeshProtocol.proto`
+- `.schemas/pnet/mesh/v1/mesh_protocol.proto`
 - `src/PNet.Mesh/PNetMeshProtocol.cs`
 
 ## Assumptions
