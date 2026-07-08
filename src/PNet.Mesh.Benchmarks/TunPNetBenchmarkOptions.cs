@@ -1,6 +1,4 @@
-﻿using System.Globalization;
-
-namespace PNet.Mesh.Benchmarks;
+﻿namespace PNet.Mesh.Benchmarks;
 
 internal static partial class TunPNetBenchmarkRunner
 {
@@ -61,7 +59,7 @@ internal static partial class TunPNetBenchmarkRunner
         public static bool TryParse(string[] args, TextWriter error, out TunPNetBenchmarkOptions options)
         {
             options = new TunPNetBenchmarkOptions();
-            if (args.Length == 0 || IsHelp(args[0]))
+            if (args.Length == 0 || TunBenchmarkCliParser.IsHelp(args[0]))
             {
                 options = new TunPNetBenchmarkOptions { ShowHelp = true, CommandLine = CreateCommandLine(args) };
                 return true;
@@ -96,42 +94,42 @@ internal static partial class TunPNetBenchmarkRunner
                 switch (args[i])
                 {
                     case "--name":
-                        if (!TryReadValue(args, ref i, out name))
+                        if (!TunBenchmarkCliParser.TryReadValue(args, ref i, out name))
                         {
                             error.WriteLine("--name requires a value.");
                             return false;
                         }
                         break;
                     case "--image":
-                        if (!TryReadValue(args, ref i, out image))
+                        if (!TunBenchmarkCliParser.TryReadValue(args, ref i, out image))
                         {
                             error.WriteLine("--image requires a value.");
                             return false;
                         }
                         break;
                     case "--timeout":
-                        if (!TryReadDurationValue(args, ref i, out commandTimeout) || commandTimeout <= TimeSpan.Zero)
+                        if (!TunBenchmarkCliParser.TryReadDurationValue(args, ref i, out commandTimeout) || commandTimeout <= TimeSpan.Zero)
                         {
                             error.WriteLine("--timeout requires a positive duration.");
                             return false;
                         }
                         break;
                     case "--warmup":
-                        if (!TryReadDurationValue(args, ref i, out warmup) || warmup < TimeSpan.Zero)
+                        if (!TunBenchmarkCliParser.TryReadDurationValue(args, ref i, out warmup) || warmup < TimeSpan.Zero)
                         {
                             error.WriteLine("--warmup requires a non-negative duration.");
                             return false;
                         }
                         break;
                     case "--iperf-duration":
-                        if (!TryReadDurationValue(args, ref i, out iperfDuration) || iperfDuration <= TimeSpan.Zero)
+                        if (!TunBenchmarkCliParser.TryReadDurationValue(args, ref i, out iperfDuration) || iperfDuration <= TimeSpan.Zero)
                         {
                             error.WriteLine("--iperf-duration requires a positive duration.");
                             return false;
                         }
                         break;
                     case "--iperf-bytes":
-                        if (!TryReadInt64Value(args, ref i, out var parsedIperfBytes) || parsedIperfBytes <= 0)
+                        if (!TunBenchmarkCliParser.TryReadInt64Value(args, ref i, out var parsedIperfBytes) || parsedIperfBytes <= 0)
                         {
                             error.WriteLine("--iperf-bytes requires a positive integer.");
                             return false;
@@ -140,56 +138,56 @@ internal static partial class TunPNetBenchmarkRunner
                         iperfBytes = parsedIperfBytes;
                         break;
                     case "--iperf-bandwidth":
-                        if (!TryReadValue(args, ref i, out iperfBandwidth))
+                        if (!TunBenchmarkCliParser.TryReadValue(args, ref i, out iperfBandwidth))
                         {
                             error.WriteLine("--iperf-bandwidth requires a value.");
                             return false;
                         }
                         break;
                     case "--iperf-protocol":
-                        if (!TryReadValue(args, ref i, out iperfProtocol) || !IsSupportedIperfProtocol(iperfProtocol))
+                        if (!TunBenchmarkCliParser.TryReadValue(args, ref i, out iperfProtocol) || !IsSupportedIperfProtocol(iperfProtocol))
                         {
                             error.WriteLine("--iperf-protocol requires one of: tcp, udp.");
                             return false;
                         }
                         break;
                     case "--iperf-window":
-                        if (!TryReadValue(args, ref i, out iperfWindow))
+                        if (!TunBenchmarkCliParser.TryReadValue(args, ref i, out iperfWindow))
                         {
                             error.WriteLine("--iperf-window requires a value.");
                             return false;
                         }
                         break;
                     case "--ping-count":
-                        if (!TryReadIntValue(args, ref i, out pingCount) || pingCount <= 0)
+                        if (!TunBenchmarkCliParser.TryReadIntValue(args, ref i, out pingCount) || pingCount <= 0)
                         {
                             error.WriteLine("--ping-count requires a positive integer.");
                             return false;
                         }
                         break;
                     case "--mtu":
-                        if (!TryReadIntValue(args, ref i, out mtu) || mtu <= 0)
+                        if (!TunBenchmarkCliParser.TryReadIntValue(args, ref i, out mtu) || mtu <= 0)
                         {
                             error.WriteLine("--mtu requires a positive integer.");
                             return false;
                         }
                         break;
                     case "--payload-mode":
-                        if (!TryReadValue(args, ref i, out payloadMode) || !IsSupportedPayloadMode(payloadMode))
+                        if (!TunBenchmarkCliParser.TryReadValue(args, ref i, out payloadMode) || !TunBenchmarkCliParser.IsSupportedPayloadMode(payloadMode))
                         {
                             error.WriteLine("--payload-mode requires one of: control, mtu.");
                             return false;
                         }
                         break;
                     case "--managed-heap-growth-limit-bytes":
-                        if (!TryReadInt64Value(args, ref i, out managedHeapGrowthLimitBytes) || managedHeapGrowthLimitBytes < 0)
+                        if (!TunBenchmarkCliParser.TryReadInt64Value(args, ref i, out managedHeapGrowthLimitBytes) || managedHeapGrowthLimitBytes < 0)
                         {
                             error.WriteLine("--managed-heap-growth-limit-bytes requires a non-negative integer.");
                             return false;
                         }
                         break;
                     case "--trace-output-dir":
-                        if (!TryReadValue(args, ref i, out var traceOutputDirectory))
+                        if (!TunBenchmarkCliParser.TryReadValue(args, ref i, out var traceOutputDirectory))
                         {
                             error.WriteLine("--trace-output-dir requires a value.");
                             return false;
@@ -198,14 +196,14 @@ internal static partial class TunPNetBenchmarkRunner
                         packetTraceOutputDirectory = traceOutputDirectory;
                         break;
                     case "--pnet-udp-receive-mode":
-                        if (!TryReadValue(args, ref i, out pnetUdpReceiveMode) || !IsSupportedPNetUdpReceiveMode(pnetUdpReceiveMode))
+                        if (!TunBenchmarkCliParser.TryReadValue(args, ref i, out pnetUdpReceiveMode) || !IsSupportedPNetUdpReceiveMode(pnetUdpReceiveMode))
                         {
                             error.WriteLine("--pnet-udp-receive-mode requires one of: async, blocking.");
                             return false;
                         }
                         break;
                     case "--pnet-udp-socket-buffer-bytes":
-                        if (!TryReadIntValue(args, ref i, out var socketBufferBytes) || socketBufferBytes <= 0)
+                        if (!TunBenchmarkCliParser.TryReadIntValue(args, ref i, out var socketBufferBytes) || socketBufferBytes <= 0)
                         {
                             error.WriteLine("--pnet-udp-socket-buffer-bytes requires a positive integer.");
                             return false;
@@ -248,62 +246,6 @@ internal static partial class TunPNetBenchmarkRunner
             return true;
         }
 
-        static bool TryReadValue(string[] args, ref int index, out string value)
-        {
-            value = string.Empty;
-            if (++index >= args.Length)
-                return false;
-
-            value = args[index];
-            return !string.IsNullOrWhiteSpace(value);
-        }
-
-        static bool TryReadIntValue(string[] args, ref int index, out int value)
-        {
-            value = 0;
-            return TryReadValue(args, ref index, out var text)
-                   && int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
-        }
-
-        static bool TryReadInt64Value(string[] args, ref int index, out long value)
-        {
-            value = 0;
-            return TryReadValue(args, ref index, out var text)
-                   && long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
-        }
-
-        static bool TryReadDurationValue(string[] args, ref int index, out TimeSpan value)
-        {
-            value = default;
-            return TryReadValue(args, ref index, out var text) && TryReadDuration(text, out value);
-        }
-
-        static bool TryReadDuration(string text, out TimeSpan value)
-        {
-            value = default;
-            if (text.EndsWith("ms", StringComparison.OrdinalIgnoreCase)
-                && double.TryParse(text[..^2], NumberStyles.Float, CultureInfo.InvariantCulture, out var milliseconds))
-            {
-                value = TimeSpan.FromMilliseconds(milliseconds);
-                return true;
-            }
-
-            if (text.EndsWith("s", StringComparison.OrdinalIgnoreCase)
-                && double.TryParse(text[..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds))
-            {
-                value = TimeSpan.FromSeconds(seconds);
-                return true;
-            }
-
-            return TimeSpan.TryParse(text, CultureInfo.InvariantCulture, out value);
-        }
-
-        static bool IsHelp(string value)
-        {
-            return string.Equals(value, "--help", StringComparison.OrdinalIgnoreCase)
-                   || string.Equals(value, "-h", StringComparison.OrdinalIgnoreCase);
-        }
-
         static bool IsSupportedScenario(string value)
         {
             return string.Equals(value, PNetMeshTunScenario, StringComparison.Ordinal)
@@ -311,12 +253,6 @@ internal static partial class TunPNetBenchmarkRunner
                    || string.Equals(value, WireGuardGoPNetIcmpEchoScenario, StringComparison.Ordinal)
                    || string.Equals(value, TunIcmpEchoDirectScenario, StringComparison.Ordinal)
                    || string.Equals(value, TunIcmpEchoBridgeQueueScenario, StringComparison.Ordinal);
-        }
-
-        static bool IsSupportedPayloadMode(string value)
-        {
-            return string.Equals(value, "control", StringComparison.Ordinal)
-                   || string.Equals(value, "mtu", StringComparison.Ordinal);
         }
 
         static bool IsSupportedIperfProtocol(string value)
