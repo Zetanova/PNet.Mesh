@@ -1056,17 +1056,34 @@ namespace PNet.Actor.UnitTests.Mesh
             PNetMeshTransport2 receiver,
             string expectedPayload)
         {
-            var packet = new PNet.Actor.Mesh.Protos.Packet();
-            packet.Payload.Add(new PNet.Actor.Mesh.Protos.Payload
+            var payloadBytes = Encoding.UTF8.GetBytes(expectedPayload);
+            var envelope = new PNet.Actor.Mesh.Protos.ReliableEnvelope();
+            envelope.Bodies.Add(new PNet.Actor.Mesh.Protos.ReliableEnvelope.Types.Body
             {
-                Raw = ByteString.CopyFromUtf8(expectedPayload)
+                Metadata = new PNet.Protos.ProtoMetadata
+                {
+                    PayloadSize = (uint)payloadBytes.Length,
+                    CompressedSize = (uint)payloadBytes.Length
+                }
             });
 
-            var frame = PNetMeshPayloadFraming.CreatePNet(packet.ToByteArray());
+            var envelopeBytes = envelope.ToByteArray();
+            var reliableBodies = new byte[PNetMeshUtils.GetVarint32Size((uint)envelopeBytes.Length) + envelopeBytes.Length + payloadBytes.Length];
+            var offset = PNetMeshUtils.WriteVarint32(envelopeBytes.Length, reliableBodies);
+            envelopeBytes.CopyTo(reliableBodies.AsSpan(offset));
+            offset += envelopeBytes.Length;
+            payloadBytes.CopyTo(reliableBodies.AsSpan(offset));
+
+            var frame = new byte[64];
+            Assert.True(PNetMeshPayloadFraming.TryWritePNet(
+                PNetMeshPNetFrameType.ReliableBodies,
+                reliableBodies,
+                frame,
+                out var frameLength));
             var encrypted = new byte[4098];
             var plaintext = new byte[4098];
 
-            sender.WriteMessage(frame, encrypted, out var bytesWritten, out _);
+            sender.WriteMessage(frame.AsSpan(0, frameLength), encrypted, out var bytesWritten, out _);
 
             Assert.True(receiver.TryReadPlaintext(
                 encrypted.AsSpan(0, bytesWritten),
@@ -1080,9 +1097,18 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.Equal(PNetMeshPayloadFrameKind.PNet, payloadFrame.Kind);
             Assert.Equal(0, payloadFrame.Frame.Length % 16);
 
-            var parsed = PNet.Actor.Mesh.Protos.Packet.Parser.ParseFrom(payloadFrame.Payload);
-            var payload = Assert.Single(parsed.Payload);
-            Assert.Equal(expectedPayload, payload.Raw.ToStringUtf8());
+            Assert.True(PNetMeshPayloadFraming.TryReadPNetFrameType(
+                payloadFrame,
+                out var frameType,
+                out var typedPayload,
+                out _));
+            Assert.Equal(PNetMeshPNetFrameType.ReliableBodies, frameType);
+
+            var envelopeLength = PNetMeshUtils.ReadVarint32(typedPayload, out var envelopeLengthBytes);
+            var parsed = PNet.Actor.Mesh.Protos.ReliableEnvelope.Parser.ParseFrom(typedPayload.Slice(envelopeLengthBytes, envelopeLength));
+            var body = Assert.Single(parsed.Bodies);
+            Assert.Equal((uint)payloadBytes.Length, body.Metadata.PayloadSize);
+            Assert.Equal(expectedPayload, Encoding.UTF8.GetString(typedPayload[(envelopeLengthBytes + envelopeLength)..]));
         }
 
         static void AssertEncryptedPNetFrameRejected(

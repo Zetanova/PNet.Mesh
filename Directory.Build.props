@@ -1,5 +1,14 @@
 <Project>
   <PropertyGroup>
     <Nullable>enable</Nullable>
+    <Authors>Zetanova</Authors>
+    <PackageProjectUrl>https://github.com/Zetanova/PNet.Mesh</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Zetanova/PNet.Mesh</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+  <ItemGroup Condition="'$(IsPackable)' != 'false'">
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 </Project>

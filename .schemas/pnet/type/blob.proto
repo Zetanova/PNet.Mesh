@@ -1,0 +1,147 @@
+syntax = "proto3";
+
+package pnet.type;
+
+import "google/protobuf/timestamp.proto";
+
+import "google/api/resource.proto";
+import "google/api/field_behavior.proto";
+
+import "pnet/type/ordered_struct.proto";
+
+option csharp_namespace = "PNet.Protos";
+
+// Materialized blob metadata returned by BlobService.
+// Fields reflect the canonical resource name plus the current published content snapshot.
+message Blob {
+    option (google.api.resource) = {
+		type: "pnet.type/Blob"
+		pattern: "tenants/{tenant}/scopes/{scope}/blobs/{blob}",
+        pattern: "tenants/{tenant}/blobs/{blob}"
+		singular: "blob"
+		plural: "blobs"
+	};
+
+    // The canonical resource name, not a display name.
+    // Format: tenants/{tenant}/blobs/{blob}
+    // Format: tenants/{tenant}/scopes/{scope}/blobs/{blob}
+	string name = 1  [(google.api.field_behavior) = IDENTIFIER];
+
+     // Parsed from `name`. Empty for tenant-level blobs.
+    string tenant = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+     // Parsed from `name`. Empty for tenant-level blobs.
+    string scope = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+     // Parsed from `name`.
+    string blob_id = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Current published content version for this blob.
+    string version = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Total bytes in the current published content version.
+    int64 size_bytes = 6 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // IANA media type for the current published content version, for example "image/jpeg".
+    string media_type = 7 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Self-describing digest of the current published content version.
+    // The algorithm can change later.
+    // Example: "sha256:abc123..."
+    string digest = 8 [(google.api.field_behavior) = OUTPUT_ONLY];
+    string etag = 9 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Number of chunks in the current published content version.
+    int32 chunk_count = 10 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // User-managed tag values.
+    //
+    // Well-known PNet tag:
+    //   temporary: marks a blob as temporary. Remove this tag to promote the
+    //     blob to durable metadata.
+    repeated string tags = 11;
+
+    // User-provided annotations. Keys should be namespaced, for example
+    // "example.com/import-id".
+    map<string, string> annotations = 12;
+
+    // Extracted blob metadata such as media, EXIF, or filesystem properties.
+    //
+    // Well-known fields used by raw `/content` endpoints:
+    //   filename: normalized display/download filename.
+    //   headers: HTTP response metadata keyed by lowercase field name. Values
+    //     are strings unless repeated response header values require string_list.
+    //
+    // Keep media_type, size_bytes, digest, and chunk_count as the canonical
+    // typed content summary fields.
+    OrderedStruct attributes = 13;
+
+    // Time the current blob content/version was written.
+    google.protobuf.Timestamp update_time = 15 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    google.protobuf.Timestamp purge_time = 25 [(google.api.field_behavior) = OUTPUT_ONLY];
+    google.protobuf.Timestamp delete_time = 26 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Binary stream information for a Blob head or specific content version.
+message BlobInfo {
+    option (google.api.resource) = {
+        type: "pnet.type/BlobInfo"
+        pattern: "tenants/{tenant}/scopes/{scope}/blobs/{blob}/info"
+        pattern: "tenants/{tenant}/blobs/{blob}/info"
+        pattern: "tenants/{tenant}/scopes/{scope}/blobs/{blob}/versions/{version}/info"
+        pattern: "tenants/{tenant}/blobs/{blob}/versions/{version}/info"
+        singular: "blob_info"
+        plural: "blob_infos"
+    };
+
+    // The canonical info resource name, not a display name.
+    // Format: tenants/{tenant}/blobs/{blob}/info
+    // Format: tenants/{tenant}/scopes/{scope}/blobs/{blob}/info
+    // Format: tenants/{tenant}/blobs/{blob}/versions/{version}/info
+    // Format: tenants/{tenant}/scopes/{scope}/blobs/{blob}/versions/{version}/info
+    string name = 1 [(google.api.field_behavior) = IDENTIFIER];
+
+    // Resolved content version used for the info lookup.
+    string version = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Total chunk count for this version.
+    // A value of 0 with empty data means an empty blob.
+    int32 chunk_count = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Total size of this blob version in bytes.
+    // A value of 0 with empty data means an empty blob.
+    int64 size_bytes = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // IANA media type for this blob version, for example "image/jpeg".
+    string media_type = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Whole-version digest.
+    // Example: "sha256:abc123...".
+    string digest = 6 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Unrecognized HTTP header/trailer fields preserved from content ingestion.
+    repeated HeaderField headers = 7 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Size of each chunk in bytes, in chunk_index order.
+    // May be omitted unless requested. When present, length must equal chunk_count.
+    repeated int32 chunk_size_bytes = 10 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    // Whole-version alternate sources for this blob content.
+    repeated BlobSource sources = 11 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+    message HeaderField {
+        string name = 1;
+        repeated string values = 2;
+    }
+
+    message BlobSource {
+        string uri = 1;
+
+        // Request headers the client must send. May include Range,
+        // Authorization, Accept-Encoding: identity, etc.
+        repeated HeaderField request_headers = 2;
+
+        google.protobuf.Timestamp expire_time = 3;
+    }
+}

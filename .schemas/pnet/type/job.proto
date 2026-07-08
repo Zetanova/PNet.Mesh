@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package pnet.type;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+import "google/api/field_behavior.proto";
+import "google/api/resource.proto";
+
+option csharp_namespace = "PNet.Protos";
+
+// Scheduled PNet Proto workload definition.
+message Job {
+  option (google.api.resource) = {
+    type: "pnet.type/Job"
+    pattern: "tenants/{tenant}/scopes/{scope}/jobs/{job}"
+    pattern: "tenants/{tenant}/jobs/{job}"
+    singular: "job"
+    plural: "jobs"
+  };
+
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    ACTIVE = 1;
+    PAUSED = 2;
+  }
+
+  // The canonical resource name, not a display name.
+  // Format: tenants/{tenant}/jobs/{job}
+  // Format: tenants/{tenant}/scopes/{scope}/jobs/{job}
+  string name = 1 [(google.api.field_behavior) = IDENTIFIER];
+
+  string display_name = 2;
+
+  State state = 3;
+
+  // Schedule expression interpreted by the PNet Proto job scheduler.
+  string schedule = 4;
+
+  // PNet Proto subject that receives each scheduled workload.
+  string target = 5;
+
+  // Serialized PNetProtoMessage bytes, including headers and inner payload.
+  // Empty bytes are valid and represent an empty PNetProtoMessage workload
+  // emitted to target.
+  bytes payload = 6;
+
+  int32 max_attempts = 7;
+
+  google.protobuf.Duration run_timeout = 8;
+
+  google.protobuf.Timestamp last_schedule_time = 9 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  google.protobuf.Timestamp next_schedule_time = 10 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  string etag = 11;
+}

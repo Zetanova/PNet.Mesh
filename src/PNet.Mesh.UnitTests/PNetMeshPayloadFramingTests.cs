@@ -39,6 +39,116 @@ namespace PNet.Actor.UnitTests.Mesh
         }
 
         [Fact]
+        public void pnet_frame_type_indexes_known_reliable_payloads()
+        {
+            Assert.Equal(0, (int)PNetMeshPNetFrameType.Raw);
+            Assert.Equal(1, (int)PNetMeshPNetFrameType.ReliableEnvelope);
+            Assert.Equal(2, (int)PNetMeshPNetFrameType.ReliableBodies);
+            Assert.Equal(3, (int)PNetMeshPNetFrameType.Body);
+        }
+
+        [Fact]
+        public void pnet_frame_without_extended_header_reads_as_raw_payload()
+        {
+            var payload = new byte[] { 0x6d, 0x3a, 0x0a, 0x0a };
+            var buffer = Enumerable.Repeat((byte)0xcc, 32).ToArray();
+
+            Assert.True(PNetMeshPayloadFraming.TryWritePNet(
+                PNetMeshPNetFrameType.Raw,
+                payload,
+                buffer,
+                out var bytesWritten));
+            Assert.True(PNetMeshPayloadFraming.TryRead(buffer.AsSpan(0, bytesWritten), out var frame));
+            Assert.True(PNetMeshPayloadFraming.TryReadPNetFrameType(
+                frame,
+                out var frameType,
+                out var typedPayload,
+                out var frameTypeBytesRead));
+
+            Assert.False(frame.HasExtendedHeaderSignal);
+            Assert.Equal(PNetMeshPNetFrameType.Raw, frameType);
+            Assert.Equal(0, frameTypeBytesRead);
+            Assert.Equal(payload, typedPayload.ToArray());
+        }
+
+        [Fact]
+        public void pnet_frame_with_extended_header_reads_varint_type_and_payload()
+        {
+            var payload = new byte[] { 0xaa, 0xbb };
+            var buffer = Enumerable.Repeat((byte)0xcc, 32).ToArray();
+
+            Assert.True(PNetMeshPayloadFraming.TryWritePNet(
+                PNetMeshPNetFrameType.ReliableEnvelope,
+                payload,
+                buffer,
+                out var bytesWritten));
+            Assert.Equal(16, bytesWritten);
+            Assert.Equal(
+                new byte[] { 0x8c, 0x01, 0xaa, 0xbb }.Concat(new byte[12]),
+                buffer.AsSpan(0, bytesWritten).ToArray());
+
+            Assert.True(PNetMeshPayloadFraming.TryRead(buffer.AsSpan(0, bytesWritten), out var frame));
+            Assert.True(PNetMeshPayloadFraming.TryReadPNetFrameType(
+                frame,
+                out var frameType,
+                out var typedPayload,
+                out var frameTypeBytesRead));
+
+            Assert.True(frame.HasExtendedHeaderSignal);
+            Assert.Equal(PNetMeshPNetFrameType.ReliableEnvelope, frameType);
+            Assert.Equal(1, frameTypeBytesRead);
+            Assert.Equal(payload, typedPayload.ToArray());
+        }
+
+        [Fact]
+        public void pnet_frame_type_helpers_roundtrip_unknown_non_negative_type()
+        {
+            var payload = new byte[] { 0x11, 0x22 };
+            var frameType = (PNetMeshPNetFrameType)300;
+            Span<byte> typedPayload = stackalloc byte[8];
+
+            Assert.True(PNetMeshPayloadFraming.TryWritePNetTypedPayload(
+                frameType,
+                payload,
+                typedPayload,
+                out var typedPayloadBytesWritten));
+            Assert.Equal(4, typedPayloadBytesWritten);
+            Assert.Equal(new byte[] { 0xac, 0x02, 0x11, 0x22 }, typedPayload[..typedPayloadBytesWritten].ToArray());
+
+            var frame = PNetMeshPayloadFraming.CreatePNet(
+                typedPayload[..typedPayloadBytesWritten],
+                hasExtendedHeaderSignal: true);
+
+            Assert.True(PNetMeshPayloadFraming.TryRead(frame, out var parsedFrame));
+            Assert.True(PNetMeshPayloadFraming.TryReadPNetFrameType(
+                parsedFrame,
+                out var parsedType,
+                out var parsedPayload,
+                out var frameTypeBytesRead));
+
+            Assert.Equal(frameType, parsedType);
+            Assert.Equal(2, frameTypeBytesRead);
+            Assert.Equal(payload, parsedPayload.ToArray());
+        }
+
+        [Fact]
+        public void pnet_frame_type_helpers_reject_invalid_inputs()
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                PNetMeshPayloadFraming.CalculatePNetTypedPayloadSize((PNetMeshPNetFrameType)(-1), 0));
+
+            var malformed = new byte[16];
+            malformed[0] = 0x8f;
+
+            Assert.True(PNetMeshPayloadFraming.TryRead(malformed, out var frame));
+            Assert.False(PNetMeshPayloadFraming.TryReadPNetFrameType(
+                frame,
+                out _,
+                out _,
+                out _));
+        }
+
+        [Fact]
         public void try_classify_identifies_pnet_ipv4_and_ipv6_headers()
         {
             var ipv4 = PNetMeshIpPacket.CreateIPv4(

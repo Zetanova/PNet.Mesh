@@ -1,0 +1,266 @@
+syntax = "proto3";
+
+package pnet.v1;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/field_mask.proto";
+
+import "google/api/annotations.proto";
+import "google/api/field_behavior.proto";
+import "google/api/client.proto";
+import "google/api/resource.proto";
+
+import "pnet/type/blob.proto";
+
+option csharp_namespace = "PNet.Protos.V1";
+
+// Blob metadata lifecycle for pnet.type.Blob resources.
+// Use the scoped or unscoped resource name form that matches the blob being addressed.
+service BlobService {
+
+	// Gets a blob by canonical resource name. AIP-131.
+	rpc GetBlob(GetBlobRequest) returns (pnet.type.Blob) {
+		option (google.api.http) = {
+			get: "/v1/{name=tenants/*/scopes/*/blobs/*}"
+            additional_bindings {
+                get: "/v1/{name=tenants/*/blobs/*}"
+            }
+		};
+		option (google.api.method_signature) = "name";
+	}
+
+	// Lists blobs under a tenant or tenant scope. AIP-132.
+	rpc ListBlobs(ListBlobsRequest) returns (ListBlobsResponse) {
+		option (google.api.http) = {
+			get: "/v1/{parent=tenants/*/scopes/*}/blobs"
+             additional_bindings {
+                get: "/v1/{parent=tenants/*}/blobs"
+            }
+		};
+		option (google.api.method_signature) = "parent";
+	}
+
+	// Creates blob metadata. AIP-133.
+    rpc CreateBlob(CreateBlobRequest) returns (pnet.type.Blob) {
+      option (google.api.http) = {
+        post: "/v1/{parent=tenants/*/scopes/*}/blobs"
+        body: "blob",
+        additional_bindings {
+          post: "/v1/{parent=tenants/*}/blobs"
+          body: "blob"
+        }
+      };
+      option (google.api.method_signature) = "parent,blob,blob_id";
+    }
+
+    // Updates blob metadata. AIP-134.
+    rpc UpdateBlob(UpdateBlobRequest) returns (pnet.type.Blob) {
+      option (google.api.http) = {
+        patch: "/v1/{blob.name=tenants/*/scopes/*/blobs/*}"
+        body: "blob",
+        additional_bindings {
+          patch: "/v1/{blob.name=tenants/*/blobs/*}"
+          body: "blob"
+        }
+      };
+      option (google.api.method_signature) = "blob,update_mask";
+    }
+
+    // Soft-deletes a blob. AIP-135 + AIP-164.
+    rpc DeleteBlob(DeleteBlobRequest) returns (pnet.type.Blob) {
+      option (google.api.http) = {
+        delete: "/v1/{name=tenants/*/scopes/*/blobs/*}"
+        additional_bindings {
+          delete: "/v1/{name=tenants/*/blobs/*}"
+        }
+      };
+      option (google.api.method_signature) = "name";
+    }
+
+    // Restores a soft-deleted blob. AIP-164.
+    rpc UndeleteBlob(UndeleteBlobRequest) returns (pnet.type.Blob) {
+      option (google.api.http) = {
+        post: "/v1/{name=tenants/*/scopes/*/blobs/*}:undelete"
+        body: "*"
+        additional_bindings {
+          post: "/v1/{name=tenants/*/blobs/*}:undelete"
+          body: "*"
+        }
+      };
+      option (google.api.method_signature) = "name";
+    }
+
+    // Permanently deletes a blob. AIP-164 custom method.
+    rpc ExpungeBlob(ExpungeBlobRequest) returns (google.protobuf.Empty) {
+      option (google.api.http) = {
+        post: "/v1/{name=tenants/*/scopes/*/blobs/*}:expunge"
+        body: "*"
+        additional_bindings {
+          post: "/v1/{name=tenants/*/blobs/*}:expunge"
+          body: "*"
+        }
+      };
+      option (google.api.method_signature) = "name";
+    }
+}
+
+message GetBlobRequest {
+    // Canonical blob resource name.
+    // Format: tenants/{tenant}/blobs/{blob}
+    // Format: tenants/{tenant}/scopes/{scope}/blobs/{blob}
+    string name = 1 [
+      (google.api.field_behavior) = REQUIRED,
+      (google.api.resource_reference).type = "pnet.type/Blob"
+    ];
+
+    BlobView view = 8;
+}
+
+message ListBlobsRequest {
+    // Parent resource for the collection request.
+    // Format: tenants/{tenant}
+    // Format: tenants/{tenant}/scopes/{scope}
+    // Use tenants/{tenant}/scopes/- to list across scopes.
+    string parent = 1 [
+      (google.api.field_behavior) = REQUIRED,
+      (google.api.resource_reference).child_type = "pnet.type/Blob"
+    ];
+
+    int32 page_size = 2;
+    string page_token = 3;
+
+    // PNet AIP-160-style filter. See docs/pnet-schema/filter.md in the
+    // pnet-schema package for supported operators and literal semantics.
+    //
+    // Blob metadata filters use the exported pnet.type.Blob fields, including:
+    //   tenant
+    //   scope
+    //   blob_id
+    //   tags
+    //   annotations
+    //   update_time
+    //
+    // Examples:
+    //   scope = ""
+    //   scope = "custom1.custom2"
+    //   scope = "*.custom2"
+    //   blob_id = "child-123"
+    //   tags:profile
+    string filter = 6;
+
+    BlobView view = 8;
+
+    //see: https://google.aip.dev/132#soft-deleted-resources
+    bool show_deleted = 10;
+
+    // If true, allow a partial response when one or more backend blob storage
+    // partitions are unreachable for the requested collection.
+    //
+    // Partial success is meaningful only for broad parents that can span more
+    // than one backend storage partition, such as tenants/{tenant}/scopes/-.
+    // Narrower parents that map to one required partition fail with a typed
+    // error instead of returning partial results.
+    bool return_partial_success = 11;
+
+	//todo string order_by https://google.aip.dev/132#ordering
+}
+
+message ListBlobsResponse {
+
+	repeated pnet.type.Blob blobs = 1;
+
+	//maybe int32 total_size = 2;
+
+	string next_page_token = 3;
+
+	// Resource names that could not be reached when return_partial_success is
+    // true. Values are service-relative collection or resource names at the
+    // finest granularity the backend can identify.
+	repeated string unreachable = 4 [
+		(google.api.field_behavior) = UNORDERED_LIST
+	];
+}
+
+enum BlobView {
+	//default: BASIC
+	BLOB_VIEW_UNSPECIFIED = 0;
+
+	BLOB_VIEW_BASIC = 1;
+
+	BLOB_VIEW_FULL = 15;
+}
+
+message CreateBlobRequest {
+    // Parent resource that will contain the new blob.
+    // Format:
+    //   tenants/{tenant}
+    //   tenants/{tenant}/scopes/{scope}
+    string parent = 1 [
+        (google.api.field_behavior) = REQUIRED,
+        (google.api.resource_reference).child_type = "pnet.type/Blob"
+    ];
+
+    // The blob ID to use in the canonical resource name.
+    string blob_id = 2 [(google.api.field_behavior) = REQUIRED];
+
+    // Blob metadata to create. Include the well-known `temporary` tag in
+    // blob.tags to mark temporary metadata at creation time.
+    pnet.type.Blob blob = 3 [(google.api.field_behavior) = REQUIRED];
+
+    bool validate_only = 4;
+}
+
+message UpdateBlobRequest {
+    // Blob metadata to update. To promote a temporary blob to durable metadata,
+    // remove the `temporary` tag and set update_mask to `tags`.
+    pnet.type.Blob blob = 1 [(google.api.field_behavior) = REQUIRED];
+
+    google.protobuf.FieldMask update_mask = 2 [(google.api.field_behavior) = REQUIRED];
+
+    bool validate_only = 3;
+
+    // Optional etag for optimistic concurrency.
+    string etag = 4;
+
+    // allow creating, update_mask is ignored.
+    bool allow_missing = 5;
+}
+
+message DeleteBlobRequest {
+    // Format:
+    //   tenants/{tenant}/blobs/{blob}
+    //   tenants/{tenant}/scopes/{scope}/blobs/{blob}
+    string name = 1 [
+        (google.api.field_behavior) = REQUIRED,
+        (google.api.resource_reference).type = "pnet.type/Blob"
+    ];
+
+    // If true, deleting a missing blob succeeds.
+    bool allow_missing = 2;
+
+    // Optional etag for optimistic concurrency.
+    string etag = 3;
+}
+
+message UndeleteBlobRequest {
+    // Format:
+    //   tenants/{tenant}/blobs/{blob}
+    //   tenants/{tenant}/scopes/{scope}/blobs/{blob}
+    string name = 1 [
+        (google.api.field_behavior) = REQUIRED,
+        (google.api.resource_reference).type = "pnet.type/Blob"
+    ];
+}
+
+message ExpungeBlobRequest {
+    // Format:
+    //   tenants/{tenant}/blobs/{blob}
+    //   tenants/{tenant}/scopes/{scope}/blobs/{blob}
+    string name = 1 [
+        (google.api.field_behavior) = REQUIRED,
+        (google.api.resource_reference).type = "pnet.type/Blob"
+    ];
+
+    // Optional etag for optimistic concurrency.
+    string etag = 2;
+}

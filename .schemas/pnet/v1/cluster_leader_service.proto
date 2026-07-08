@@ -1,0 +1,161 @@
+syntax = "proto3";
+
+package pnet.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/empty.proto";
+
+import "google/api/annotations.proto";
+import "google/api/client.proto";
+import "google/api/field_behavior.proto";
+import "google/api/resource.proto";
+
+import "pnet/type/leader.proto";
+
+option csharp_namespace = "PNet.Protos.V1";
+
+// Cluster leader lifecycle for pnet.type.Leader resources.
+// Use the canonical singleton resource name clusters/{cluster}/scopes/{scope}/leader.
+service ClusterLeaderService {
+	// Streams leader state changes for a cluster scope.
+	// Fan-out observers must use unique per-peer queue identities; the shared
+	// default queue can hide leader-control calls from peers.
+	rpc MonitorLeader(MonitorLeaderRequest) returns (stream pnet.type.Leader) {
+		option (google.api.http) = {
+			get: "/v1/{name=clusters/*/scopes/*/leader}:monitor"
+		};
+		option (google.api.method_signature) = "name";
+	}
+
+	// Gets the current confirmed leader for a cluster scope.
+	// Implementations may scatter this read to all peers; peers without a
+	// current confirmed leader must not win the first response.
+	rpc GetLeader(GetLeaderRequest) returns (pnet.type.Leader) {
+		option (google.api.http) = {
+			get: "/v1/{name=clusters/*/scopes/*/leader}"
+		};
+		option (google.api.method_signature) = "name";
+	}
+
+	// Claims leadership for the singleton leader resource.
+	// This is unary; implementations may scatter-gather internally and wait for
+	// the first winning claim or the RPC deadline/timeout before returning.
+	rpc ClaimLeader(ClaimLeaderRequest) returns (pnet.type.Leader) {
+		option (google.api.http) = {
+			post: "/v1/{name=clusters/*/scopes/*/leader}:claim"
+			body: "*"
+		};
+		option (google.api.method_signature) = "name,peer_id";
+	}
+
+	// Confirms an existing leadership claim.
+	rpc ConfirmLeader(ConfirmLeaderRequest) returns (pnet.type.Leader) {
+		option (google.api.http) = {
+			post: "/v1/{name=clusters/*/scopes/*/leader}:confirm"
+			body: "*"
+		};
+		option (google.api.method_signature) = "name,peer_id";
+	}
+
+	// Renews an existing leadership claim.
+	rpc RenewLeader(RenewLeaderRequest) returns (pnet.type.Leader) {
+		option (google.api.http) = {
+			post: "/v1/{name=clusters/*/scopes/*/leader}:renew"
+			body: "*"
+		};
+		option (google.api.method_signature) = "name,peer_id";
+	}
+
+	// Resigns leadership and releases the held claim.
+	rpc ResignLeader(ResignLeaderRequest) returns (google.protobuf.Empty) {
+		option (google.api.http) = {
+			post: "/v1/{name=clusters/*/scopes/*/leader}:resign"
+			body: "*"
+		};
+		option (google.api.method_signature) = "name,peer_id";
+	}
+}
+
+message MonitorLeaderRequest {
+	// Canonical leader resource name.
+	// Format: clusters/{cluster}/scopes/{scope}/leader
+	string name = 1 [
+		(google.api.field_behavior) = REQUIRED,
+		(google.api.resource_reference).type = "pnet.type/Leader"
+	];
+}
+
+message GetLeaderRequest {
+	// Canonical leader resource name.
+	// Format: clusters/{cluster}/scopes/{scope}/leader
+	string name = 1 [
+		(google.api.field_behavior) = REQUIRED,
+		(google.api.resource_reference).type = "pnet.type/Leader"
+	];
+}
+
+message ClaimLeaderRequest {
+	// Canonical leader resource name.
+	// Format: clusters/{cluster}/scopes/{scope}/leader
+	string name = 1 [
+		(google.api.field_behavior) = REQUIRED,
+		(google.api.resource_reference).type = "pnet.type/Leader"
+	];
+
+	// Candidate peer requesting the leader lease.
+	string peer_id = 2 [(google.api.field_behavior) = REQUIRED];
+
+	// Requested lease duration. Empty uses the implementation default.
+	google.protobuf.Duration lease_duration = 3 [(google.api.field_behavior) = OPTIONAL];
+}
+
+message ConfirmLeaderRequest {
+	// Canonical leader resource name.
+	// Format: clusters/{cluster}/scopes/{scope}/leader
+	string name = 1 [
+		(google.api.field_behavior) = REQUIRED,
+		(google.api.resource_reference).type = "pnet.type/Leader"
+	];
+
+	// Candidate peer confirming its leader lease.
+	string peer_id = 2 [(google.api.field_behavior) = REQUIRED];
+
+	// Requested lease duration. Empty uses the implementation default.
+	google.protobuf.Duration lease_duration = 3 [(google.api.field_behavior) = OPTIONAL];
+
+	// Revision observed during claim. Zero disables revision matching.
+	int64 observed_revision = 4 [(google.api.field_behavior) = OPTIONAL];
+}
+
+message RenewLeaderRequest {
+	// Canonical leader resource name.
+	// Format: clusters/{cluster}/scopes/{scope}/leader
+	string name = 1 [
+		(google.api.field_behavior) = REQUIRED,
+		(google.api.resource_reference).type = "pnet.type/Leader"
+	];
+
+	// Peer renewing its current leader lease.
+	string peer_id = 2 [(google.api.field_behavior) = REQUIRED];
+
+	// Requested lease duration. Empty uses the implementation default.
+	google.protobuf.Duration lease_duration = 3 [(google.api.field_behavior) = OPTIONAL];
+
+	// Revision observed by the renewing peer. Zero disables revision matching.
+	int64 observed_revision = 4 [(google.api.field_behavior) = OPTIONAL];
+}
+
+message ResignLeaderRequest {
+	// Canonical leader resource name.
+	// Format: clusters/{cluster}/scopes/{scope}/leader
+	string name = 1 [
+		(google.api.field_behavior) = REQUIRED,
+		(google.api.resource_reference).type = "pnet.type/Leader"
+	];
+
+	// Peer releasing its current leader lease.
+	string peer_id = 2 [(google.api.field_behavior) = REQUIRED];
+
+	// Revision observed by the resigning peer. Zero disables revision matching.
+	int64 observed_revision = 3 [(google.api.field_behavior) = OPTIONAL];
+}

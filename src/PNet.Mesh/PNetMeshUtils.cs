@@ -1,10 +1,11 @@
 ﻿using System;
-using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
-using System.Security.Cryptography;
+using System.Numerics;
+using System.Runtime.CompilerServices;
+using Org.BouncyCastle.Crypto.Digests;
 
-using Protos = PNet.Actor.Mesh.Protos;
+using MeshProtos = global::PNet.Actor.Mesh.Protos;
 
 namespace PNet.Mesh
 {
@@ -28,12 +29,17 @@ namespace PNet.Mesh
             if (publicKey.Length != 32) throw new ArgumentOutOfRangeException(nameof(publicKey));
             if (address.Length != 10) throw new ArgumentOutOfRangeException(nameof(address));
 
-            Span<byte> dest = stackalloc byte[20];
+            ReadOnlySpan<byte> domain = "pnet.mesh.address.v1"u8;
+            Span<byte> input = stackalloc byte[domain.Length + 32];
+            domain.CopyTo(input);
+            publicKey.CopyTo(input[domain.Length..]);
 
-            var c = SHA1.HashData(publicKey, dest);
-            Debug.Assert(c == 20);
+            Span<byte> dest = stackalloc byte[32];
+            var digest = new Blake2sDigest(256);
+            digest.BlockUpdate(input);
+            digest.DoFinal(dest);
 
-            dest.Slice(0, 10).CopyTo(address);
+            dest[..10].CopyTo(address);
         }
 
         public static ulong GetTimestamp()
@@ -41,52 +47,110 @@ namespace PNet.Mesh
             return (ulong)(DateTime.UtcNow.Ticks - DateTime.UnixEpoch.Ticks);
         }
 
-        public static EndPoint? MapToItem(Protos.EndPoint? item)
+        /// <summary>
+        /// Reads a Varint32 from the specified span, returning the value and the number of bytes read.
+        /// Throws if the varint is malformed or truncated.
+        /// </summary>
+        public static int ReadVarint32(ReadOnlySpan<byte> buffer, out int bytesRead)
+        {
+            uint value = 0;
+            int shift = 0;
+            bytesRead = 0;
+
+            for (; bytesRead < buffer.Length && bytesRead < 5; bytesRead++)
+            {
+                byte b = buffer[bytesRead];
+                value |= (uint)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0)
+                {
+                    bytesRead++;
+                    return unchecked((int)value);
+                }
+                shift += 7;
+            }
+
+            throw new InvalidOperationException("Malformed Varint32, too many bytes or incomplete.");
+        }
+
+        /// <summary>
+        /// Writes a Varint32 to the span. Returns the number of bytes written.
+        /// Throws if the span is too small.
+        /// </summary>
+        public static int WriteVarint32(int value, Span<byte> buffer)
+        {
+            uint uValue = unchecked((uint)value);
+
+            var c = GetVarint32Size(uValue) - 1;
+            if (c >= buffer.Length)
+                throw new ArgumentException("Span too small for Varint32", nameof(buffer));
+
+            int i;
+            for (i = 0; i < c; i++)
+            {
+                buffer[i] = (byte)((uValue & 0x7F) | 0x80);
+                uValue >>= 7;
+            }
+            buffer[i++] = (byte)uValue;
+
+            return i;
+        }
+
+        /// <summary>
+        /// Returns the byte size of the encoded integer.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int GetVarint32Size(uint value)
+        {
+            var c = (sizeof(uint) * 8) - BitOperations.LeadingZeroCount(value);
+            return Math.Max(1, (c + 6) / 7);
+        }
+
+        public static EndPoint? MapToItem(MeshProtos.Endpoint? item)
         {
             if (item is null)
                 return null;
 
             return item.ValueCase switch
             {
-                Protos.EndPoint.ValueOneofCase.Ip => item.Ip.IpCase switch
+                MeshProtos.Endpoint.ValueOneofCase.Ip => item.Ip.AddressCase switch
                 {
-                    Protos.IPEndPoint.IpOneofCase.V4 => new IPEndPoint(item.Ip.V4, (ushort)item.Ip.Port),
-                    Protos.IPEndPoint.IpOneofCase.V6 => new IPEndPoint(new IPAddress(item.Ip.V6.Span), (ushort)item.Ip.Port),
+                    MeshProtos.IpEndpoint.AddressOneofCase.Ipv4 => new IPEndPoint(new IPAddress(item.Ip.Ipv4.Span), (ushort)item.Ip.Port),
+                    MeshProtos.IpEndpoint.AddressOneofCase.Ipv6 => new IPEndPoint(new IPAddress(item.Ip.Ipv6.Span), (ushort)item.Ip.Port),
                     _ => null,//throw new NotSupportedException($"ip case '{item.Ip.IpCase}' not supported");
                 },
-                Protos.EndPoint.ValueOneofCase.Dns => new DnsEndPoint(item.Dns.Hostname, (ushort)item.Dns.Port),
-                Protos.EndPoint.ValueOneofCase.Mesh => null,
+                MeshProtos.Endpoint.ValueOneofCase.Dns => new DnsEndPoint(item.Dns.Hostname, (ushort)item.Dns.Port),
+                MeshProtos.Endpoint.ValueOneofCase.Mesh => null,
                 _ => null,//throw new NotSupportedException($"endpoint case '{item.ValueCase}' not supported");
             };
         }
 
-        public static Protos.EndPoint? MapToProtos(EndPoint? item)
+        public static MeshProtos.Endpoint? MapToProtos(EndPoint? item)
         {
             return item switch
             {
                 IPEndPoint ep => ep.AddressFamily switch
                 {
-                    AddressFamily.InterNetwork => new Protos.EndPoint
+                    AddressFamily.InterNetwork => new MeshProtos.Endpoint
                     {
-                        Ip = new Protos.IPEndPoint
+                        Ip = new MeshProtos.IpEndpoint
                         {
-                            V4 = MapIPv4Address(ep.Address),
+                            Ipv4 = MapIPv4Address(ep.Address),
                             Port = (uint)ep.Port
                         }
                     },
-                    AddressFamily.InterNetworkV6 => new Protos.EndPoint
+                    AddressFamily.InterNetworkV6 => new MeshProtos.Endpoint
                     {
-                        Ip = new Protos.IPEndPoint
+                        Ip = new MeshProtos.IpEndpoint
                         {
-                            V6 = MapIPv6Address(ep.Address),
+                            Ipv6 = MapIPv6Address(ep.Address),
                             Port = (uint)ep.Port
                         }
                     },
                     _ => null
                 },
-                DnsEndPoint ep => new Protos.EndPoint
+                DnsEndPoint ep => new MeshProtos.Endpoint
                 {
-                    Dns = new Protos.DnsEndPoint
+                    Dns = new MeshProtos.DnsEndpoint
                     {
                         Hostname = ep.Host,
                         Port = (uint)ep.Port
@@ -96,13 +160,13 @@ namespace PNet.Mesh
             };
         }
 
-        static uint MapIPv4Address(IPAddress address)
+        static Google.Protobuf.ByteString MapIPv4Address(IPAddress address)
         {
             Span<byte> bytes = stackalloc byte[4];
             if (!address.TryWriteBytes(bytes, out var bytesWritten) || bytesWritten != bytes.Length)
                 throw new InvalidOperationException("IPv4 address byte length mismatch.");
 
-            return BitConverter.ToUInt32(bytes);
+            return Google.Protobuf.ByteString.CopyFrom(bytes);
         }
 
         static Google.Protobuf.ByteString MapIPv6Address(IPAddress address)

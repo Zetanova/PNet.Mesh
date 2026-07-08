@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <NoWarn>$(NoWarn);CS8981</NoWarn>
+    <Description>Managed .NET peer-to-peer mesh transport with WireGuard-compatible handshake and encrypted payload framing.</Description>
+    <PackageTags>pnet;mesh;wireguard;udp;peer-to-peer;protobuf</PackageTags>
   </PropertyGroup>
 
 
@@ -17,6 +19,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Resource Include="Protos\MeshProtocol.proto" />
+    <Resource Include="..\..\.schemas\pnet\mesh\v1\mesh_protocol.proto" Link="Protos\MeshProtocol.proto" />
   </ItemGroup>
 </Project>

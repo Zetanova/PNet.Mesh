@@ -8,7 +8,7 @@ namespace PNet.Mesh
     public sealed class PNetMeshRoutingEntry
     {
         /// <summary>
-        /// Peer Address are the first 10 bytes from the SHA-1 of the PublicKey
+        /// Peer address is BLAKE2s-256("pnet.mesh.address.v1" || static_public_key)[0..10].
         /// </summary>
         public required byte[] Address { get; init; }
 

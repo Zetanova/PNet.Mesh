@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+package pnet.type;
+
+import "google/protobuf/struct.proto";  // only for NullValue enum
+
+// Struct is an ordered collection of key-value fields.
+// Replaces google.protobuf.Struct to preserve field insertion order
+// (Go maps in google.protobuf.Struct lose key order).
+message OrderedStruct {
+  repeated OrderedField fields = 1;
+}
+
+// Field is a single key-value pair in a Struct.
+message OrderedField {
+  string key = 1;
+  OrderedValue value = 2;
+}
+
+// Value represents a dynamically typed value with order-preserving composites.
+// Replaces google.protobuf.Value with integer support and ordered objects.
+message OrderedValue {
+  oneof kind {
+    // Scalars — most frequent first.
+    string string_value = 1;
+    int64 integer_value = 2;
+    double number_value = 3;
+    bool bool_value = 4;
+
+    // Composites — order-preserving.
+    OrderedStruct struct_value = 5;
+    OrderedValueList value_list = 6;
+
+    // Sentinels.
+    google.protobuf.NullValue null_value = 7;
+
+    // JSON-encoded textual representation for values that do not fit the typed
+    // variants. The string must contain valid JSON.
+    string json_value = 8;
+
+    uint64 unsigned_integer_value = 10;
+
+    Int64List integer_list = 11;
+    UInt64List unsigned_integer_list = 12;
+    DoubleList number_list = 13;
+    StringList string_list = 14;
+
+    bytes bytes_value = 15;
+  }
+}
+
+// List is an ordered collection of values.
+message OrderedValueList {
+  repeated OrderedValue values = 1;
+}
+
+message Int64List {
+  repeated int64 values = 1;
+}
+
+message UInt64List {
+  repeated uint64 values = 1;
+}
+
+message DoubleList {
+  repeated double values = 1;
+}
+
+message StringList {
+  repeated string values = 1;
+}

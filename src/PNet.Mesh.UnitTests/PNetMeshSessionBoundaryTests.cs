@@ -4,7 +4,14 @@ using PNet.Mesh;
 using System;
 using System.Net;
 using System.Security.Cryptography;
+using System.Text;
 using Xunit;
+
+using EnvelopeBody = PNet.Actor.Mesh.Protos.ReliableEnvelope.Types.Body;
+using Forward = PNet.Actor.Mesh.Protos.ReliableEnvelope.Types.Body.Types.Forward;
+using MeshEndpoint = PNet.Actor.Mesh.Protos.MeshEndpoint;
+using ProtoMetadata = PNet.Protos.ProtoMetadata;
+using ReliableEnvelope = PNet.Actor.Mesh.Protos.ReliableEnvelope;
 
 namespace PNet.Actor.UnitTests.Mesh
 {
@@ -80,12 +87,34 @@ namespace PNet.Actor.UnitTests.Mesh
         {
             var handler = new RecordingControlPacketHandler();
             var controlSession = new PNetMeshReliableControlSession(handler);
-            var packet = new PNet.Actor.Mesh.Protos.Packet();
-            packet.Payload.Add(new PNet.Actor.Mesh.Protos.Payload
+            var reliableEnvelope = new ReliableEnvelope();
+            var payloadEnvelope = new ReliableEnvelope();
+            payloadEnvelope.Bodies.Add(CreateBody(7));
+            var payload = Encoding.UTF8.GetBytes("control");
+            var pnetFrame = PNetMeshPayloadFraming.CreatePNet(payloadEnvelope.ToByteArray());
+            var typedPNetFrame = new byte[64];
+            Assert.True(PNetMeshPayloadFraming.TryWritePNet(
+                PNetMeshPNetFrameType.ReliableEnvelope,
+                reliableEnvelope.ToByteArray(),
+                typedPNetFrame,
+                out var typedPNetFrameBytes));
+            var reliableBodiesPNetFrame = CreateReliableBodiesFrame(payloadEnvelope, payload);
+            var forwardBody = CreateBody(7);
+            forwardBody.Forward = new Forward
             {
-                Raw = ByteString.CopyFromUtf8("control")
-            });
-            var pnetFrame = PNetMeshPayloadFraming.CreatePNet(packet.ToByteArray());
+                Destination = new MeshEndpoint
+                {
+                    Address = ByteString.CopyFrom(new byte[] { 0x01 })
+                },
+                SequenceNumber = 1
+            };
+            var bodyPNetFrame = CreateBodyFrame(forwardBody, payload);
+            var unknownPNetFrame = new byte[64];
+            Assert.True(PNetMeshPayloadFraming.TryWritePNet(
+                (PNetMeshPNetFrameType)4,
+                payloadEnvelope.ToByteArray(),
+                unknownPNetFrame,
+                out var unknownPNetFrameBytes));
             var ipv4Frame = PNetMeshIpPacket.CreateIPv4(
                 IPAddress.Parse("10.0.0.1"),
                 IPAddress.Parse("10.0.0.2"),
@@ -96,13 +125,104 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.Equal(PNetMeshPayloadFrameError.None, error);
             Assert.Equal(0, handler.Calls);
 
-            Assert.True(controlSession.TryHandleFrame(pnetFrame, 42, out var payloadReceived, out error));
+            Assert.False(controlSession.TryHandleFrame(pnetFrame, 42, out var payloadReceived, out error));
+            Assert.Equal(PNetMeshPayloadFrameError.None, error);
+            Assert.False(payloadReceived);
+            Assert.Equal(0, handler.Calls);
+
+            Assert.True(controlSession.TryHandleFrame(
+                typedPNetFrame.AsSpan(0, typedPNetFrameBytes),
+                43,
+                out payloadReceived,
+                out error));
+            Assert.Equal(PNetMeshPayloadFrameError.None, error);
+            Assert.False(payloadReceived);
+            Assert.Equal(1, handler.Calls);
+            Assert.Equal(43ul, handler.LastCounter);
+
+            Assert.True(controlSession.TryHandleFrame(
+                reliableBodiesPNetFrame,
+                44,
+                out payloadReceived,
+                out error));
             Assert.Equal(PNetMeshPayloadFrameError.None, error);
             Assert.True(payloadReceived);
-            Assert.Equal(1, handler.Calls);
-            Assert.Equal(42ul, handler.LastCounter);
-            var payload = Assert.Single(handler.LastPacket!.Payload);
-            Assert.Equal("control", payload.Raw.ToStringUtf8());
+            Assert.Equal(2, handler.Calls);
+            Assert.Equal(44ul, handler.LastCounter);
+            var metadata = Assert.Single(handler.LastEnvelope!.Bodies).Metadata;
+            Assert.Equal(7u, metadata.PayloadSize);
+            Assert.Equal("control", Encoding.UTF8.GetString(handler.LastReliableEnvelope.BodyTail.Span));
+
+            Assert.True(controlSession.TryHandleFrame(
+                bodyPNetFrame,
+                45,
+                out payloadReceived,
+                out error));
+            Assert.Equal(PNetMeshPayloadFrameError.None, error);
+            Assert.True(payloadReceived);
+            Assert.Equal(3, handler.Calls);
+            Assert.Equal(45ul, handler.LastCounter);
+            Assert.Equal("control", Encoding.UTF8.GetString(handler.LastBodyPayload.Span));
+            Assert.NotNull(handler.LastBody!.Forward);
+
+            Assert.False(controlSession.TryHandleFrame(
+                unknownPNetFrame.AsSpan(0, unknownPNetFrameBytes),
+                46,
+                out payloadReceived,
+                out error));
+            Assert.Equal(PNetMeshPayloadFrameError.None, error);
+            Assert.False(payloadReceived);
+            Assert.Equal(3, handler.Calls);
+        }
+
+        static EnvelopeBody CreateBody(int payloadLength)
+        {
+            return new EnvelopeBody
+            {
+                Metadata = new ProtoMetadata
+                {
+                    PayloadSize = (uint)payloadLength,
+                    CompressedSize = (uint)payloadLength
+                }
+            };
+        }
+
+        static byte[] CreateReliableBodiesFrame(ReliableEnvelope envelope, ReadOnlySpan<byte> bodyTail)
+        {
+            var envelopeBytes = envelope.ToByteArray();
+            var reliableBodies = new byte[PNetMeshUtils.GetVarint32Size((uint)envelopeBytes.Length) + envelopeBytes.Length + bodyTail.Length];
+            var offset = PNetMeshUtils.WriteVarint32(envelopeBytes.Length, reliableBodies);
+            envelopeBytes.CopyTo(reliableBodies.AsSpan(offset));
+            offset += envelopeBytes.Length;
+            bodyTail.CopyTo(reliableBodies.AsSpan(offset));
+
+            var frame = new byte[64];
+            Assert.True(PNetMeshPayloadFraming.TryWritePNet(
+                PNetMeshPNetFrameType.ReliableBodies,
+                reliableBodies,
+                frame,
+                out var frameBytes));
+
+            return frame.AsSpan(0, frameBytes).ToArray();
+        }
+
+        static byte[] CreateBodyFrame(EnvelopeBody body, ReadOnlySpan<byte> payload)
+        {
+            var bodyBytes = body.ToByteArray();
+            var bodyPayload = new byte[PNetMeshUtils.GetVarint32Size((uint)bodyBytes.Length) + bodyBytes.Length + payload.Length];
+            var offset = PNetMeshUtils.WriteVarint32(bodyBytes.Length, bodyPayload);
+            bodyBytes.CopyTo(bodyPayload.AsSpan(offset));
+            offset += bodyBytes.Length;
+            payload.CopyTo(bodyPayload.AsSpan(offset));
+
+            var frame = new byte[64];
+            Assert.True(PNetMeshPayloadFraming.TryWritePNet(
+                PNetMeshPNetFrameType.Body,
+                bodyPayload,
+                frame,
+                out var frameBytes));
+
+            return frame.AsSpan(0, frameBytes).ToArray();
         }
 
         static EstablishedTransportPair CreateEstablishedTransports()
@@ -157,14 +277,35 @@ namespace PNet.Actor.UnitTests.Mesh
 
             public ulong LastCounter { get; private set; }
 
-            public PNet.Actor.Mesh.Protos.Packet? LastPacket { get; private set; }
+            public ReliableEnvelope? LastEnvelope { get; private set; }
 
-            public bool TryHandlePacket(PNet.Actor.Mesh.Protos.Packet packet, ulong counter, out bool payloadReceived)
+            public PNetMeshReliableEnvelope LastReliableEnvelope { get; private set; }
+
+            public EnvelopeBody? LastBody { get; private set; }
+
+            public ReadOnlyMemory<byte> LastBodyPayload { get; private set; }
+
+            public bool TryHandleEnvelope(PNetMeshReliableEnvelope envelope, ulong counter, out bool bodyReceived)
             {
                 Calls++;
-                LastPacket = packet;
+                LastReliableEnvelope = envelope;
+                LastEnvelope = envelope.Envelope;
                 LastCounter = counter;
-                payloadReceived = packet.Payload.Count > 0;
+                bodyReceived = envelope.Envelope.Bodies.Count > 0 || !envelope.BodyTail.IsEmpty;
+                return true;
+            }
+
+            public bool TryHandleBody(
+                EnvelopeBody body,
+                ReadOnlyMemory<byte> bodyPayload,
+                ulong counter,
+                out bool bodyReceived)
+            {
+                Calls++;
+                LastBody = body;
+                LastCounter = counter;
+                LastBodyPayload = bodyPayload;
+                bodyReceived = !bodyPayload.IsEmpty;
                 return true;
             }
         }

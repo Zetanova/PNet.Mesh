@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package pnet.type;
+
+import "google/protobuf/timestamp.proto";
+
+import "google/api/field_behavior.proto";
+import "google/api/resource.proto";
+
+option csharp_namespace = "PNet.Protos";
+
+// Dictionary for compression
+message ProtoDictionary {
+	option (google.api.resource) = {
+		type: "pnet.type/ProtoDictionary"
+		pattern: "dictionaries/{dictionary}"
+		singular: "dictionary"
+		plural: "dictionaries"
+	};
+
+	//resource name
+	//format: "dictionaries/{dictionary}"
+	string name = 1  [(google.api.field_behavior) = IDENTIFIER];
+
+	enum Type {
+		TYPE_UNSPECIFIED = 0;
+		ZSTD = 1;
+		LZ4 = 2;
+		//maybe openZL
+	}
+	//compressor type
+	Type type = 5;
+
+	google.protobuf.Timestamp create_time = 6;
+
+	repeated string tags = 7;
+
+	//todo training information
+	//todo payload or url
+	//todo crc32 or sha256
+	//maybe reference count
+}

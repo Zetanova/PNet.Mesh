@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package pnet.v1;
+
+import "google/protobuf/descriptor.proto";
+import "pnet/type/route_policy.proto";
+
+option csharp_namespace = "PNet.Protos.V1";
+
+// PNet-candidate custom options for route policy defaults and overrides.
+extend google.protobuf.ServiceOptions {
+  pnet.type.PNetRoutePolicy service_route_policy = 51001;
+}
+
+extend google.protobuf.MethodOptions {
+  pnet.type.PNetRoutePolicy method_route_policy = 51002;
+}

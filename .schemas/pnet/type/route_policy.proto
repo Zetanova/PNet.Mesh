@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package pnet.type;
+
+option csharp_namespace = "PNet.Protos";
+
+// PNet-candidate route policy for subject-based singleton leadership.
+message PNetRoutePolicy {
+  enum Leader {
+    LEADER_UNSPECIFIED = 0;
+    NONE = 1;
+    GLOBAL = 2;
+    SERVICE = 3;
+    METHOD = 4;
+    SCOPE = 5;
+    METHOD_SCOPE = 6;
+  }
+
+  Leader leader = 1;
+
+  // Only applies to SCOPE and METHOD_SCOPE.
+  // 0 = full opaque scope, 1 = first segment, 2 = first two segments.
+  uint32 scope_depth = 2;
+
+  // Optional leader eligibility role for self-advertised leadership.
+  // Routers do not centrally reject claims based on this value.
+  // The literal "none" clears inheritance.
+  string required_leader_role = 3;
+}

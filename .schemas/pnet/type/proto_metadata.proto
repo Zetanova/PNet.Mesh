@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package pnet.type;
+
+import "google/api/resource.proto";
+
+option csharp_namespace = "PNet.Protos";
+
+// Metadata for stored or transfered payload
+message ProtoMetadata {
+
+	// Size of the original payload in bytes (uncompressed).
+    // store only for compressed payload
+	uint32 payload_size = 1;
+
+    // Size of the stored payload in bytes (after compression if used).
+    // reset before storage and set it back on read
+	uint32 compressed_size = 2;
+
+    oneof dictionary_ref {
+        // ID of the compression dictionary used.
+        // 0 = no dictionary / uncompressed
+        // 1 = Zstd without dictionary
+        // 2 = LZ4 without dictionary
+        // >= 128 = user-defined dictionaries
+        uint32 dictionary_id = 3 [
+		    json_name="dicId"
+        ];
+
+        // resource name of dictionary for compression usage
+        string dictionary = 4 [
+		    json_name="dic",
+		    (google.api.resource_reference) = {
+			    type: "pnet.type/ProtoDictionary"
+		    }
+	    ];
+    }
+
+    //bitfield:
+    //bit 0: padding bit (force 1 byte varint, should be set if a single bit update is expected)
+    //bit 1: uncompressable (payload is not compressible or should not be compressed)
+    //2-31: reserved (future expansion)
+    //ideas: temporary, archived
+    uint32 flags = 10;
+
+    //schema_version = 0: Payload is bare Resource
+    //schema_version = 1: Payload is StoredResource wrapper (future breaking change)
+    int32 schema_version = 11;
+}

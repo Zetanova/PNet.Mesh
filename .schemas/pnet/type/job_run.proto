@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package pnet.type;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+import "google/api/field_behavior.proto";
+import "google/api/resource.proto";
+
+option csharp_namespace = "PNet.Protos";
+
+// Execution record for one scheduled or manually enqueued Job workload.
+message JobRun {
+  option (google.api.resource) = {
+    type: "pnet.type/JobRun"
+    pattern: "tenants/{tenant}/scopes/{scope}/jobs/{job}/runs/{job_run}"
+    pattern: "tenants/{tenant}/jobs/{job}/runs/{job_run}"
+    singular: "job_run"
+    plural: "job_runs"
+  };
+
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    PENDING = 1;
+    LEASED = 2;
+    RUNNING = 3;
+    SUCCEEDED = 4;
+    FAILED = 5;
+    CANCELLED = 6;
+  }
+
+  // The canonical resource name, not a display name.
+  // Format: tenants/{tenant}/jobs/{job}/runs/{job_run}
+  // Format: tenants/{tenant}/scopes/{scope}/jobs/{job}/runs/{job_run}
+  string name = 1 [(google.api.field_behavior) = IDENTIFIER];
+
+  State state = 2;
+
+  google.protobuf.Timestamp schedule_time = 3;
+
+  google.protobuf.Timestamp start_time = 4;
+
+  google.protobuf.Timestamp end_time = 5;
+
+  google.protobuf.Timestamp next_attempt_time = 6;
+
+  int32 attempt = 7;
+
+  string worker_peer_id = 8;
+
+  google.protobuf.Timestamp lease_expire_time = 9;
+
+  // Snapshot of the Job target at run creation time. This is a PNet Proto subject.
+  string target = 10;
+
+  // Snapshot of the Job payload at run creation time. This contains serialized
+  // PNetProtoMessage bytes, including headers and inner payload. Empty bytes
+  // are valid and represent an empty PNetProtoMessage workload emitted to target.
+  bytes payload = 11;
+
+  int32 max_attempts = 12;
+
+  google.protobuf.Duration run_timeout = 13;
+
+  // Machine-readable completion or retry status for the run.
+  string status = 14;
+
+  string etag = 15;
+}

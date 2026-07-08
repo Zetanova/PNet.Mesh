@@ -35,6 +35,17 @@ https://tools.ietf.org/html/rfc6679
 Low Extra Delay Background Transport (LEDBAT) timestamp/delay field model; runtime delay-based congestion control is not implemented
 https://tools.ietf.org/html/rfc6817
 
+## PNet Payload Frame
+
+PNet plaintext frames use one header byte followed by payload and zero padding. The header is `X000PPPP`: `000` is the PNet marker, `PPPP` is the padding length `0..15`, and `X` signals a typed payload extension. When `X` is clear, the payload bytes are raw PNet payload data. When `X` is set, the payload starts with a Varint32 frame type followed by that type's payload bytes.
+
+| Type | Meaning |
+|------|---------|
+| 0 | Raw payload; not written as a varint prefix |
+| 1 | Reliable/control `ReliableEnvelope` protobuf payload with no body tail |
+| 2 | Varint-delimited `ReliableEnvelope` protobuf payload followed by raw body bytes |
+| 3 | Varint-delimited `ReliableEnvelope.Body` protobuf payload followed by one raw body |
+
 ## Maintenance
 
 NuGet package maintenance:
@@ -42,6 +53,13 @@ NuGet package maintenance:
 ```bash
 scripts/packages.sh --dry-run
 scripts/packages.sh --name 'PNet*' --pre --dry-run
+```
+
+NuGet package build:
+
+```bash
+rm -rf dist/nuget
+dotnet pack PNet.Mesh.sln -c Release --no-restore --include-symbols -p:SymbolPackageFormat=snupkg -o dist/nuget
 ```
 
 Build and test:

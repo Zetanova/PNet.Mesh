@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package pnet.type;
+
+import "google/protobuf/timestamp.proto";
+
+import "google/api/field_behavior.proto";
+import "google/api/resource.proto";
+
+option csharp_namespace = "PNet.Protos";
+
+// Singleton leader state for a cluster scope.
+message Leader {
+	option (google.api.resource) = {
+		type: "pnet.type/Leader"
+		pattern: "clusters/{cluster}/scopes/{scope}/leader"
+		singular: "leader"
+		plural: "leaders"
+	};
+
+	enum State {
+		STATE_UNSPECIFIED = 0;
+		CANDIDATE = 1;
+		LEADER = 2;
+		STALE = 3;
+		RESIGNED = 4;
+	}
+
+	// Canonical resource name.
+	// Format: clusters/{cluster}/scopes/{scope}/leader
+	string name = 1 [(google.api.field_behavior) = IDENTIFIER];
+
+	// Parsed from `name`.
+	string cluster = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+	// Parsed from `name`.
+	string scope = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+	// Peer currently associated with this leader lease.
+	string peer_id = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+	// Time this leader lease expires unless renewed.
+	google.protobuf.Timestamp expire_time = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+	// Monotonic revision for cache conflict detection.
+	int64 revision = 6 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+	// Current lease lifecycle state.
+	State state = 7 [(google.api.field_behavior) = OUTPUT_ONLY];
+}

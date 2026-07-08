@@ -17,19 +17,26 @@ using System.Threading.Channels;
 using System.Threading.Tasks;
 using Xunit;
 
+using EnvelopeAck = PNet.Actor.Mesh.Protos.ReliableEnvelope.Types.Ack;
+using EnvelopeBody = PNet.Actor.Mesh.Protos.ReliableEnvelope.Types.Body;
+using EnvelopeSyn = PNet.Actor.Mesh.Protos.ReliableEnvelope.Types.Syn;
+using Forward = PNet.Actor.Mesh.Protos.ReliableEnvelope.Types.Body.Types.Forward;
+using MeshEndpoint = PNet.Actor.Mesh.Protos.MeshEndpoint;
+using ReliableEnvelope = PNet.Actor.Mesh.Protos.ReliableEnvelope;
+
 namespace PNet.Actor.UnitTests.Mesh
 {
     public sealed class PNetMeshRoutingUnitTests
     {
         [Fact]
-        public void address_derivation_uses_first_ten_sha1_bytes_and_validates_lengths()
+        public void address_derivation_uses_first_ten_blake2s_v1_bytes_and_validates_lengths()
         {
             var publicKey = Enumerable.Range(0, 32).Select(i => (byte)i).ToArray();
             var address = new byte[10];
 
             PNetMeshUtils.GetAddressFromPublicKey(publicKey, address);
 
-            Assert.Equal(new byte[] { 0xae, 0x5b, 0xd8, 0xef, 0xea, 0x53, 0x22, 0xc4, 0xd9, 0x98 }, address);
+            Assert.Equal(new byte[] { 0x41, 0x43, 0xf9, 0xa3, 0xf9, 0x28, 0x4f, 0x2f, 0xa2, 0x48 }, address);
             Assert.Throws<ArgumentOutOfRangeException>(() => PNetMeshUtils.GetAddressFromPublicKey(publicKey.AsSpan(0, 31), address));
             Assert.Throws<ArgumentOutOfRangeException>(() => PNetMeshUtils.GetAddressFromPublicKey(publicKey, new byte[9]));
         }
@@ -167,7 +174,7 @@ namespace PNet.Actor.UnitTests.Mesh
 
             Assert.Equal(ipv6.Address, ipv6RoundTrip.Address);
             Assert.Equal(ipv6.Port, ipv6RoundTrip.Port);
-            Assert.Equal(ipv6.Address.GetAddressBytes(), ipv6Proto.Ip.V6.ToByteArray());
+            Assert.Equal(ipv6.Address.GetAddressBytes(), ipv6Proto.Ip.Ipv6.ToByteArray());
         }
 
         [Fact]
@@ -1554,8 +1561,10 @@ namespace PNet.Actor.UnitTests.Mesh
 
             sender.WritePayload(Encoding.UTF8.GetBytes("first"));
             var first = ReadPacket(senderOutbound);
+            var firstBytes = first.MemoryBuffer.ToArray();
             sender.WritePayload(Encoding.UTF8.GetBytes("second"));
             var second = ReadPacket(senderOutbound);
+            var secondBytes = second.MemoryBuffer.ToArray();
             sender.WritePayload(Encoding.UTF8.GetBytes("third"));
             Assert.False(senderOutbound.Reader.TryRead(out _));
 
@@ -1579,8 +1588,8 @@ namespace PNet.Actor.UnitTests.Mesh
             queuedFlush.Handler();
             var third = ReadPacket(senderOutbound);
 
-            receiver.ReadMessage(first.MemoryBuffer.Span);
-            receiver.ReadMessage(second.MemoryBuffer.Span);
+            receiver.ReadMessage(firstBytes);
+            receiver.ReadMessage(secondBytes);
             receiver.ReadMessage(third.MemoryBuffer.Span);
 
             AssertPayload(receiverChannels.Inbound, "first");
@@ -1712,7 +1721,18 @@ namespace PNet.Actor.UnitTests.Mesh
             var receiverChannels = AttachSession(receiver);
             OpenSessionPair(sender, receiver, senderOutbound, receiverOutbound, receiverKey.PublicKey);
 
-            var syn = WriteSynPacket(receiver, maxOutstandingSeq: 2, maxPacketSize: 24);
+            var acceptedPayload = Encoding.UTF8.GetBytes("ok");
+            var acceptedEnvelope = new ReliableEnvelope();
+            acceptedEnvelope.Bodies.Add(CreateBody(acceptedPayload.Length));
+            acceptedEnvelope.Ack = new EnvelopeAck
+            {
+                AckSeqNumber = GetReceiveCounter(sender) + 1,
+                OutOfSequencePackets = ByteString.Empty
+            };
+            var syn = WriteSynPacket(
+                receiver,
+                maxOutstandingSeq: 2,
+                maxPacketSize: CalculateReliableBodiesFrameSize(acceptedEnvelope, acceptedPayload.Length));
             sender.ReadMessage(syn.Span);
 
             var oversizedPayload = Encoding.UTF8.GetBytes("payload larger than negotiated limit");
@@ -1721,7 +1741,7 @@ namespace PNet.Actor.UnitTests.Mesh
             Assert.Equal("payload", exception.ParamName);
             Assert.False(senderOutbound.Reader.TryRead(out _));
 
-            sender.WritePayload(Encoding.UTF8.GetBytes("ok"));
+            sender.WritePayload(acceptedPayload);
             var recovered = ReadPacket(senderOutbound);
             receiver.ReadMessage(recovered.MemoryBuffer.Span);
             AssertPayload(receiverChannels.Inbound, "ok");
@@ -1758,17 +1778,14 @@ namespace PNet.Actor.UnitTests.Mesh
             OpenSessionPair(sender, receiver, senderOutbound, receiverOutbound, receiverKey.PublicKey);
 
             var payload = Encoding.UTF8.GetBytes("x");
-            var packet = new PNet.Actor.Mesh.Protos.Packet();
-            packet.Payload.Add(new PNet.Actor.Mesh.Protos.Payload
-            {
-                Raw = ByteString.CopyFrom(payload)
-            });
-            packet.Ack = new PNet.Actor.Mesh.Protos.Ack
+            var packet = new ReliableEnvelope();
+            packet.Bodies.Add(CreateBody(payload.Length));
+            packet.Ack = new EnvelopeAck
             {
                 AckSeqNumber = GetReceiveCounter(sender) + 1,
-                OutOfSeqPackets = ByteString.Empty
+                OutOfSequencePackets = ByteString.Empty
             };
-            var exactPacketSize = PNetMeshPayloadFraming.CalculatePNetFrameSize(packet.CalculateSize());
+            var exactPacketSize = CalculateReliableBodiesFrameSize(packet, payload.Length);
 
             var exactLimit = WriteSynPacket(receiver, maxOutstandingSeq: 4, maxPacketSize: exactPacketSize);
             sender.ReadMessage(exactLimit.Span);
@@ -1908,11 +1925,8 @@ namespace PNet.Actor.UnitTests.Mesh
             OpenSessionPair(sender, receiver, senderOutbound, receiverOutbound, receiverKey.PublicKey);
 
             var payload = Encoding.UTF8.GetBytes("x");
-            var payloadOnlyPacket = new PNet.Actor.Mesh.Protos.Packet();
-            payloadOnlyPacket.Payload.Add(new PNet.Actor.Mesh.Protos.Payload
-            {
-                Raw = ByteString.CopyFrom(payload)
-            });
+            var payloadOnlyPacket = new ReliableEnvelope();
+            payloadOnlyPacket.Bodies.Add(CreateBody(payload.Length));
 
             var negotiatedPacketSize = payloadOnlyPacket.CalculateSize();
             var syn = WriteSynPacket(receiver, maxOutstandingSeq: 4, maxPacketSize: negotiatedPacketSize);
@@ -2202,7 +2216,7 @@ namespace PNet.Actor.UnitTests.Mesh
 
             var syn = WriteSynPacket(receiver,
                 maxOutstandingSeq: 1,
-                maxPacketSize: PNetMeshPayloadFraming.CalculatePNetFrameSize(CalculateRelayPacketSize(secondPacket)) - 1,
+                maxPacketSize: CalculateRelayFrameSize(secondPacket) - 1,
                 maxCumAck: 100);
             sender.ReadMessage(syn.Span);
 
@@ -4339,15 +4353,15 @@ namespace PNet.Actor.UnitTests.Mesh
             ulong ackSeqNumber,
             byte[] outOfSeqPackets)
         {
-            var packet = new PNet.Actor.Mesh.Protos.Packet
+            var packet = new ReliableEnvelope
             {
-                Ack = new PNet.Actor.Mesh.Protos.Ack
+                Ack = new EnvelopeAck
                 {
                     AckSeqNumber = ackSeqNumber,
-                    OutOfSeqPackets = ByteString.CopyFrom(outOfSeqPackets)
+                    OutOfSequencePackets = ByteString.CopyFrom(outOfSeqPackets)
                 }
             };
-            return WritePNetPacket(session, packet);
+            return WritePNetEnvelope(session, packet);
         }
 
         static ReadOnlyMemory<byte> WriteAckPayloadPacket(PNetMeshSession session, ulong ackSeqNumber, string payload)
@@ -4370,20 +4384,18 @@ namespace PNet.Actor.UnitTests.Mesh
             ByteString outOfSeqPackets,
             string payload)
         {
-            var packet = new PNet.Actor.Mesh.Protos.Packet
+            var packet = new ReliableEnvelope
             {
-                Ack = new PNet.Actor.Mesh.Protos.Ack
+                Ack = new EnvelopeAck
                 {
                     AckSeqNumber = ackSeqNumber,
-                    OutOfSeqPackets = outOfSeqPackets
+                    OutOfSequencePackets = outOfSeqPackets
                 }
             };
-            packet.Payload.Add(new PNet.Actor.Mesh.Protos.Payload
-            {
-                Raw = ByteString.CopyFrom(Encoding.UTF8.GetBytes(payload))
-            });
+            var payloadBytes = Encoding.UTF8.GetBytes(payload);
+            packet.Bodies.Add(CreateBody(payloadBytes.Length));
 
-            return WritePNetPacket(session, packet);
+            return WritePNetEnvelope(session, packet, payloadBytes);
         }
 
         static ReadOnlyMemory<byte> WriteSynPacket(
@@ -4395,55 +4407,120 @@ namespace PNet.Actor.UnitTests.Mesh
             int retransmissionTimeout = 0,
             int cumulativeAckTimeout = 0)
         {
-            var packet = new PNet.Actor.Mesh.Protos.Packet
+            var packet = new ReliableEnvelope
             {
-                Syn = new PNet.Actor.Mesh.Protos.Syn
+                Syn = new EnvelopeSyn
                 {
                     MaxOutstandingSeq = maxOutstandingSeq,
                     MaxPacketSize = maxPacketSize,
-                    MaxCumAck = maxCumAck,
-                    MaxOutOfSeq = maxOutOfSeq,
-                    RetransmissionTimeout = retransmissionTimeout,
-                    CumulativeAckTimeout = cumulativeAckTimeout
+                    MaxCumulativeAcks = maxCumAck,
+                    MaxOutOfSequence = maxOutOfSeq,
+                    RetransmissionTimeoutMs = retransmissionTimeout,
+                    CumulativeAckTimeoutMs = cumulativeAckTimeout
                 }
             };
-            return WritePNetPacket(session, packet);
+            return WritePNetEnvelope(session, packet);
         }
 
-        static ReadOnlyMemory<byte> WritePNetPacket(PNetMeshSession session, PNet.Actor.Mesh.Protos.Packet packet)
+        static ReadOnlyMemory<byte> WritePNetEnvelope(PNetMeshSession session, ReliableEnvelope packet)
         {
             var payload = packet.ToByteArray();
-            var frame = PNetMeshPayloadFraming.CreatePNet(payload);
+            var frame = new byte[CalculateReliableEnvelopeFrameSize(packet)];
+            Assert.True(PNetMeshPayloadFraming.TryWritePNet(
+                PNetMeshPNetFrameType.ReliableEnvelope,
+                payload,
+                frame,
+                out var frameBytes));
             var buffer = new byte[frame.Length + 48];
             var transport = GetTransport(session);
-            transport.WriteMessage(frame, buffer, out var bytesWritten, out _);
+            transport.WriteMessage(frame.AsSpan(0, frameBytes), buffer, out var bytesWritten, out _);
             return buffer.AsMemory(0, bytesWritten);
         }
 
-        static int CalculateRelayPacketSize(PNetMeshRelayPacket packet)
+        static ReadOnlyMemory<byte> WritePNetEnvelope(PNetMeshSession session, ReliableEnvelope packet, ReadOnlySpan<byte> payloadTail)
         {
-            var relay = new PNet.Actor.Mesh.Protos.Relay
+            var packetBytes = packet.ToByteArray();
+            var reliablePayload = new byte[PNetMeshUtils.GetVarint32Size((uint)packetBytes.Length) + packetBytes.Length + payloadTail.Length];
+            var offset = PNetMeshUtils.WriteVarint32(packetBytes.Length, reliablePayload);
+            packetBytes.CopyTo(reliablePayload.AsSpan(offset));
+            offset += packetBytes.Length;
+            payloadTail.CopyTo(reliablePayload.AsSpan(offset));
+
+            var frame = new byte[CalculateReliableBodiesFrameSize(packet, payloadTail.Length)];
+            Assert.True(PNetMeshPayloadFraming.TryWritePNet(
+                PNetMeshPNetFrameType.ReliableBodies,
+                reliablePayload,
+                frame,
+                out var frameBytes));
+            var buffer = new byte[frame.Length + 48];
+            var transport = GetTransport(session);
+            transport.WriteMessage(frame.AsSpan(0, frameBytes), buffer, out var bytesWritten, out _);
+            return buffer.AsMemory(0, bytesWritten);
+        }
+
+        static int CalculateReliableEnvelopeFrameSize(ReliableEnvelope packet)
+        {
+            var packetLength = packet.CalculateSize();
+            var pnetPayloadLength = PNetMeshPayloadFraming.CalculatePNetTypedPayloadSize(
+                PNetMeshPNetFrameType.ReliableEnvelope,
+                packetLength);
+            return PNetMeshPayloadFraming.CalculatePNetFrameSize(pnetPayloadLength);
+        }
+
+        static int CalculateReliableBodiesFrameSize(ReliableEnvelope packet, int payloadTailLength)
+        {
+            var packetLength = packet.CalculateSize();
+            var reliablePayloadLength = PNetMeshUtils.GetVarint32Size((uint)packetLength) + packetLength + payloadTailLength;
+            var pnetPayloadLength = PNetMeshPayloadFraming.CalculatePNetTypedPayloadSize(
+                PNetMeshPNetFrameType.ReliableBodies,
+                reliablePayloadLength);
+            return PNetMeshPayloadFraming.CalculatePNetFrameSize(pnetPayloadLength);
+        }
+
+        static EnvelopeBody CreateBody(int payloadLength)
+        {
+            return new EnvelopeBody
             {
-                Address = new PNet.Actor.Mesh.Protos.MeshEndPoint
+                Metadata = CreatePayloadMetadata(payloadLength)
+            };
+        }
+
+        static PNet.Protos.ProtoMetadata CreatePayloadMetadata(int payloadLength)
+        {
+            return new PNet.Protos.ProtoMetadata
+            {
+                PayloadSize = (uint)payloadLength,
+                CompressedSize = (uint)payloadLength
+            };
+        }
+
+        static int CalculateRelayFrameSize(PNetMeshRelayPacket packet)
+        {
+            var body = new EnvelopeBody
+            {
+                Metadata = CreatePayloadMetadata(packet.Payload.Length),
+                Forward = new Forward
                 {
-                    Hash = ByteString.CopyFrom(packet.Address)
-                },
-                SeqNumber = packet.SeqNumber,
-                HopCount = packet.HopCount,
-                Packet = ByteString.CopyFrom(packet.Payload.Span)
+                    Destination = new MeshEndpoint
+                    {
+                        Address = ByteString.CopyFrom(packet.Address)
+                    },
+                    SequenceNumber = packet.SeqNumber,
+                    HopLimit = packet.HopCount
+                }
             };
 
             foreach (var route in packet.Route)
             {
-                relay.Route.Add(new PNet.Actor.Mesh.Protos.MeshEndPoint
+                body.Forward.Route.Add(new MeshEndpoint
                 {
-                    Hash = ByteString.CopyFrom(route)
+                    Address = ByteString.CopyFrom(route)
                 });
             }
 
-            var protoPacket = new PNet.Actor.Mesh.Protos.Packet();
-            protoPacket.Relay.Add(relay);
-            return protoPacket.CalculateSize();
+            var envelope = new ReliableEnvelope();
+            envelope.Bodies.Add(body);
+            return CalculateReliableBodiesFrameSize(envelope, packet.Payload.Length);
         }
 
         static PNetMeshRelayPacket CreateRelayPacket(byte[] address, ulong sequence, string payload)

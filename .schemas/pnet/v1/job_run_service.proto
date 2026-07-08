@@ -1,0 +1,132 @@
+syntax = "proto3";
+
+package pnet.v1;
+
+import "google/protobuf/field_mask.proto";
+
+import "google/api/annotations.proto";
+import "google/api/client.proto";
+import "google/api/field_behavior.proto";
+import "google/api/resource.proto";
+
+import "pnet/type/job_run.proto";
+
+option csharp_namespace = "PNet.Protos.V1";
+
+// Run lifecycle for pnet.type.JobRun resources.
+service JobRunService {
+  // Lists job runs under a job. AIP-132.
+  rpc ListJobRuns(ListJobRunsRequest) returns (ListJobRunsResponse) {
+    option (google.api.http) = {
+      get: "/v1/{parent=tenants/*/scopes/*/jobs/*}/runs"
+      additional_bindings {
+        get: "/v1/{parent=tenants/*/jobs/*}/runs"
+      }
+    };
+    option (google.api.method_signature) = "parent";
+  }
+
+  // Gets a job run by canonical resource name. AIP-131.
+  rpc GetJobRun(GetJobRunRequest) returns (pnet.type.JobRun) {
+    option (google.api.http) = {
+      get: "/v1/{name=tenants/*/scopes/*/jobs/*/runs/*}"
+      additional_bindings {
+        get: "/v1/{name=tenants/*/jobs/*/runs/*}"
+      }
+    };
+    option (google.api.method_signature) = "name";
+  }
+
+  // Creates a job run. AIP-133.
+  rpc CreateJobRun(CreateJobRunRequest) returns (pnet.type.JobRun) {
+    option (google.api.http) = {
+      post: "/v1/{parent=tenants/*/scopes/*/jobs/*}/runs"
+      body: "job_run"
+      additional_bindings {
+        post: "/v1/{parent=tenants/*/jobs/*}/runs"
+        body: "job_run"
+      }
+    };
+    option (google.api.method_signature) = "parent,job_run,job_run_id";
+  }
+
+  // Updates a job run. AIP-134.
+  rpc UpdateJobRun(UpdateJobRunRequest) returns (pnet.type.JobRun) {
+    option (google.api.http) = {
+      patch: "/v1/{job_run.name=tenants/*/scopes/*/jobs/*/runs/*}"
+      body: "job_run"
+      additional_bindings {
+        patch: "/v1/{job_run.name=tenants/*/jobs/*/runs/*}"
+        body: "job_run"
+      }
+    };
+    option (google.api.method_signature) = "job_run,update_mask";
+  }
+}
+
+message ListJobRunsRequest {
+  // Parent job resource for the run collection request.
+  // Format: tenants/{tenant}/jobs/{job}
+  // Format: tenants/{tenant}/scopes/{scope}/jobs/{job}
+  string parent = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (google.api.resource_reference).child_type = "pnet.type/JobRun"
+  ];
+
+  int32 page_size = 2;
+
+  string page_token = 3;
+}
+
+message ListJobRunsResponse {
+  repeated pnet.type.JobRun job_runs = 1;
+
+  string next_page_token = 2;
+}
+
+message GetJobRunRequest {
+  // Canonical job run resource name.
+  // Format: tenants/{tenant}/jobs/{job}/runs/{job_run}
+  // Format: tenants/{tenant}/scopes/{scope}/jobs/{job}/runs/{job_run}
+  string name = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (google.api.resource_reference).type = "pnet.type/JobRun"
+  ];
+}
+
+message CreateJobRunRequest {
+  // Parent job resource that will contain the new run.
+  // Format: tenants/{tenant}/jobs/{job}
+  // Format: tenants/{tenant}/scopes/{scope}/jobs/{job}
+  string parent = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (google.api.resource_reference).child_type = "pnet.type/JobRun"
+  ];
+
+  // The job run ID to use in the canonical resource name.
+  string job_run_id = 2 [(google.api.field_behavior) = REQUIRED];
+
+  pnet.type.JobRun job_run = 3 [(google.api.field_behavior) = REQUIRED];
+
+  bool validate_only = 4;
+
+  // Optional request identifier for retry-safe create calls.
+  string request_id = 5 [(google.api.field_behavior) = OPTIONAL];
+}
+
+message UpdateJobRunRequest {
+  pnet.type.JobRun job_run = 1 [(google.api.field_behavior) = REQUIRED];
+
+  google.protobuf.FieldMask update_mask = 2 [(google.api.field_behavior) = REQUIRED];
+
+  bool validate_only = 3;
+
+  // Optional etag for optimistic concurrency.
+  string etag = 4 [(google.api.field_behavior) = OPTIONAL];
+
+  // If true, updating a missing job run creates it.
+  bool allow_missing = 5;
+
+  // Optional request identifier for retry-safe update calls.
+  string request_id = 6 [(google.api.field_behavior) = OPTIONAL];
+}

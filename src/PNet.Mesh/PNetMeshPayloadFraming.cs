@@ -9,6 +9,24 @@ namespace PNet.Mesh
         IPv6 = 6
     }
 
+    /// <summary>
+    /// PNet payload type index carried as a Varint32 when the PNet frame high bit is set.
+    /// </summary>
+    public enum PNetMeshPNetFrameType
+    {
+        /// <summary>Untyped PNet payload bytes. This value is implied by a clear high bit.</summary>
+        Raw = 0,
+
+        /// <summary>Reliable/control <c>MeshProtocol.ReliableEnvelope</c> protobuf payload with no body tail.</summary>
+        ReliableEnvelope = 1,
+
+        /// <summary>Varint-delimited <c>MeshProtocol.ReliableEnvelope</c> protobuf payload followed by raw body bytes.</summary>
+        ReliableBodies = 2,
+
+        /// <summary>Varint-delimited <c>MeshProtocol.ReliableEnvelope.Body</c> protobuf payload followed by one raw body.</summary>
+        Body = 3
+    }
+
     public enum PNetMeshPayloadFrameError
     {
         None = 0,
@@ -72,9 +90,19 @@ namespace PNet.Mesh
             : _frame.Slice(TotalLength - PaddingLength, PaddingLength);
     }
 
+    /// <summary>
+    /// PNet plaintext frame format:
+    /// byte 0 is <c>X000PPPP</c>. The middle <c>000</c> bits are the PNet marker
+    /// and <c>PPPP</c> is zero-padding length. When <c>X</c> is clear, the PNet
+    /// payload is raw bytes. When <c>X</c> is set, the PNet payload starts with a
+    /// Varint32 <see cref="PNetMeshPNetFrameType"/> value followed by that type's
+    /// payload bytes.
+    /// </summary>
     public static class PNetMeshPayloadFraming
     {
         public const byte PNetMarkerMask = 0x70;
+
+        public const byte PNetExtendedHeaderSignal = 0x80;
 
         public static bool TryRead(ReadOnlySpan<byte> payload, out PNetMeshPayloadFrame frame)
         {
@@ -215,6 +243,106 @@ namespace PNet.Mesh
             return (headerByte & PNetMarkerMask) == 0;
         }
 
+        public static bool TryReadPNetFrameType(
+            PNetMeshPayloadFrame frame,
+            out PNetMeshPNetFrameType frameType,
+            out ReadOnlySpan<byte> payload,
+            out int frameTypeBytesRead)
+        {
+            frameType = PNetMeshPNetFrameType.Raw;
+            payload = ReadOnlySpan<byte>.Empty;
+            frameTypeBytesRead = 0;
+
+            if (frame.Kind != PNetMeshPayloadFrameKind.PNet)
+                return false;
+
+            payload = frame.Payload;
+            if (!frame.HasExtendedHeaderSignal)
+                return true;
+
+            int value;
+            try
+            {
+                value = PNetMeshUtils.ReadVarint32(payload, out frameTypeBytesRead);
+            }
+            catch (InvalidOperationException)
+            {
+                payload = ReadOnlySpan<byte>.Empty;
+                frameTypeBytesRead = 0;
+                return false;
+            }
+
+            if (value < 0)
+            {
+                payload = ReadOnlySpan<byte>.Empty;
+                frameTypeBytesRead = 0;
+                return false;
+            }
+
+            frameType = (PNetMeshPNetFrameType)value;
+            payload = payload[frameTypeBytesRead..];
+            return true;
+        }
+
+        public static int CalculatePNetTypedPayloadSize(PNetMeshPNetFrameType frameType, int payloadLength)
+        {
+            if (payloadLength < 0)
+                throw new ArgumentOutOfRangeException(nameof(payloadLength));
+            if ((int)frameType < 0)
+                throw new ArgumentOutOfRangeException(nameof(frameType));
+
+            return frameType == PNetMeshPNetFrameType.Raw
+                ? payloadLength
+                : checked(PNetMeshUtils.GetVarint32Size((uint)frameType) + payloadLength);
+        }
+
+        public static bool TryWritePNetTypedPayload(
+            PNetMeshPNetFrameType frameType,
+            ReadOnlySpan<byte> payload,
+            Span<byte> destination,
+            out int bytesWritten)
+        {
+            bytesWritten = CalculatePNetTypedPayloadSize(frameType, payload.Length);
+            if (destination.Length < bytesWritten)
+                return false;
+
+            var c = 0;
+            if (frameType != PNetMeshPNetFrameType.Raw)
+                c += PNetMeshUtils.WriteVarint32((int)frameType, destination);
+
+            payload.CopyTo(destination[c..bytesWritten]);
+            return true;
+        }
+
+        public static bool TryWritePNet(
+            PNetMeshPNetFrameType frameType,
+            ReadOnlySpan<byte> payload,
+            Span<byte> destination,
+            out int bytesWritten)
+        {
+            var typedPayloadLength = CalculatePNetTypedPayloadSize(frameType, payload.Length);
+            var headerByte = CreatePNetHeaderByte(
+                typedPayloadLength,
+                frameType != PNetMeshPNetFrameType.Raw);
+            bytesWritten = CalculatePNetFrameSize(typedPayloadLength, headerByte);
+            if (destination.Length < bytesWritten)
+                return false;
+
+            destination[0] = headerByte;
+            if (!TryWritePNetTypedPayload(
+                    frameType,
+                    payload,
+                    destination.Slice(1, typedPayloadLength),
+                    out var typedPayloadBytesWritten)
+                || typedPayloadBytesWritten != typedPayloadLength)
+            {
+                throw new InvalidOperationException("Unable to write PNet typed payload.");
+            }
+
+            ClearPNetPadding(destination, typedPayloadLength, headerByte);
+            return true;
+        }
+
         public static byte[] CreatePNet(ReadOnlySpan<byte> payload, bool hasExtendedHeaderSignal = false)
         {
             return CreatePNet(payload, CreatePNetHeaderByte(payload.Length, hasExtendedHeaderSignal));
@@ -307,7 +435,7 @@ namespace PNet.Mesh
         static byte CreatePNetHeaderByte(int payloadLength, bool hasExtendedHeaderSignal)
         {
             var paddingLength = CalculatePNetPaddingLength(payloadLength);
-            return (byte)(paddingLength | (hasExtendedHeaderSignal ? 0x80 : 0));
+            return (byte)(paddingLength | (hasExtendedHeaderSignal ? PNetExtendedHeaderSignal : 0));
         }
 
         static void ClearPNetPadding(Span<byte> destination, int payloadLength, byte headerByte)

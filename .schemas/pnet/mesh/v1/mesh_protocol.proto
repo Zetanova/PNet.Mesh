@@ -1,0 +1,206 @@
+﻿syntax = "proto3";
+
+package pnet.mesh.v1;
+
+option csharp_namespace = "PNet.Actor.Mesh.Protos";
+import "google/protobuf/timestamp.proto";
+import "pnet/type/proto_metadata.proto";
+
+
+// RELIABLE UDP PROTOCOL
+// https://tools.ietf.org/id/draft-ietf-sigtran-reliable-udp-00.txt
+// UDP Usage Guidelines
+// https://tools.ietf.org/html/rfc8085
+// The Benefits of Using Explicit Congestion Notification (ECN)
+// https://tools.ietf.org/html/rfc8087
+
+message ReliableEnvelope {
+	// Ordered body descriptors. In a ReliableBodies frame, raw body bytes follow
+	// the delimited ReliableEnvelope in the same order as this field.
+	repeated Body bodies = 1;
+	// Acknowledgment segment.
+	Ack ack = 2;
+	// Synchronization segment used to negotiate reliable transport parameters.
+	Syn syn = 3;
+	// Reset segment used to close or reset a connection. The sender stops
+	// accepting new bodies but continues attempting delivery of already accepted
+	// bodies.
+	bool reset = 4 [json_name = "rst"];
+	// Probe segment used to determine whether the peer is still active.
+	Probe probe = 5;
+	// Reply to a probe request.
+	ProbeReply probe_reply = 6;
+	// Interactive Connectivity Establishment (ICE) metadata.
+	CandidateExchange candidate_exchange = 7;
+	// LEDBAT sender timestamp.
+	google.protobuf.Timestamp send_time = 10;
+	// Sender does not require an ACK for this envelope. Receivers should not
+	// start an ACK timer solely because of this envelope.
+	bool do_not_ack = 11;
+
+	message Body {
+		// Body metadata, including payload size, compressed size, and dictionary
+		// reference.
+		pnet.type.ProtoMetadata metadata = 1;
+		// Optional forwarding metadata. Unset means local delivery.
+		Forward forward = 2;
+
+		message Forward {
+			// Destination mesh routing locator. Unset means broadcast or local policy.
+			MeshEndpoint destination = 1;
+			// Sender-scoped forwarding sequence number for duplicate detection.
+			uint64 sequence_number = 2;
+			// Candidate exchange from the forwarding sender.
+			CandidateExchange candidate_exchange = 3;
+			// Remaining relay hops. Each forwarder decrements before forwarding.
+			uint32 hop_limit = 4;
+			// Forwarding path, starting at the original sender.
+			repeated MeshEndpoint route = 5;
+		}
+	}
+
+	message Syn {
+		// Initial reliable transport protocol version.
+		int32 version = 1;
+		// Sender connection identifier.
+		int32 connection_id = 2;
+		// Maximum number of segments sent without acknowledgment.
+		int32 max_outstanding_seq = 3;
+		// Maximum peer receive size, including the reliable transport header.
+		int32 max_packet_size = 4;
+		// Retransmission timeout for unacknowledged segments, in milliseconds.
+		int32 retransmission_timeout_ms = 5;
+		// ACK delay timeout when no other segment is sent, in milliseconds.
+		int32 cumulative_ack_timeout_ms = 6;
+		// Keep-alive null-segment timeout, in milliseconds. Zero disables null
+		// segments.
+		int32 null_segment_timeout_ms = 7;
+		// State retention timeout before auto reset, in milliseconds.
+		int32 transfer_state_timeout_ms = 8;
+		// Maximum consecutive retransmission attempts. Zero means retry forever.
+		int32 max_retransmissions = 9 [json_name = "maxRetrans"];
+		// Maximum cumulative ACK count before sending an ACK segment. Zero means
+		// ACK immediately.
+		int32 max_cumulative_acks = 10 [json_name = "maxCumAck"];
+		// Maximum out-of-sequence packet count before sending an extended ACK.
+		int32 max_out_of_sequence = 11;
+		// Maximum consecutive auto resets before resetting the connection.
+		int32 max_auto_reset = 12;
+		// Reuse previous negotiable parameters during auto reset.
+		bool reuse = 13;
+	}
+
+	message Ack {
+		// Sequence number of the last segment received in sequence.
+		uint64 ack_seq_number = 1;
+		// Bitmap of received out-of-sequence segments from ack_seq_number onward.
+		bytes out_of_sequence_packets = 2 [json_name = "outOfSeqPackets"];
+		// LEDBAT bundled delay samples.
+		repeated int32 delay_ms = 3;
+	}
+
+	message Probe {
+		// Probe identifier.
+		int32 id = 1;
+		// Sender timestamp.
+		google.protobuf.Timestamp send_time = 2;
+		// Request ECN marking validation.
+		bool ecn_check = 3;
+		// Request a transport report in the reply.
+		bool report = 4;
+	}
+
+	message ProbeReply {
+		// Probe identifier.
+		int32 id = 1;
+		google.protobuf.Timestamp sender_time = 2;
+		google.protobuf.Timestamp receiver_time = 3;
+		IpEndpoint sender_address = 4;
+		EcnMarking ecn = 5;
+		Report report = 6;
+
+		enum EcnMarking {
+			ECN_MARKING_UNSPECIFIED = 0;
+			ECT0 = 1;
+			ECT1 = 2;
+			CE = 3;
+		}
+
+		message Report {
+			uint32 lost_packet_count = 1;
+			uint32 duplicate_packet_count = 2;
+			uint32 ecn_ce_count = 3;
+			uint32 ect_count = 4;
+			uint32 not_ect_count = 5;
+		}
+	}
+}
+
+message CandidateExchange {
+	repeated Candidate candidates = 1;
+	// ICE lite agent type.
+	bool lite = 2;
+	// Connectivity-check pacing value in milliseconds.
+	uint32 check_pacing_ms = 3;
+	string username_fragment = 4;
+	string password = 5;
+
+	message Candidate {
+		Endpoint endpoint = 1;
+		TransportProtocol protocol = 2;
+		// A sequence of up to 32 characters.
+		string foundation = 3;
+		// The component ID of the candidate.
+		uint32 component_id = 4;
+		uint32 priority = 5;
+		CandidateType type = 6;
+		Endpoint related_endpoint = 7;
+
+		enum TransportProtocol {
+			TRANSPORT_PROTOCOL_UNSPECIFIED = 0;
+			UDP = 1;
+			TCP = 2;
+		}
+
+		enum CandidateType {
+			CANDIDATE_TYPE_UNSPECIFIED = 0;
+			HOST = 1;
+			SERVER_REFLEXIVE = 2;
+			PEER_REFLEXIVE = 3;
+			RELAYED = 4;
+		}
+	}
+}
+
+message Endpoint {
+	oneof value {
+		IpEndpoint ip = 1;
+		DnsEndpoint dns = 2;
+		MeshEndpoint mesh = 3;
+	}
+}
+
+message IpEndpoint {
+	oneof address {
+		// 4-byte IPv4 address in network byte order.
+		bytes ipv4 = 1;
+		// 16-byte IPv6 address in network byte order.
+		bytes ipv6 = 2;
+	}
+	uint32 port = 3;
+}
+
+message DnsEndpoint {
+	string hostname = 1;
+	uint32 port = 2;
+}
+
+message MeshEndpoint {
+	oneof identifier {
+		// 32-byte X25519 static public key.
+		bytes static_public_key = 1;
+		// Compact routing locator, not an authentication identity.
+		// v1 derivation: BLAKE2s-256("pnet.mesh.address.v1" || static_public_key)[0..10].
+		bytes address = 2;
+	}
+}

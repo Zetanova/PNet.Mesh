@@ -1,0 +1,186 @@
+syntax = "proto3";
+
+package pnet.v1;
+
+import "google/protobuf/timestamp.proto";
+
+import "google/api/annotations.proto";
+import "google/api/field_behavior.proto";
+import "google/api/client.proto";
+import "google/api/resource.proto";
+
+import "pnet/type/blob.proto";
+
+option csharp_namespace = "PNet.Protos.V1";
+
+// Chunked content lifecycle for pnet.type.Blob resources.
+// Use this service for versioned blob uploads, reads, and content inspection.
+service BlobContentService {
+	// Writes one content chunk through gRPC/JSON transcoding.
+    //
+    // Raw HTTP media endpoint, outside google.api.http JSON transcoding:
+    //   PUT /v1/{name=tenants/*/scopes/*/blobs/*}/content
+    //   PUT /v1/{name=tenants/*/blobs/*}/content
+    //
+    // Query:
+    //   version: required target version.
+    //   offset_bytes: byte offset, unless Content-Range is used.
+    //
+    // Headers:
+    //   Content-Type
+    //   Content-Range
+    //   Content-Digest
+    //   If-Match
+    //   tag: optional Blob.tags values. Use "temporary" to mark the upload as
+    //     temporary, then remove the tag through BlobService.UpdateBlob to
+    //     promote it to durable metadata.
+    rpc WriteBlobChunk(WriteBlobChunkRequest) returns (WriteBlobChunkResponse) {
+      option (google.api.http) = {
+        put: "/v1/{name=tenants/*/scopes/*/blobs/*}:writeChunk"
+        body: "*"
+        additional_bindings {
+          put: "/v1/{name=tenants/*/blobs/*}:writeChunk"
+          body: "*"
+        }
+      };
+      option (google.api.method_signature) = "name,version,chunk_index,data";
+    }
+
+    // Reads one content chunk through gRPC/JSON transcoding.
+    //
+    // Raw HTTP media endpoint, outside google.api.http JSON transcoding:
+    //   GET /v1/{name=tenants/*/scopes/*/blobs/*}/content
+    //   GET /v1/{name=tenants/*/blobs/*}/content
+    //
+    // Query:
+    //   version: optional in the schema contract; empty means latest published version.
+    //   Current runtime requires an explicit version.
+    //
+    // Headers:
+    //   Accept
+    //   Range
+    rpc ReadBlobContent(ReadBlobContentRequest) returns (stream ReadBlobContentResponse) {
+      option (google.api.http) = {
+        get: "/v1/{name=tenants/*/scopes/*/blobs/*}:read"
+        additional_bindings {
+          get: "/v1/{name=tenants/*/blobs/*}:read"
+        }
+      };
+      option (google.api.method_signature) = "name";
+    }
+
+    // Returns blob stream info for the head or requested content version.
+    // Current runtime support is pending.
+    rpc GetBlobInfo(GetBlobInfoRequest) returns (pnet.type.BlobInfo) {
+        option (google.api.http) = {
+          get: "/v1/{name=tenants/*/scopes/*/blobs/*/info}"
+          additional_bindings {
+            get: "/v1/{name=tenants/*/blobs/*/info}"
+          }
+          additional_bindings {
+            get: "/v1/{name=tenants/*/scopes/*/blobs/*/versions/*/info}"
+          }
+          additional_bindings {
+            get: "/v1/{name=tenants/*/blobs/*/versions/*/info}"
+          }
+        };
+        option (google.api.method_signature) = "name";
+    }
+}
+
+message WriteBlobChunkRequest {
+	string name = 1 [
+      (google.api.field_behavior) = REQUIRED,
+      (google.api.resource_reference).type = "pnet.type/Blob"
+    ];
+
+	// Target version. If empty, the service creates a new unpublished version and
+    // returns it in WriteBlobChunkResponse.version.
+	string version = 2;
+
+	// Zero-based append chunk index. Chunks must be written in order unless the
+    // service explicitly documents sparse/out-of-order support.
+    int32 chunk_index = 3 [(google.api.field_behavior) = REQUIRED];
+
+    repeated HeaderField headers = 5;
+
+	bytes data = 10 [(google.api.field_behavior) = REQUIRED];
+}
+
+message WriteBlobChunkResponse {
+    // Resolved target version. If the request did not provide a version, the
+    // service generated one.
+    string version = 1;
+}
+
+message ReadBlobContentRequest {
+    string name = 1 [
+      (google.api.field_behavior) = REQUIRED,
+      (google.api.resource_reference).type = "pnet.type/Blob"
+    ];
+
+    // Empty means latest published version in the schema contract.
+    // Current runtime requires an explicit version.
+    string version = 2;
+
+    // Zero-based first chunk index to read. Defaults to 0.
+    int32 start_chunk_index = 3;
+
+    // Maximum number of chunks to read. If 0, read through the end.
+    int32 chunk_count = 4;
+}
+
+message ReadBlobContentResponse {
+    // Resolved content version used for the read.
+    // Current runtime returns this only when the request supplied an explicit version.
+    string version = 1;
+
+    // Zero-based chunk index returned.
+    int32 chunk_index = 2;
+
+    // Total number of chunks in this content version. Usually present on the
+    // first response. A value of 0 means unknown
+    int32 total_chunk_count = 3;
+
+    repeated HeaderField headers = 5;
+
+    message Redirect {
+        // Expected raw byte result from any source.
+        int64 size_bytes = 1;
+        string digest = 2;
+
+        // Alternate fetch templates for the exact same raw byte sequence.
+        // Current raw /content HTTP responses reject redirects in the API layer.
+        repeated BlobSource sources = 4;
+    }
+
+    oneof content {
+        bytes data = 10;
+        Redirect redirect = 11;
+    }
+}
+
+message GetBlobInfoRequest {
+    string name = 1 [
+        (google.api.field_behavior) = REQUIRED,
+        (google.api.resource_reference).type = "pnet.type/BlobInfo"
+    ];
+
+    // If true, include chunk_size_bytes.
+    bool include_chunk_size_bytes = 2;
+}
+
+message HeaderField {
+    string name = 1;
+    repeated string values = 2;
+}
+
+message BlobSource {
+    string uri = 1;
+
+    // Request headers the client must send. May include Range,
+    // Authorization, Accept-Encoding: identity, etc.
+    repeated HeaderField request_headers = 2;
+
+    google.protobuf.Timestamp expire_time = 3;
+}

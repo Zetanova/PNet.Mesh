@@ -1,0 +1,16 @@
+{
+  "files": {
+    "docs/pnet-schema": {
+      "release": "1.0.9",
+      "hash": "650910c5c975dc56334c61bfd0b149b2b84795dc1ecf1c5d1eea7c0054260101"
+    },
+    "google/api": {
+      "release": "2.17.0",
+      "hash": "ccce6d4080d02d9cada7c3e055d63f9d138cb26e2d54efe9b334450c526279a4"
+    },
+    "pnet": {
+      "release": "1.0.9",
+      "hash": "2ca325e4c653eebf5021fce0ba07cf851be23b0ca48e71dca913914b72a472d4"
+    }
+  }
+}
